@@ -1,0 +1,132 @@
+@import "tailwindcss";
+
+/* shadcn/ui'nin beklediği tema değişkenleri. Koyu tema .dark sınıfı ile
+   devreye giriyor (index.html'de <html class="dark">). */
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.625rem;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+}
+
+/* Koyu tema — göz yormayacak şekilde ayarlandı.
+ *
+ * İki şeyden bilinçli olarak kaçınıldı:
+ *  1. Saf siyah zemin (oklch 0) — parlak yazıyla arasındaki aşırı kontrast
+ *     uzun bakışta göz kamaşmasına ve "halo" etkisine yol açıyor.
+ *  2. Saf beyaz yazı (oklch 1) — aynı sebeple.
+ * Zemin 0.19, yazı 0.90 civarında tutuldu; kontrast oranı hâlâ WCAG AA'nın
+ * üzerinde ama bakışı zorlamıyor.
+ *
+ * Renklere hafif bir mavi ton (hue 265) verildi: tamamen nötr griler
+ * ekranda ölü görünüyor, çok az kroma canlılık katıyor.
+ */
+.dark {
+  --background: oklch(0.19 0.006 265);
+  --foreground: oklch(0.90 0.008 265);
+  --card: oklch(0.23 0.007 265);
+  --card-foreground: oklch(0.90 0.008 265);
+  --popover: oklch(0.24 0.007 265);
+  --popover-foreground: oklch(0.90 0.008 265);
+  --primary: oklch(0.65 0.14 255);
+  --primary-foreground: oklch(0.15 0.01 265);
+  --secondary: oklch(0.28 0.008 265);
+  --secondary-foreground: oklch(0.90 0.008 265);
+  --muted: oklch(0.28 0.008 265);
+  /* İkincil yazı: okunur kalsın ama birincil metinle yarışmasın. */
+  --muted-foreground: oklch(0.66 0.012 265);
+  --accent: oklch(0.30 0.010 265);
+  --accent-foreground: oklch(0.92 0.008 265);
+  --destructive: oklch(0.62 0.17 22);
+  --destructive-foreground: oklch(0.97 0.01 22);
+  --success: oklch(0.68 0.14 155);
+  /* Kenarlıklar belirgin olmamalı; yapıyı ima etsin, çizmesin. */
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.65 0.14 255 / 60%);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    margin: 0;
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    /* Koyu zeminde ince yazı tipleri kırılgan görünür; hafif yumuşatma
+       harfleri toparlıyor ve uzun okumada yorgunluğu azaltıyor. */
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.55;
+  }
+
+  /* Başlıklar gövde metninden daha sıkı satır aralığı ister. */
+  h1, h2, h3 {
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+  }
+
+  /* Odak halkası her yerde aynı ve görünür olmalı — klavyeyle
+     gezinenler için tek erişilebilirlik ipucu bu. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /* Varsayılan kaydırma çubuğu koyu temada parlak bir şerit gibi duruyor. */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 12%);
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: oklch(1 0 0 / 20%); }
+}

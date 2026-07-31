@@ -1,0 +1,99 @@
+
+# MediaMTX yapılandırması.
+#
+# Kanallar bu dosyaya elle yazılmaz: backend, REST API üzerinden
+# (http://mediamtx:9997/v3/config/paths/...) path ekler/siler. paths
+# bölümünün boş olması normaldir — kalıcı kayıt PostgreSQL'deki channels
+# tablosudur, uygulama açılışta oradan okuyup path'leri yeniden kurar.
+
+###############################################
+# API
+###############################################
+
+api: yes
+apiAddress: :9997
+
+###############################################
+# HLS
+###############################################
+
+hls: yes
+hlsAddress: :8888
+
+# Varsayilan olarak segmentler yalnizca BELLEKTE tutulur ve diske hic
+# yazilmaz. Buraya bir dizin verildiginde MediaMTX playlist ve segment
+# dosyalarini gercekten yazar; ne uretildigi disaridan incelenebilir.
+# Bedeli: her segment icin disk yazmasi. Uretimde bellek daha hizlidir.
+hlsDirectory: /hls
+
+# İzleme sayfası backend ile aynı origin'de (:8081), HLS ise :8888'de duruyor.
+# Tarayıcı bunları farklı origin sayar; bu başlık olmadan <video> etiketi
+# manifest'i CORS hatasıyla reddeder.
+hlsAllowOrigins: ['*']
+
+###############################################
+# Kimlik doğrulama
+###############################################
+
+# MediaMTX varsayılanı yönetim API'sini yalnızca 127.0.0.1'e açıyor. Backend
+# ayrı bir container'dan (geliştirmede host'tan) bağlandığı için istek bridge
+# ağının IP'siyle geliyor ve varsayılan ayarla "authentication error" alıyor.
+authInternalUsers:
+
+  # Yayın alma ve izleme herkese açık.
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+      - action: read
+      - action: playback
+
+  # Yönetim API'si yalnızca localhost ve Docker bridge ağlarından.
+  #
+  # PROD NOTU: bu ağa erişebilen her şey kanal ekleyip silebilir. Üretimde ips
+  # kısıtı yerine gerçek bir user/pass tanımlanmalı ve backend'e ortam
+  # değişkeni olarak verilmeli.
+  - user: any
+    pass:
+    ips: ['127.0.0.1', '::1', '172.16.0.0/12']
+    permissions:
+      - action: api
+      - action: metrics
+      - action: pprof
+
+###############################################
+# Kayit (DVR) ve geri sarma
+###############################################
+
+# Kayitlarin geriye dogru okunmasini saglayan sunucu. Zaman cizelgesi ve
+# klip cikarma bunun uzerinden calisir.
+#
+# DISARI ACILMAZ. Backend proxy'ler ve yetkiyi orada uygular; boylece
+# canli yayindaki "erisen herkes izleyebiliyor" durumu DVR tarafinda
+# olusmaz. Compose'da yalnizca 127.0.0.1'e baglanir.
+playback: yes
+playbackAddress: :9996
+
+# Tum path'ler icin varsayilan. record BILEREK kapali; kanal bazinda
+# channels.dvr_enabled uzerinden uygulama tarafindan acilir.
+#
+# DISK: 6 Mbps'lik bir kanal 7 gunde ~454 GB yazar. 16 kanal -> ~7.3 TB.
+# recordDeleteAfter her zaman diskin gercek kapasitesiyle tutarli olmali;
+# disk dolarsa MediaMTX kayit yazamaz ve canli yayin da etkilenebilir.
+pathDefaults:
+  record: no
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordFormat: fmp4
+  # 1 saatlik segment: 7 gunde kanal basina 168 dosya. 1 dakika olsaydi
+  # 10.080 dosya olurdu ve dizin listeleme yavaslardi. fmp4 artimli
+  # yazildigi icin yarim kalan segment de okunabilir kalir.
+  recordSegmentDuration: 1h
+  recordDeleteAfter: 168h
+
+###############################################
+# Path'ler
+###############################################
+
+# Boş — bkz. dosyanın başındaki not. Her path backend tarafından API ile eklenir.
+paths: {}
