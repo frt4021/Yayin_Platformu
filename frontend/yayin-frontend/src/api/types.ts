@@ -48,6 +48,10 @@ export interface ChannelDto {
   active: boolean
   /** Geriye sarma kaydı açık mı. Yayında olmaktan bağımsız. */
   dvrEnabled: boolean
+  /** Çözünürlük merdiveni: "720p|1280x720|1500k,480p|854x480|800k". Boş = transcode yok. */
+  renditions: string
+  /** DVR kaydının alındığı rendition adı; boş ise kaynak çözünürlüğü. */
+  dvrRendition: string
   hlsUrl: string
   /** MediaMTX'ten anlık durum; sunucuya ulaşılamadıysa null. */
   streaming: boolean | null
@@ -70,6 +74,8 @@ export interface ChannelRequest {
   mediamtxPath: string
   active: boolean
   dvrEnabled: boolean
+  renditions: string
+  dvrRendition: string
 }
 
 /** POST /api/channels/restore yanıtı. */

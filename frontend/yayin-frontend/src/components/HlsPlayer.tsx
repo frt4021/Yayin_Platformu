@@ -23,17 +23,23 @@ type Status = 'loading' | 'playing' | 'error'
 export function HlsPlayer({
   src,
   muted = true,
+  controls = false,
   className,
   onStatusChange,
 }: {
   src: string
   muted?: boolean
+  /** Duraklatma, ses, tam ekran, ileri/geri sarma. Mozaikte kapalı: 16 karoda
+   *  16 kontrol çubuğu görüntüyü boğar, karo zaten çok küçük. */
+  controls?: boolean
   className?: string
   onStatusChange?: (status: Status) => void
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const hlsRef = useRef<Hls | null>(null)
   const [status, setStatus] = useState<Status>('loading')
   const [detail, setDetail] = useState<string | null>(null)
+  const [behindLive, setBehindLive] = useState(false)
 
   useEffect(() => {
     onStatusChange?.(status)
@@ -90,11 +96,39 @@ export function HlsPlayer({
       hls.destroy()
     })
 
+    hlsRef.current = hls
     hls.loadSource(src)
     hls.attachMedia(video)
 
-    return () => hls.destroy()
+    return () => {
+      hlsRef.current = null
+      hls.destroy()
+    }
   }, [src])
+
+  /**
+   * Canlı yayında duraklatınca kullanıcı geride kalır ve hls.js kendiliğinden
+   * öne atlamaz — yayın "donmuş" gibi görünür. Geri kalmayı ölçüp açık bir
+   * dönüş yolu sunuyoruz.
+   */
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    const timer = setInterval(() => {
+      const live = hlsRef.current?.liveSyncPosition
+      setBehindLive(live !== null && live !== undefined && live - video.currentTime > 5)
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [])
+
+  function goLive() {
+    const video = videoRef.current
+    const live = hlsRef.current?.liveSyncPosition
+    if (video && live != null) {
+      video.currentTime = live
+      void video.play()
+    }
+  }
 
   return (
     <div className={cn('relative overflow-hidden bg-black', className)}>
@@ -102,9 +136,22 @@ export function HlsPlayer({
         ref={videoRef}
         muted={muted}
         playsInline
-        controls={false}
+        controls={controls}
         className="size-full object-contain"
       />
+
+      {behindLive && status === 'playing' && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            goLive()
+          }}
+          className="absolute left-2 top-2 z-10 rounded-full bg-destructive px-2.5 py-1 text-xs font-medium text-destructive-foreground shadow"
+        >
+          ● Canlıya dön
+        </button>
+      )}
       {status !== 'playing' && (
         <div className="absolute inset-0 grid place-items-center bg-black/70 p-2 text-center text-xs">
           {status === 'loading' ? (

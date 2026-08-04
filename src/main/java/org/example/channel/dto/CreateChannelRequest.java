@@ -25,6 +25,8 @@ public record CreateChannelRequest(
         message = "yalnızca harf, rakam, alt çizgi ve tire içerebilir")
     String mediamtxPath,
     boolean active,
-    boolean dvrEnabled
+    boolean dvrEnabled,
+    @Size(max = 512) String renditions,
+    @Size(max = 32) String dvrRendition
 ) {
 }

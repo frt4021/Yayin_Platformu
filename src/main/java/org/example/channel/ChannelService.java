@@ -88,11 +88,14 @@ public class ChannelService {
         channel.mediamtxPath = req.mediamtxPath();
         channel.active = req.active();
         channel.dvrEnabled = req.dvrEnabled();
+        channel.renditions = normalize(req.renditions());
+        channel.dvrRendition = resolveDvrRendition(req.dvrRendition(), channel.renditions);
         channel.createdBy = requireLocalUser(keycloakId);
         channel.persist();
 
         if (channel.active) {
-            mediaMtx.applyPath(channel.mediamtxPath, channel.sourceUrl, channel.dvrEnabled);
+            mediaMtx.applyPath(channel.mediamtxPath, channel.sourceUrl,
+                channel.dvrEnabled, channel.renditions, channel.dvrRendition);
         }
         LOG.infof("Kanal oluşturuldu: %s (path=%s, aktif=%s)",
             channel.name, channel.mediamtxPath, channel.active);
@@ -111,6 +114,7 @@ public class ChannelService {
         }
 
         String previousPath = channel.mediamtxPath;
+        String previousRenditions = channel.renditions;
         boolean wasActive = channel.active;
 
         channel.name = req.name();
@@ -118,17 +122,24 @@ public class ChannelService {
         channel.mediamtxPath = req.mediamtxPath();
         channel.active = req.active();
         channel.dvrEnabled = req.dvrEnabled();
+        channel.renditions = normalize(req.renditions());
+        channel.dvrRendition = resolveDvrRendition(req.dvrRendition(), channel.renditions);
 
         // Path adı değiştiyse eski path artık hiçbir kanala ait değil; kaldırılmazsa
         // MediaMTX'te sahipsiz bir yayın olarak akmaya devam eder.
         if (!previousPath.equals(channel.mediamtxPath) && wasActive) {
-            mediaMtx.removePath(previousPath);
+            mediaMtx.removePath(previousPath, previousRenditions);
+        } else if (wasActive && !previousRenditions.equals(channel.renditions)) {
+            // Merdivenden çıkarılan rendition'ların path'i kalırsa MediaMTX'te
+            // sahipsiz yayın olarak akmaya devam eder ve GPU'yu meşgul eder.
+            mediaMtx.removeRenditions(channel.mediamtxPath, previousRenditions);
         }
 
         if (channel.active) {
-            mediaMtx.applyPath(channel.mediamtxPath, channel.sourceUrl, channel.dvrEnabled);
+            mediaMtx.applyPath(channel.mediamtxPath, channel.sourceUrl,
+                channel.dvrEnabled, channel.renditions, channel.dvrRendition);
         } else if (wasActive) {
-            mediaMtx.removePath(channel.mediamtxPath);
+            mediaMtx.removePath(channel.mediamtxPath, channel.renditions);
         }
 
         LOG.infof("Kanal güncellendi: %s (path=%s, aktif=%s)",
@@ -141,8 +152,9 @@ public class ChannelService {
         Channel channel = require(id);
         String path = channel.mediamtxPath;
         String name = channel.name;
+        String rends = channel.renditions;
         channel.delete();
-        mediaMtx.removePath(path);
+        mediaMtx.removePath(path, rends);
         LOG.infof("Kanal silindi: %s (path=%s)", name, path);
     }
 
@@ -167,7 +179,8 @@ public class ChannelService {
         int restored = 0;
         for (Channel channel : active) {
             try {
-                mediaMtx.applyPath(channel.mediamtxPath, channel.sourceUrl, channel.dvrEnabled);
+                mediaMtx.applyPath(channel.mediamtxPath, channel.sourceUrl,
+                    channel.dvrEnabled, channel.renditions, channel.dvrRendition);
                 restored++;
             } catch (RuntimeException e) {
                 LOG.errorf(e, "Kanal MediaMTX'e yazılamadı: %s (path=%s)",
@@ -179,6 +192,50 @@ public class ChannelService {
     }
 
     // ------------------------------------------------------------------
+
+    /**
+     * Merdiven tanımını doğrular ve normalleştirir.
+     *
+     * <p>Doğrulama burada yapılıyor: geçersiz bir tanım MediaMTX'e ulaşırsa
+     * ffmpeg komutu bozuk üretilir ve hata ancak yayın başlarken, konteyner
+     * logunda görünür — kullanıcıya hiç yansımaz.
+     */
+    private String normalize(String spec) {
+        if (spec == null || spec.isBlank()) {
+            return "";
+        }
+        String trimmed = spec.trim();
+        try {
+            Rendition.parse(trimmed);
+        } catch (RuntimeException e) {
+            throw AppException.badRequest(
+                "Geçersiz çözünürlük merdiveni. Beklenen biçim: "
+                    + "720p|1280x720|1500k,480p|854x480|800k");
+        }
+        return trimmed;
+    }
+
+    /** DVR kaydı için varsayılan rendition. */
+    private static final String DEFAULT_DVR_RENDITION = "720p";
+
+    /**
+     * Kaydın alınacağı rendition'ı belirler.
+     *
+     * <p>İstek boş bırakılmışsa ve merdivende {@value #DEFAULT_DVR_RENDITION}
+     * varsa oradan kaydedilir: ölçümde kaynak 2.33 Mbps, 720p 1.65 Mbps —
+     * diskte %29 tasarruf. İstenen rendition merdivende yoksa kaynağa düşülür,
+     * çünkü var olmayan bir path'e kayıt açmak sessizce hiç kayıt üretmezdi.
+     */
+    private String resolveDvrRendition(String requested, String renditionSpec) {
+        List<Rendition> ladder = Rendition.parse(renditionSpec);
+        if (ladder.isEmpty()) {
+            return "";
+        }
+        String wanted = (requested == null || requested.isBlank())
+            ? DEFAULT_DVR_RENDITION
+            : requested.trim();
+        return ladder.stream().anyMatch(r -> r.suffix().equals(wanted)) ? wanted : "";
+    }
 
     private Channel require(UUID id) {
         Channel channel = Channel.findById(id);
@@ -222,6 +279,8 @@ public class ChannelService {
             channel.mediamtxPath,
             channel.active,
             channel.dvrEnabled,
+            channel.renditions,
+            channel.dvrRendition,
             hlsBaseUrl + "/" + channel.mediamtxPath + "/index.m3u8",
             state == null ? null : state.ready(),
             state == null || state.readers() == null ? null : state.readers().size(),

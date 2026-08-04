@@ -1,6 +1,5 @@
 package org.example.clip;
 
-import io.quarkus.scheduler.Scheduled;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -18,16 +17,14 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Klip kuyruğunu işleyen arka plan işçisi.
+ * Bir klip işini üreten birim. Ne zaman çalışacağına {@link ClipConsumer}
+ * karar verir; burada yalnızca "işi talep et" ve "işi yap" var.
  *
- * <p>Kuyruk veritabanının kendisi. Ayrı bir mesaj kuyruğu yerine bunu
- * seçmenin sebebi: iş zaten {@code clips} tablosunda kalıcı olmak zorunda,
- * iki yere birden yazmak biri başarısız olduğunda kaybolan ya da iki kez
- * işlenen işler üretirdi. {@code SKIP LOCKED} ile birden fazla backend
- * kopyası aynı işi almadan paralel çalışabilir.
- *
- * <p>Yoklama aralığı kadar gecikme oluşur (varsayılan 5 sn). Klip üretimi
- * zaten dakikalar sürdüğü için bu gecikme önemsiz.
+ * <p><b>Doğruluk kaynağı veritabanı.</b> Redis bildirim taşır ama işin
+ * durumu, deneme sayısı ve sonucu {@code clips} tablosundadır. İşi talep
+ * etmek de ({@code BEKLIYOR → ISLENIYOR}, {@code SKIP LOCKED}) burada
+ * yapılır: Redis en-az-bir-kez teslim ettiği için aynı iş iki kez
+ * bildirilebilir, tekilliği garanti eden şey bu talep adımıdır.
  */
 @ApplicationScoped
 public class
@@ -48,22 +45,31 @@ ClipWorker {
     int concurrency;
 
     /**
-     * Sırayla en fazla {@code clips.concurrency} kadar iş alır.
+     * Tek bir işi talep eder: Redis'ten gelen bildirimin karşılığı.
      *
-     * <p>Sınırsız olsaydı aynı anda onlarca klip MediaMTX'ten çekilir, disk
-     * ve ağ doyar, <b>canlı yayın etkilenirdi</b>. Klip üretimi hiçbir zaman
-     * canlı yayının önüne geçmemeli.
+     * @return iş bu çağrı tarafından alındıysa {@code true}; başkası almışsa,
+     *         iş artık {@code BEKLIYOR} değilse veya eşzamanlılık sınırı
+     *         dolduysa {@code false}
      */
-    @Scheduled(every = "{clips.poll-interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
-    void pollQueue() {
-        List<UUID> taken = claimBatch();
-        for (UUID id : taken) {
-            process(id);
+    @Transactional
+    boolean claim(UUID clipId) {
+        if (atCapacity()) {
+            // Sınır dolu: işi BEKLIYOR bırakıyoruz, süpürücü veya boşalan bir
+            // işçi alacak. Sınırsız olsaydı onlarca klip aynı anda MediaMTX'ten
+            // çekilir, disk ve ağ doyar, CANLI YAYIN etkilenirdi.
+            return false;
         }
+        Clip clip = Clip.findById(clipId);
+        if (clip == null || clip.status != ClipStatus.BEKLIYOR) {
+            return false;
+        }
+        markRunning(clip);
+        return true;
     }
 
     /**
-     * Bekleyen işleri ISLENIYOR'a çeker ve id'lerini döndürür.
+     * Bekleyen işleri toplu talep eder — Redis bildiriminin ulaşmadığı
+     * durumlar için güvenlik ağı.
      *
      * <p>Kısa transaction: asıl uzun iş ({@link #process}) transaction dışında
      * yapılır. Aksi halde saatlerce süren bir indirme boyunca veritabanı
@@ -78,12 +84,18 @@ ClipWorker {
         }
 
         List<Clip> batch = Clip.lockNextPending(slots);
-        for (Clip clip : batch) {
-            clip.status = ClipStatus.ISLENIYOR;
-            clip.startedAt = Instant.now();
-            clip.attempts++;
-        }
+        batch.forEach(this::markRunning);
         return batch.stream().map(clip -> clip.id).toList();
+    }
+
+    private boolean atCapacity() {
+        return Clip.count("status", ClipStatus.ISLENIYOR) >= concurrency;
+    }
+
+    private void markRunning(Clip clip) {
+        clip.status = ClipStatus.ISLENIYOR;
+        clip.startedAt = Instant.now();
+        clip.attempts++;
     }
 
     /**

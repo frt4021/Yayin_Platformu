@@ -17,8 +17,13 @@ export function DialogContent({
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60" />
       <DialogPrimitive.Content
         className={cn(
-          'fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4',
+          'fixed left-1/2 top-1/2 z-50 flex w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-4',
           'border bg-card p-6 shadow-lg rounded-xl',
+          // Ekrana sigmayan icerik: dialog sabit konumlu oldugu icin sayfa
+          // kaydirilamaz — sinir konmazsa formun ustu ve alti (Kaydet dahil)
+          // erisilemez hale gelir. Govde kaydirmasi icin DialogBody kullanin;
+          // buradaki overflow yalnizca onu kullanmayan dialoglar icin emniyet.
+          'max-h-[calc(100dvh-2rem)] overflow-y-auto',
           className,
         )}
         {...props}
@@ -35,6 +40,19 @@ export function DialogContent({
 
 export function DialogHeader({ className, ...props }: React.ComponentProps<'div'>) {
   return <div className={cn('flex flex-col gap-1.5 text-left', className)} {...props} />
+}
+
+/**
+ * Uzun dialoglarda kaydırılan bölüm. Başlık ve düğmeler dışarıda kalır;
+ * yalnızca gövde kayar, böylece Kaydet her zaman görünür durumda olur.
+ *
+ * <p>Negatif yatay kenar boşluğu, kaydırma çubuğunu {@code DialogContent}
+ * dolgusunun içine değil kenarına taşıyor.
+ */
+export function DialogBody({ className, ...props }: React.ComponentProps<'div'>) {
+  return (
+    <div className={cn('-mx-6 min-h-0 flex-1 overflow-y-auto px-6', className)} {...props} />
+  )
 }
 
 export function DialogFooter({ className, ...props }: React.ComponentProps<'div'>) {

@@ -24,6 +24,8 @@ public record ChannelDto(
     String mediamtxPath,
     boolean active,
     boolean dvrEnabled,
+    String renditions,
+    String dvrRendition,
     String hlsUrl,
     Boolean streaming,
     Integer viewers,

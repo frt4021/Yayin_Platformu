@@ -6,6 +6,7 @@ import type { ChannelDto } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -15,11 +16,19 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Loader2Icon } from 'lucide-react'
+import { fromSpec, RenditionEditor, toSpec, type Rendition } from './RenditionEditor'
 
 /** Backend'in mediamtx_path için uyguladığı kural; aynısını burada da sınıyoruz. */
 const PATH_PATTERN = /^[A-Za-z0-9_-]+$/
 
-const EMPTY = { name: '', sourceUrl: '', mediamtxPath: '', active: true, dvrEnabled: false }
+const EMPTY = {
+  name: '',
+  sourceUrl: '',
+  mediamtxPath: '',
+  active: true,
+  dvrEnabled: false,
+  dvrRendition: '',
+}
 
 /**
  * Kanal ekleme ve düzenleme.
@@ -39,6 +48,7 @@ export function ChannelFormDialog({
   onSaved: () => void
 }) {
   const [form, setForm] = useState(EMPTY)
+  const [renditions, setRenditions] = useState<Rendition[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -47,6 +57,7 @@ export function ChannelFormDialog({
   useEffect(() => {
     if (!open) return
     setError(null)
+    setRenditions(fromSpec(channel?.renditions ?? ''))
     setForm(
       channel
         ? {
@@ -55,6 +66,7 @@ export function ChannelFormDialog({
             mediamtxPath: channel.mediamtxPath,
             active: channel.active,
             dvrEnabled: channel.dvrEnabled,
+            dvrRendition: channel.dvrRendition,
           }
         : EMPTY,
     )
@@ -73,6 +85,8 @@ export function ChannelFormDialog({
       mediamtxPath: form.mediamtxPath.trim(),
       active: form.active,
       dvrEnabled: form.dvrEnabled,
+      renditions: toSpec(renditions),
+      dvrRendition: form.dvrRendition,
     }
 
     if (!PATH_PATTERN.test(payload.mediamtxPath)) {
@@ -109,80 +123,116 @@ export function ChannelFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={onSubmit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="name">Kanal adı</Label>
-            <Input
-              id="name"
-              required
-              maxLength={128}
-              value={form.name}
-              onChange={(e) => set('name', e.target.value)}
-            />
-          </div>
+        {/* min-h-0: flex çocuğunun varsayılan min-height'ı auto, kaldırılmazsa
+            gövde küçülmez ve kaydırma yerine dialog taşmaya devam eder. */}
+        <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col gap-4">
+          <DialogBody className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="name">Kanal adı</Label>
+              <Input
+                id="name"
+                required
+                maxLength={128}
+                value={form.name}
+                onChange={(e) => set('name', e.target.value)}
+              />
+            </div>
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="sourceUrl">Kaynak adresi</Label>
-            <Input
-              id="sourceUrl"
-              required
-              maxLength={512}
-              placeholder="https://ornek.com/yayin/master.m3u8"
-              value={form.sourceUrl}
-              onChange={(e) => set('sourceUrl', e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              HLS, RTSP, RTMP, SRT veya UDP adresi olabilir.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="mediamtxPath">MediaMTX path</Label>
-            <Input
-              id="mediamtxPath"
-              required
-              maxLength={128}
-              placeholder="kanal1"
-              value={form.mediamtxPath}
-              onChange={(e) => set('mediamtxPath', e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              HLS adresi bundan türer:{' '}
-              <code>…:8888/{form.mediamtxPath || 'path'}/index.m3u8</code>
-            </p>
-            {channel && channel.mediamtxPath !== form.mediamtxPath.trim() && (
-              // Path değişimi MediaMTX'te eski path'in silinip yenisinin
-              // kurulmasına yol açıyor; izleyicilerin adresi değişir.
-              <p className="text-xs text-destructive">
-                Path değişiyor — mevcut izleyicilerin yayın adresi geçersiz olacak.
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="sourceUrl">Kaynak adresi</Label>
+              <Input
+                id="sourceUrl"
+                required
+                maxLength={512}
+                placeholder="https://ornek.com/yayin/master.m3u8"
+                value={form.sourceUrl}
+                onChange={(e) => set('sourceUrl', e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                HLS, RTSP, RTMP, SRT veya UDP adresi olabilir.
               </p>
-            )}
-          </div>
+            </div>
 
-          <div className="flex flex-col gap-2 rounded-lg border p-3">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={form.active}
-                onChange={(e) => set('active', e.target.checked)}
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="mediamtxPath">MediaMTX path</Label>
+              <Input
+                id="mediamtxPath"
+                required
+                maxLength={128}
+                placeholder="kanal1"
+                value={form.mediamtxPath}
+                onChange={(e) => set('mediamtxPath', e.target.value)}
               />
-              Yayında olsun
-            </label>
+              <p className="text-xs text-muted-foreground">
+                HLS adresi bundan türer:{' '}
+                <code>…:8888/{form.mediamtxPath || 'path'}/index.m3u8</code>
+              </p>
+              {channel && channel.mediamtxPath !== form.mediamtxPath.trim() && (
+                // Path değişimi MediaMTX'te eski path'in silinip yenisinin
+                // kurulmasına yol açıyor; izleyicilerin adresi değişir.
+                <p className="text-xs text-destructive">
+                  Path değişiyor — mevcut izleyicilerin yayın adresi geçersiz olacak.
+                </p>
+              )}
+            </div>
 
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={form.dvrEnabled}
-                onChange={(e) => set('dvrEnabled', e.target.checked)}
-              />
-              Geriye sarma kaydı (DVR)
-            </label>
-            <p className="text-xs text-muted-foreground">
-              7 gün geriye dönük kayıt tutulur. 6 Mbps'lik bir kanal haftada
-              ~454 GB yer kaplar — disk kapasitesini hesaba katın.
-            </p>
-          </div>
+            <div className="flex flex-col gap-2 rounded-lg border p-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.active}
+                  onChange={(e) => set('active', e.target.checked)}
+                />
+                Yayında olsun
+              </label>
 
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.dvrEnabled}
+                  onChange={(e) => set('dvrEnabled', e.target.checked)}
+                />
+                Geriye sarma kaydı (DVR)
+              </label>
+              <p className="text-xs text-muted-foreground">
+                7 gün geriye dönük kayıt tutulur. 6 Mbps'lik bir kanal haftada
+                ~454 GB yer kaplar — disk kapasitesini hesaba katın.
+              </p>
+
+              {form.dvrEnabled && renditions.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="dvrRendition" className="text-xs">
+                    Kayıt çözünürlüğü
+                  </Label>
+                  <select
+                    id="dvrRendition"
+                    className="h-9 rounded-md border bg-transparent px-3 text-sm"
+                    value={form.dvrRendition}
+                    onChange={(e) => set('dvrRendition', e.target.value)}
+                  >
+                    <option value="">Kaynak (en yüksek)</option>
+                    {renditions
+                      .filter((r) => r.suffix)
+                      .map((r) => (
+                        <option key={r.suffix} value={r.suffix}>
+                          {r.suffix} ({r.width}x{r.height}, {r.bitrate})
+                        </option>
+                      ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    Kayıt tek bir çözünürlükten alınır — hepsini kaydetmek diski
+                    rendition sayısıyla çarpardı. 720p seçmek kaynağa göre ~%29
+                    tasarruf sağlıyor (ölçüm: 2.33 → 1.65 Mbps).
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <RenditionEditor rows={renditions} onChange={setRenditions} />
+          </DialogBody>
+
+          {/* Kaydırma alanının dışında: hata Kaydet'e basınca çıkıyor, gövdenin
+              içinde olsaydı yukarı kaydırmış kullanıcı hiç görmezdi. */}
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}

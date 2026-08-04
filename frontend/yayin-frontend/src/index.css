@@ -8,14 +8,15 @@
 :root {
   --radius: 0.625rem;
 
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* Saf beyaz zemin de yorucu; hafif gri ve aynı mavi tonda. */
+  --background: oklch(0.985 0.002 262);
+  --foreground: oklch(0.22 0.008 262);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.22 0.008 262);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.52 0.16 256);
+  --primary-foreground: oklch(0.99 0.004 256);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
@@ -26,7 +27,7 @@
   --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --ring: oklch(0.52 0.16 256 / 45%);
 }
 
 /* Koyu tema — göz yormayacak şekilde ayarlandı.
@@ -42,28 +43,41 @@
  * ekranda ölü görünüyor, çok az kroma canlılık katıyor.
  */
 .dark {
-  --background: oklch(0.19 0.006 265);
-  --foreground: oklch(0.90 0.008 265);
-  --card: oklch(0.23 0.007 265);
-  --card-foreground: oklch(0.90 0.008 265);
-  --popover: oklch(0.24 0.007 265);
-  --popover-foreground: oklch(0.90 0.008 265);
-  --primary: oklch(0.65 0.14 255);
-  --primary-foreground: oklch(0.15 0.01 265);
-  --secondary: oklch(0.28 0.008 265);
-  --secondary-foreground: oklch(0.90 0.008 265);
-  --muted: oklch(0.28 0.008 265);
+  /* Zemin katmanları belirgin biçimde ayrışıyor: düz tek renk bir yüzey
+     "siyah boşluk" gibi okunuyor, katman farkı yapıyı görünür kılıyor.
+       0.215 zemin  →  0.255 kart  →  0.285 açılır menü
+     Aradaki ~0.03'lük fark gölgeye ihtiyaç duymadan yükseklik hissi veriyor. */
+  --background: oklch(0.215 0.007 262);
+  --foreground: oklch(0.915 0.006 262);
+
+  --card: oklch(0.255 0.008 262);
+  --card-foreground: oklch(0.915 0.006 262);
+  --popover: oklch(0.285 0.009 262);
+  --popover-foreground: oklch(0.925 0.006 262);
+
+  /* Birincil eylem rengi mavi. Önceki near-beyaz düğmeler zeminle aşırı
+     kontrast yapıp dikkati sürekli kendine çekiyordu. */
+  --primary: oklch(0.62 0.155 256);
+  --primary-foreground: oklch(0.98 0.005 256);
+
+  --secondary: oklch(0.315 0.009 262);
+  --secondary-foreground: oklch(0.915 0.006 262);
+  --muted: oklch(0.30 0.008 262);
   /* İkincil yazı: okunur kalsın ama birincil metinle yarışmasın. */
-  --muted-foreground: oklch(0.66 0.012 265);
-  --accent: oklch(0.30 0.010 265);
-  --accent-foreground: oklch(0.92 0.008 265);
-  --destructive: oklch(0.62 0.17 22);
-  --destructive-foreground: oklch(0.97 0.01 22);
-  --success: oklch(0.68 0.14 155);
-  /* Kenarlıklar belirgin olmamalı; yapıyı ima etsin, çizmesin. */
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.65 0.14 255 / 60%);
+  --muted-foreground: oklch(0.695 0.012 262);
+  --accent: oklch(0.335 0.011 262);
+  --accent-foreground: oklch(0.93 0.006 262);
+
+  --destructive: oklch(0.60 0.165 24);
+  --destructive-foreground: oklch(0.98 0.008 24);
+  --success: oklch(0.66 0.135 158);
+  --warning: oklch(0.75 0.14 78);
+
+  /* Kenarlıklar yapıyı ima etsin, çizmesin — ama katmanlar arasında
+     seçilebilir kalsın. */
+  --border: oklch(1 0 0 / 11%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.62 0.155 256 / 55%);
 }
 
 @theme inline {
@@ -84,6 +98,7 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);
+  --color-warning: var(--warning);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

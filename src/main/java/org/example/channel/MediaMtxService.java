@@ -37,12 +37,30 @@ public class MediaMtxService {
 
 
 
+
     /**
      * Path'i istenen yapılandırmaya getirir. Yoksa oluşturur, varsa günceller —
      * çağıran hangi durumda olduğunu bilmek zorunda değil.
      */
-    public void applyPath(String path, String sourceUrl, boolean record) {
-        MediaMtxPathConfig config = MediaMtxPathConfig.alwaysOn(sourceUrl, record);
+    /**
+     * @param dvrRendition kaydın alınacağı rendition adı; boş ise kaynak.
+     *                     Kayıt tek bir path'e yazılır — her rendition'ı
+     *                     kaydetmek diski rendition sayısıyla çarpardı.
+     */
+    public void applyPath(String path, String sourceUrl, boolean record,
+                          String renditionSpec, String dvrRendition) {
+        List<Rendition> renditions = Rendition.parse(renditionSpec);
+        boolean recordOnRendition = record && !dvrRendition.isBlank();
+
+        // Transcode cikti path'leri ONCE olusturulmali: MediaMTX tanimsiz bir
+        // path'e yayin kabul etmiyor, ffmpeg "400 Bad Request" alir.
+        for (Rendition r : renditions) {
+            boolean thisOneRecords = recordOnRendition && r.suffix().equals(dvrRendition);
+            ensurePath(r.pathFor(path), MediaMtxPathConfig.publisherFed(thisOneRecords));
+        }
+
+        MediaMtxPathConfig config = MediaMtxPathConfig.alwaysOn(
+            sourceUrl, record && !recordOnRendition, TranscodeCommand.build(renditions));
         try {
             client.addPath(path, config);
         } catch (WebApplicationException e) {
@@ -64,8 +82,41 @@ public class MediaMtxService {
         }
     }
 
-    /** Path'i siler. Zaten yoksa sessizce geçer. */
-    public void removePath(String path) {
+    /**
+     * Path'i istenen yapılandırmaya getirir; {@link #applyPath} ile aynı
+     * "ekle, olmazsa güncelle" mantığı ama sade yapılandırmayla.
+     */
+    private void ensurePath(String path, MediaMtxPathConfig config) {
+        try {
+            client.addPath(path, config);
+        } catch (WebApplicationException e) {
+            if (e.getResponse().getStatus() == 400) {
+                patch(path, config);
+                return;
+            }
+            throw upstream("rendition path'i yazılamadı: " + path, e);
+        }
+    }
+
+    /**
+     * Path'i ve verilen rendition'larını siler. Zaten yoksa sessizce geçer.
+     *
+     * <p>Rendition'lar da silinmeli; kalırlarsa MediaMTX'te sahipsiz yayın
+     * olarak akmaya devam eder ve GPU'yu boşuna meşgul ederler.
+     */
+    public void removePath(String path, String renditionSpec) {
+        removeRenditions(path, renditionSpec);
+        deleteQuietly(path);
+    }
+
+    /** Yalnızca rendition çıktılarını kaldırır — merdiven değiştiğinde kullanılır. */
+    public void removeRenditions(String path, String renditionSpec) {
+        for (Rendition r : Rendition.parse(renditionSpec)) {
+            deleteQuietly(r.pathFor(path));
+        }
+    }
+
+    private void deleteQuietly(String path) {
         try {
             client.deletePath(path);
         } catch (WebApplicationException e) {

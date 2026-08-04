@@ -1,6 +1,7 @@
 package org.example.clip;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Event;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -33,6 +34,13 @@ ClipService {
 
     @Inject
     ClipStorage storage;
+
+    /**
+     * Yeni işi duyurur. Dinleyici AFTER_SUCCESS ile bağlı: bildirim ancak
+     * transaction commit edildikten sonra Redis'e gider.
+     */
+    @Inject
+    Event<ClipQueuedEvent> queued;
 
     @ConfigProperty(name = "clips.max-duration-minutes")
     int maxDurationMinutes;
@@ -78,6 +86,8 @@ ClipService {
         clip.endAt = req.end();
         clip.status = ClipStatus.BEKLIYOR;
         clip.persist();
+
+        queued.fire(new ClipQueuedEvent(clip.id));
 
         LOG.infof("Klip kuyruğa alındı: %s %s..%s (%d sn)",
             channel.name, req.start(), req.end(), duration.toSeconds());

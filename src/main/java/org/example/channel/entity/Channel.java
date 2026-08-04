@@ -59,6 +59,37 @@ public class Channel extends PanacheEntityBase {
     @Column(name = "dvr_enabled", nullable = false)
     public boolean dvrEnabled = false;
 
+    /**
+     * Çözünürlük merdiveni: {@code 720p|1280x720|1500k,480p|854x480|800k}.
+     * Boş ise transcode yapılmaz, kaynak olduğu gibi dağıtılır.
+     *
+     * <p>Kanal bazında: her kaynağın bit hızı farklı ve merdivendeki hedefler
+     * kaynağınkinin altında kalmalı. Global tek bir ayar, düşük bit hızlı bir
+     * kaynakta çözünürlüğü düşürüp bant genişliğini artırırdı.
+     */
+    @Column(nullable = false, length = 512)
+    public String renditions = "";
+
+    /**
+     * DVR kaydının alınacağı rendition adı; boş ise kaynak çözünürlüğü.
+     *
+     * <p>Varsayılan 720p: ölçümde kaynak 2.33 Mbps, 720p 1.65 Mbps çıktı —
+     * diskte %29 tasarruf. Kayıt her zaman kaynaktan alınsaydı 7 günlük DVR
+     * gereksiz yere büyürdü.
+     */
+    @Column(name = "dvr_rendition", nullable = false, length = 32)
+    public String dvrRendition = "";
+
+    /**
+     * Kaydın gerçekte yazıldığı MediaMTX path'i.
+     *
+     * <p>Geriye sarma ve klip çıkarma bu path üzerinden yapılmalı; kaynak
+     * path'ine bakılırsa kayıt bulunamaz.
+     */
+    public String recordingPath() {
+        return dvrRendition.isBlank() ? mediamtxPath : mediamtxPath + "_" + dvrRendition;
+    }
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "created_by", nullable = false)
     public AppUser createdBy;

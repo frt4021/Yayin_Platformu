@@ -1,0 +1,41 @@
+# MediaMTX + ffmpeg + VAAPI sürücüsü.
+#
+# Neden özel imaj: resmi bluenviron/mediamtx imajı scratch tabanlı — içinde
+# kabuk bile yok. MediaMTX'in runOnAvailable kancası komutu KONTEYNERİN
+# İÇİNDE çalıştırdığı için, çözünürlük düşürme (transcode) yapacak ffmpeg'in
+# oraya girmesi gerekiyor.
+#
+# Yan fayda: VAAPI sürücüsü de imajın içinde geliyor. Host'taki sürücü yalnızca
+# CQP (sabit kalite) destekliyordu; imajdaki iHD sürücüsü CBR/VBR açar, yani
+# bit hızı hedeflenebilir ve DVR disk hesabı öngörülebilir kalır.
+
+FROM debian:bookworm-slim
+
+ARG MEDIAMTX_VERSION=1.19.3
+
+# Intel'in iHD sürücüsü non-free bileşeninde. Bookworm deb822 formatı
+# kullanıyor; ayrı bir .list dosyası eklemek "Conflicting values for
+# Signed-By" hatası verir, bu yüzden mevcut tanıma bileşen ekleniyor.
+RUN sed -i 's/^Components: main$/Components: main contrib non-free non-free-firmware/' \
+      /etc/apt/sources.list.d/debian.sources \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      ffmpeg \
+      libva2 \
+      libva-drm2 \
+      intel-media-va-driver-non-free \
+      mesa-va-drivers \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL \
+      "https://github.com/bluenviron/mediamtx/releases/download/v${MEDIAMTX_VERSION}/mediamtx_v${MEDIAMTX_VERSION}_linux_amd64.tar.gz" \
+    | tar xz -C /usr/local/bin mediamtx \
+ && chmod +x /usr/local/bin/mediamtx
+
+# iHD, Iris Xe için doğru sürücü. Yanlış sürücü seçilirse kodlayıcı
+# ya hiç açılmaz ya da yalnızca CQP moduna düşer.
+ENV LIBVA_DRIVER_NAME=iHD
+
+ENTRYPOINT ["/usr/local/bin/mediamtx"]

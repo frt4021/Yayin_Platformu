@@ -175,6 +175,7 @@ export function ChannelsPage() {
                 <TableHead>Path</TableHead>
                 <TableHead>Durum</TableHead>
                 <TableHead>DVR</TableHead>
+                <TableHead>Kalite</TableHead>
                 <TableHead>İzleyici</TableHead>
                 <TableHead>Ekleyen</TableHead>
                 <TableHead className="text-right">İşlem</TableHead>
@@ -183,7 +184,7 @@ export function ChannelsPage() {
             <TableBody>
               {loading && (
                 <TableRow>
-                  <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
                     <Loader2Icon className="mx-auto animate-spin" />
                   </TableCell>
                 </TableRow>
@@ -191,7 +192,7 @@ export function ChannelsPage() {
 
               {!loading && channels.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
                     {canManage ? 'Henüz kanal yok — “Yeni kanal” ile ekleyin.' : 'Henüz kanal yok.'}
                   </TableCell>
                 </TableRow>
@@ -218,6 +219,24 @@ export function ChannelsPage() {
                           <Badge variant="secondary">Kayıtta</Badge>
                         ) : (
                           <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {channel.renditions ? (
+                          <div className="flex flex-wrap gap-1">
+                            {channel.renditions.split(',').map((r) => (
+                              <Badge key={r} variant="outline">
+                                {r.split('|')[0]}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <span
+                            className="text-muted-foreground"
+                            title="Transcode yok — kaynağın çözünürlüğü olduğu gibi dağıtılıyor"
+                          >
+                            kaynak
+                          </span>
                         )}
                       </TableCell>
                       <TableCell className="text-muted-foreground">

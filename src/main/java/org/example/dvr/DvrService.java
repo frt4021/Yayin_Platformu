@@ -69,7 +69,8 @@ public class DvrService {
         requireSaneRange(duration);
 
         try {
-            return playback.get(channel.mediamtxPath, start.toString(),
+            // Kayit kaynak path'inde degil, dvrRendition ile secilen path'te.
+            return playback.get(channel.recordingPath(), start.toString(),
                 duration.toMillis() / 1000.0, format);
         } catch (WebApplicationException e) {
             int status = e.getResponse().getStatus();
@@ -105,7 +106,7 @@ public class DvrService {
 
     private List<RecordingSpan> fetchSpans(Channel channel) {
         try {
-            List<RecordingSpan> spans = playback.list(channel.mediamtxPath);
+            List<RecordingSpan> spans = playback.list(channel.recordingPath());
             return spans == null ? List.of() : spans;
         } catch (WebApplicationException e) {
             if (e.getResponse().getStatus() == 404) {

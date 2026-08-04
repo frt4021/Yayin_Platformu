@@ -11,12 +11,21 @@ interface PlayerValue {
   audioId: string | null
   /** Büyük ekranda açılan kanal; null ise grid görünümü. */
   expandedId: string | null
+  /**
+   * Karo başına seçilen kalite (rendition son eki; '' = kaynak).
+   *
+   * <p>Karo bazında: 4x4 gridde küçük karolar için düşük çözünürlük yeterli,
+   * büyütülen karo için kaynak istenebilir. Tek bir genel ayar ikisini birden
+   * karşılamazdı.
+   */
+  quality: Record<string, string>
 
   toggle: (channelId: string) => void
   openMany: (channelIds: string[]) => void
   closeAll: () => void
   setAudio: (channelId: string | null) => void
   expand: (channelId: string | null) => void
+  setQuality: (channelId: string, suffix: string) => void
 }
 
 const PlayerContext = createContext<PlayerValue | null>(null)
@@ -25,6 +34,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [openIds, setOpenIds] = useState<string[]>([])
   const [audioId, setAudioId] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [quality, setQualityMap] = useState<Record<string, string>>({})
 
   const toggle = useCallback((channelId: string) => {
     setOpenIds((prev) => {
@@ -46,6 +56,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setOpenIds([])
     setAudioId(null)
     setExpandedId(null)
+    setQualityMap({})
+  }, [])
+
+  const setQuality = useCallback((channelId: string, suffix: string) => {
+    setQualityMap((prev) => ({ ...prev, [channelId]: suffix }))
   }, [])
 
   const expand = useCallback((channelId: string | null) => {
@@ -55,8 +70,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<PlayerValue>(
-    () => ({ openIds, audioId, expandedId, toggle, openMany, closeAll, setAudio: setAudioId, expand }),
-    [openIds, audioId, expandedId, toggle, openMany, closeAll, expand],
+    () => ({
+      openIds, audioId, expandedId, quality,
+      toggle, openMany, closeAll, setAudio: setAudioId, expand, setQuality,
+    }),
+    [openIds, audioId, expandedId, quality, toggle, openMany, closeAll, expand, setQuality],
   )
 
   return <PlayerContext value={value}>{children}</PlayerContext>

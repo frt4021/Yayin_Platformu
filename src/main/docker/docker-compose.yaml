@@ -111,9 +111,21 @@ services:
 
   # --- Medya sunucusu (canlı yayın alma, HLS üretimi, DVR kaydı) ---
   mediamtx:
-    image: bluenviron/mediamtx:latest
+    # Ozel imaj: resmi imaj scratch tabanli, icinde ffmpeg yok. Cozunurluk
+    # dusurme (transcode) runOnAvailable kancasiyla KONTEYNER ICINDE
+    # calistigi icin ffmpeg oraya girmek zorunda. Imaj ayrica kendi VAAPI
+    # surucusunu (iHD) tasiyor: host'taki surucu yalnizca CQP destekliyordu,
+    # imajdaki CBR aciyor ve bit hizi hedeflenebiliyor.
+    build:
+      context: .
+      dockerfile: Dockerfile.mediamtx
+    image: yayin/mediamtx:1.19.3
     container_name: mediamtx
     restart: unless-stopped
+    # Donanim kodlayici. Aygit gecirilmezse ffmpeg yazilim kodlamaya duser
+    # ve CPU maliyeti 10 kata cikar.
+    devices:
+      - /dev/dri:/dev/dri
     volumes:
       - ./mediamtx.yml:/mediamtx.yml
       # Adlandirilmis volume yerine host dizinleri: uretilen manifest,
@@ -123,10 +135,6 @@ services:
       #   DVR_PATH=/mnt/dvr docker compose up -d
       # 16 kanal x 7 gun x 6 Mbps ~= 7.3 TB; %20 payla 8.7 TB disk gerekir.
       - ${DVR_PATH:-./mediamtx-data/recordings}:/recordings
-      # MediaMTX imaji scratch tabanli, icinde CA sertifika deposu yok.
-      # Bu olmadan HTTPS kaynaklar "x509: certificate signed by unknown
-      # authority" ile reddediliyor.
-      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
     ports:
       - "8554:8554"   # RTSP
       - "8888:8888"   # HLS/HTTP
@@ -170,7 +178,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio_admin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change_me}
 
-      REDIS_HOST: redis
+      REDIS_URL: redis://redis:6379
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
     depends_on:
       - postgres

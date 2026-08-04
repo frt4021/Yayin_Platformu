@@ -7,7 +7,10 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { MAX_TILES, usePlayers } from './PlayerContext'
-import { MinimizeIcon, Volume2Icon, VolumeXIcon, XIcon } from 'lucide-react'
+import { qualitiesOf } from '@/lib/renditions'
+import { LiveRewind } from './LiveRewind'
+import { useEffect as useEffectReact, useState as useStateReact } from 'react'
+import { MinimizeIcon, SettingsIcon, Volume2Icon, VolumeXIcon, XIcon } from 'lucide-react'
 
 /** İzleme sayfasının yolu; katman bu yolda içerik alanını kaplar, diğerlerinde mini olur. */
 export const WATCH_PATH = '/izle'
@@ -39,7 +42,7 @@ export function PersistentPlayers() {
   const location = useLocation()
   const onWatchPage = location.pathname === WATCH_PATH
 
-  const { openIds, audioId, expandedId, toggle, openMany, closeAll, setAudio, expand } =
+  const { openIds, audioId, expandedId, quality, toggle, openMany, closeAll, setAudio, expand, setQuality } =
     usePlayers()
 
   const [channels, setChannels] = useState<ChannelDto[]>([])
@@ -174,6 +177,9 @@ export function PersistentPlayers() {
               expanded={expanded?.id === channel.id}
               compact={!onWatchPage}
               hasAudio={channel.id === audioId}
+              quality={quality[channel.id] ?? ''}
+              onQuality={(suffix) => setQuality(channel.id, suffix)}
+              showControls={singleTile}
               onToggleExpand={() => expand(expanded?.id === channel.id ? null : channel.id)}
               onAudio={() => setAudio(channel.id === audioId ? null : channel.id)}
               onClose={() => toggle(channel.id)}
@@ -197,6 +203,9 @@ function Tile({
   expanded,
   compact,
   hasAudio,
+  quality,
+  onQuality,
+  showControls,
   onToggleExpand,
   onAudio,
   onClose,
@@ -207,10 +216,34 @@ function Tile({
   /** Mini görünüm: üst çubuk ve kenarlık gösterilmez. */
   compact: boolean
   hasAudio: boolean
+  /** Seçili rendition son eki; '' = kaynak. */
+  quality: string
+  onQuality: (suffix: string) => void
+  /** Duraklatma/ses/tam ekran çubuğu — yalnızca tek karo görünürken. */
+  showControls: boolean
   onToggleExpand: () => void
   onAudio: () => void
   onClose: () => void
 }) {
+  const qualities = qualitiesOf(channel)
+  // Seçili kalite kanaldan kaldırılmış olabilir; o durumda kaynağa düş.
+  const selected = qualities.find((q) => q.suffix === quality) ?? qualities[0]
+
+  /** Geri sarılan bölümün blob adresi; null ise canlı akış oynuyor. */
+  const [rewindUrl, setRewindUrl] = useStateReact<string | null>(null)
+
+  // Blob'lar serbest bırakılmazsa her geri sarmada bellekte bir kopya birikir.
+  useEffectReact(() => {
+    return () => {
+      if (rewindUrl) URL.revokeObjectURL(rewindUrl)
+    }
+  }, [rewindUrl])
+
+  function backToLive() {
+    if (rewindUrl) URL.revokeObjectURL(rewindUrl)
+    setRewindUrl(null)
+  }
+
   return (
     <div
       className={cn(
@@ -221,12 +254,35 @@ function Tile({
         !visible && 'hidden',
       )}
     >
-      <HlsPlayer src={channel.hlsUrl} muted={!hasAudio} className="size-full" />
+      {/* key: kalite değişince oynatıcı yeniden kurulmalı — hls.js kaynak
+          adresini çalışırken değiştiremiyor. */}
+      {rewindUrl ? (
+        // Geri sarılan bölüm düz bir mp4; HLS oynatıcıya gerek yok.
+        <video
+          key={rewindUrl}
+          src={rewindUrl}
+          controls
+          autoPlay
+          muted={!hasAudio}
+          className="size-full bg-black object-contain"
+        />
+      ) : (
+      <HlsPlayer
+        key={selected.hlsUrl}
+        src={selected.hlsUrl}
+        muted={!hasAudio}
+        // Kontroller yalnızca tek karo görünürken: 4x4 mozaikte 16 kontrol
+        // çubuğu görüntüyü boğar ve karo zaten tıklanacak kadar küçük.
+        controls={showControls}
+        className="size-full"
+      />
+      )}
 
-      {/* Karoya tıklamak büyütür/küçültür. */}
+      {/* Karoya tıklamak büyütür/küçültür. Kontroller açıkken üst şeritle
+          sınırlı: tam kaplayan katman duraklatma düğmesini yutardı. */}
       <button
         type="button"
-        className="absolute inset-0 cursor-pointer"
+        className={cn('absolute cursor-pointer', showControls ? 'inset-x-0 top-0 h-12' : 'inset-0')}
         onClick={onToggleExpand}
         aria-label={expanded ? 'Küçült' : 'Büyük ekranda aç'}
       />
@@ -239,6 +295,24 @@ function Tile({
       >
         <span className="truncate text-xs font-medium text-white">{channel.name}</span>
         <div className="pointer-events-auto flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          {qualities.length > 1 && (
+            <div className="relative">
+              <select
+                aria-label="Çözünürlük"
+                className="h-7 rounded-md border bg-secondary px-1.5 pr-5 text-xs text-secondary-foreground"
+                value={selected.suffix}
+                onChange={(e) => onQuality(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {qualities.map((q) => (
+                  <option key={q.suffix} value={q.suffix}>
+                    {q.label}
+                  </option>
+                ))}
+              </select>
+              <SettingsIcon className="pointer-events-none absolute right-1 top-1.5 size-3 opacity-60" />
+            </div>
+          )}
           <Button
             variant="secondary"
             size="icon"
@@ -270,6 +344,19 @@ function Tile({
           </Button>
         </div>
       </div>
+
+      {showControls && !compact && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-12 flex justify-center">
+          <div className="rounded-full bg-black/70 px-2 py-1">
+            <LiveRewind
+              channel={channel}
+              rewound={rewindUrl !== null}
+              onRewind={setRewindUrl}
+              onLive={backToLive}
+            />
+          </div>
+        </div>
+      )}
 
       {hasAudio && !compact && (
         <div className="pointer-events-none absolute bottom-2 left-2">
