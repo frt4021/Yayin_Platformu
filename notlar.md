@@ -128,6 +128,118 @@ Yorumdaki ölçüm bilgisi (VAAPI %14'e karşı libx264 %142) değerli — silin
 
 ---
 
+## 5. MediaMTX sessizce takılıp kalıyor — kendiliğinden toparlanmıyor
+
+**Durum:** Açık. 2026-08-04'te yaşandı ve elle yeniden başlatılarak çözüldü.
+**Kök sebep bulunamadı.**
+
+### Yaşanan
+
+MediaMTX konteyneri çalışmaya devam ederken kanalları çekmeyi bıraktı ve
+~2 saat 45 dakika boyunca hiç toparlanmadı. Son satır:
+
+```
+08:52:57 ERR [path kanal1] [HLS source] context deadline exceeded
+                                        (… while reading body)
+08:52:57 INF [path kanal1] runOnAvailable command stopped
+```
+
+Ondan sonra kanal1/kanal2 için **tek bir bağlanma denemesi bile
+loglanmadı**. Bu asıl anormallik: `sourceOnDemand: false` iken MediaMTX
+başarısız kaynağı ~5 saniyede bir yeniden denemeli ve her denemeyi
+loglamalı (test sırasında sahte bir kaynakla bu davranış birebir görüldü).
+
+Durum tespiti:
+
+| Gösterge | Değer |
+|---|---|
+| Konteyner | çalışıyor, RestartCount 0 |
+| CPU | %0.02 |
+| Path'ler | duruyor, `ready=false`, `rx=0` |
+| Path config | `source` doğru, `sourceOnDemand: false` |
+| API | yanıt veriyor, config reload kabul ediyor |
+
+### Elenenler
+
+- **Ağ değil:** konteynerin içinden DNS çözülüyor, kaynaklar HTTP 200
+  dönüyor, master + varyant + segment zinciri baştan sona çekiliyor.
+- **Disk değil:** %52 dolu, 432 GB boş.
+- **Yapılandırma değil:** path config'i elle okundu, doğruydu.
+
+Yeniden başlatma her şeyi anında düzeltti.
+
+### Dikkat: log saatleri UTC, sistem UTC+3
+
+Konteyner logları UTC yazıyor, `journalctl` ve `who -b` yerel saat veriyor.
+Arıza anı log'da `08:52:57` ise sistem günlüğünde **11:52:57** aranmalı.
+İlk incelemede yanlış pencereye bakıldı; tetikleyici (ağ kesintisi, uyku,
+kaynak tarafında bir olay) bu yüzden hâlâ bilinmiyor.
+
+### Yapılması gereken
+
+Kök sebep bulunsa da bulunmasa da sistem bundan **kendiliğinden çıkabilmeli**.
+İki saat boyunca kimse fark etmedi; arayüz "Akmıyor" gösteriyordu ama bunu
+gören biri olmadıkça durum düzelmiyor.
+
+Öneri: zamanlanmış bir gözcü. Altyapı hazır — `MediaMtxService.pathStates()`
+anlık durumu, `ChannelService.restoreActiveChannels()` yeniden yazmayı zaten
+yapıyor. Kural: bir kanal/radyo `active` iken N dakikadır `ready=false` ise
+path'i yeniden uygula, düzelmiyorsa uyar.
+
+Karar verilecekler: eşik süresi; kaç denemeden sonra vazgeçilecek (kaynağı
+gerçekten ölü bir kanalda sonsuza kadar denemek log'u boğar); uyarının nereye
+gideceği. Compose'da `mediamtx` için `healthcheck` de yok — ama süreç
+çökmediği, yalnızca çekmeyi bıraktığı için düz bir HTTP healthcheck'i bu
+arızayı yakalamaz; kontrol path hazırlığına bakmalı.
+
+---
+
+## 6. TRT kanalının kaynağı master.m3u8 olmamalı — 1080p+ MediaMTX'i kırıyor
+
+**Durum:** ACİL SAYILIR. Düzeltme şu an yalnızca MediaMTX belleğinde;
+veritabanı hâlâ eski değeri taşıyor.
+
+### Sorun
+
+`kanal2` (trthaber) kaynağı `https://tv-trthaber.medya.trt.com.tr/master.m3u8`.
+MediaMTX master playlist'ten **en yüksek bant genişliğini** seçiyor — TRT'de
+bu 2560x1440 / 11.5 Mbps. O varyantın segmentleri MediaMTX'in HLS
+okuyucusundaki sınırı aşıyor ve kanal hiç yayına girmiyor:
+
+```
+ERR [path kanal2] [HLS source] max recorded size exceeded
+```
+
+Varyantlar tek tek denendi:
+
+| Varyant | Segment (6 sn) | Sonuç |
+|---|---|---|
+| master_360 | 0.39 MB | — |
+| master_480 | 0.85 MB | — |
+| **master_720** | **3.01 MB** | **çalışıyor** |
+| master_1080 | 4.29 MB | `max recorded size exceeded` |
+| master_1440 | 7.23 MB | `max recorded size exceeded` |
+
+Sınır 3.01 MB ile 4.29 MB arasında. kanal1 (DW) bu sorunu yaşamıyor çünkü
+en yüksek varyantı 480x270.
+
+### Yapılması gereken
+
+Kanal kaydındaki `source_url` **`master_720.m3u8`** olarak değiştirilmeli.
+Şu an yalnızca MediaMTX'e patch'lendi; **backend bir daha yeniden başlarsa
+`ChannelRestorer` eski `master.m3u8` değerini geri yazar ve kanal2 sessizce
+yeniden ölür.**
+
+720p seçmek kayıp değil: merdiven zaten 720p'de bitiyor ve DVR de 720p'den
+kaydediyor. Üstelik kaynaktan 11.5 Mbps yerine 4.7 Mbps çekilir. 1080p
+istense bile MediaMTX okuyamadığı için şu an mümkün değil.
+
+Genel ders: master playlist vermek, MediaMTX'in en pahalı varyantı seçmesi
+demek. [[1. Kaynak çözünürlüğü doğrulanmıyor]] maddesiyle aynı aile —
+kaynak seçimi denetlenmiyor.
+
+---
+
 ## 4. `/q/health` 500 dönüyor
 
 **Durum:** Açık. Düşük öncelik.

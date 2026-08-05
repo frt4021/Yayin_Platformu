@@ -7,6 +7,8 @@ import { AppLayout } from '@/components/AppLayout'
 import { LoginPage } from '@/pages/LoginPage'
 import { ProfilePage } from '@/pages/ProfilePage'
 import { ChannelsPage } from '@/pages/ChannelsPage'
+import { RadiosPage } from '@/pages/RadiosPage'
+import { VideosPage } from '@/pages/VideosPage'
 import { WatchPage } from '@/pages/WatchPage'
 import { DvrPage } from '@/pages/dvr/DvrPage'
 import { ClipsPage } from '@/pages/ClipsPage'
@@ -27,8 +29,10 @@ export default function App() {
               <Route index element={<Navigate to="/izle" replace />} />
               <Route path="/izle" element={<WatchPage />} />
               <Route path="/kanallar" element={<ChannelsPage />} />
+              <Route path="/radyolar" element={<RadiosPage />} />
               <Route path="/geriye-sarma" element={<DvrPage />} />
               <Route path="/klipler" element={<ClipsPage />} />
+              <Route path="/videolar" element={<VideosPage />} />
               <Route path="/profil" element={<ProfilePage />} />
 
               {/* Yalnızca yönetici */}

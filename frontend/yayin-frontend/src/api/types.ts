@@ -52,6 +52,14 @@ export interface ChannelDto {
   renditions: string
   /** DVR kaydının alındığı rendition adı; boş ise kaynak çözünürlüğü. */
   dvrRendition: string
+  /**
+   * MediaMTX'e gerçekte yazılan adres. Master playlist'ten bir varyant
+   * seçildiyse dolu — girilen adresle aynıysa null.
+   */
+  resolvedSourceUrl: string | null
+  /** Kaynağın tespit edilen çözünürlüğü; HLS olmayan kaynaklarda null. */
+  sourceWidth: number | null
+  sourceHeight: number | null
   hlsUrl: string
   /** MediaMTX'ten anlık durum; sunucuya ulaşılamadıysa null. */
   streaming: boolean | null
@@ -93,6 +101,49 @@ export interface Capacity {
   max: number
 }
 
+export const RADIO_SOURCE_KINDS = ['DOGRUDAN', 'KOPRU'] as const
+export type RadioSourceKind = (typeof RADIO_SOURCE_KINDS)[number]
+
+export interface RadioDto {
+  id: string
+  name: string
+  sourceUrl: string
+  /**
+   * DOGRUDAN: adres MediaMTX'e kaynak olarak verilir (HLS/RTSP/RTMP/SRT/UDP).
+   * KOPRU: MediaMTX içinde bir ffmpeg süreci adresi çekip AAC'ye kodlar.
+   *
+   * <p>Tahmin edilmiyor, kullanıcı seçiyor: MediaMTX http(s) adreslerini HLS
+   * sayıyor ve düz bir Icecast MP3 adresini hatasız kabul edip sessizce hiç
+   * yayına almıyor.
+   */
+  sourceKind: RadioSourceKind
+  mediamtxPath: string
+  /** Yalnızca KOPRU modunda anlamlı: üretilen AAC bit hızı. */
+  bitrate: string
+  active: boolean
+  logoUrl: string | null
+  sortOrder: number
+  /** Ses-only HLS manifesti; hls.js ile <audio> elementine bağlanır. */
+  hlsUrl: string
+  /** MediaMTX'ten anlık durum; sunucuya ulaşılamadıysa null. */
+  streaming: boolean | null
+  listeners: number | null
+  createdBy: string | null
+  createdAt: string | null
+}
+
+/** Radyo oluşturma/güncelleme gövdesi; ikisi de PUT semantiğinde tam nesne alır. */
+export interface RadioRequest {
+  name: string
+  sourceUrl: string
+  sourceKind: RadioSourceKind
+  mediamtxPath: string
+  bitrate: string
+  active: boolean
+  logoUrl: string
+  sortOrder: number
+}
+
 /** Kayıt bulunan bir zaman aralığı. Boşluklar ayrı aralık olarak gelir. */
 export interface TimelineSpan {
   start: string
@@ -131,6 +182,77 @@ export interface ClipLinks {
 export interface CreateClipRequest {
   start: string
   end: string
+}
+
+export const VIDEO_STATUS = ['YUKLENIYOR', 'ISLENIYOR', 'HAZIR', 'HATA'] as const
+export type VideoStatus = (typeof VIDEO_STATUS)[number]
+
+export interface VideoDto {
+  id: string
+  title: string
+  description: string | null
+  originalFilename: string | null
+  contentType: string | null
+  /** İşçi tarafından doğrulanmış gerçek boyut; işlenene kadar null. */
+  sizeBytes: number | null
+  durationSeconds: number | null
+  width: number | null
+  height: number | null
+  status: VideoStatus
+  /** Yalnızca HATA durumunda dolu. */
+  error: string | null
+  /**
+   * Süreli imzalı küçük resim adresi. Listede geliyor çünkü ızgaradaki her
+   * kart için ayrı bir istek atmak N+1 çağrı olurdu; izleme adresi ise
+   * yalnızca oynatılırken gerektiği için ayrı uçta.
+   */
+  thumbnailUrl: string | null
+  /**
+   * Kısa önizleme klibinin imzalı adresi; üretilmediyse null. Küçük resimle
+   * aynı gerekçeyle listede: fare karta geldiği anda oynaması gerekiyor.
+   */
+  previewUrl: string | null
+  /**
+   * Küçük resmi kullanıcı mı yükledi. thumbnailAtSeconds ile birlikte üç
+   * durumu ayırıyor: ikisi de boşsa otomatik kare, saniye doluysa kullanıcının
+   * seçtiği kare, bu bayrak açıksa yüklenen görsel.
+   */
+  thumbnailIsUpload: boolean
+  thumbnailAtSeconds: number | null
+  uploadedBy: string | null
+  createdAt: string | null
+  completedAt: string | null
+}
+
+export interface CreateVideoRequest {
+  title: string
+  description: string
+  fileName: string
+  contentType: string
+  sizeBytes: number
+}
+
+export interface UpdateVideoRequest {
+  title: string
+  description: string
+  /** null gönderilirse mevcut küçük resme dokunulmaz. */
+  thumbnailAtSeconds: number | null
+}
+
+/** Yükleme izni: dosyanın doğrudan nesne depolamasına yazılması için gerekenler. */
+export interface UploadTicket {
+  videoId: string
+  /** İmzalı PUT adresi. Bu isteğe Authorization başlığı EKLENMEMELİ. */
+  uploadUrl: string
+  contentType: string | null
+  expiresAt: string
+}
+
+export interface VideoLinks {
+  stream: string
+  download: string
+  thumbnail: string | null
+  fileName: string
 }
 
 /** Backend'in tüm hatalarda döndüğü tek format. */

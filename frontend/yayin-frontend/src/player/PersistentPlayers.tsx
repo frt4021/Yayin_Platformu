@@ -42,7 +42,7 @@ export function PersistentPlayers() {
   const location = useLocation()
   const onWatchPage = location.pathname === WATCH_PATH
 
-  const { openIds, audioId, expandedId, quality, toggle, openMany, closeAll, setAudio, expand, setQuality } =
+  const { openIds, audioId, expandedId, quality, radioId, toggle, openMany, closeAll, setAudio, expand, setQuality } =
     usePlayers()
 
   const [channels, setChannels] = useState<ChannelDto[]>([])
@@ -85,11 +85,14 @@ export function PersistentPlayers() {
 
   return (
     <div
-      className={
+      className={cn(
         onWatchPage
           ? 'fixed inset-x-0 bottom-0 top-14 z-10 flex flex-col gap-3 bg-background p-4'
-          : 'fixed bottom-4 right-4 z-50 w-80 overflow-hidden rounded-xl border bg-card shadow-lg'
-      }
+          : 'fixed right-4 z-50 w-80 overflow-hidden rounded-xl border bg-card shadow-lg',
+        // Radyo çubuğu (h-16) sayfanın altını kaplıyor; mini oynatıcı onun
+        // üstüne çıkmalı yoksa ikisi üst üste biner.
+        !onWatchPage && (radioId ? 'bottom-20' : 'bottom-4'),
+      )}
     >
       {/* Kanal seçim şeridi — mini görünümde gizli, ama DOM'da kalıyor ki
           kardeş sıralaması değişmesin ve karolar remount olmasın. */}

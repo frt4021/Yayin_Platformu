@@ -20,12 +20,25 @@ interface PlayerValue {
    */
   quality: Record<string, string>
 
+  /**
+   * Çalan radyonun id'si; null ise radyo kapalı.
+   *
+   * <p>Radyo ayrı bir provider'a değil BURAYA konuldu: ses sahipliği tek
+   * yerden yönetilmezse radyo ile bir kanalın sesi üst üste çalardı.
+   */
+  radioId: string | null
+  /** Kullanıcı radyoyu duraklattı mı. Kapatmak değil: istasyon seçili kalır. */
+  radioPaused: boolean
+
   toggle: (channelId: string) => void
   openMany: (channelIds: string[]) => void
   closeAll: () => void
   setAudio: (channelId: string | null) => void
   expand: (channelId: string | null) => void
   setQuality: (channelId: string, suffix: string) => void
+  playRadio: (radioId: string) => void
+  toggleRadioPause: () => void
+  stopRadio: () => void
 }
 
 const PlayerContext = createContext<PlayerValue | null>(null)
@@ -35,6 +48,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [audioId, setAudioId] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [quality, setQualityMap] = useState<Record<string, string>>({})
+  const [radioId, setRadioId] = useState<string | null>(null)
+  const [radioPaused, setRadioPaused] = useState(false)
 
   const toggle = useCallback((channelId: string) => {
     setOpenIds((prev) => {
@@ -63,18 +78,47 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setQualityMap((prev) => ({ ...prev, [channelId]: suffix }))
   }, [])
 
+  /**
+   * Sesi bir kanala verir. Radyo çalıyorsa susturur — aynı anda iki kaynağın
+   * seslenmesi, kullanıcının hangisini dinlediğini anlayamaması demek.
+   */
+  const setAudio = useCallback((channelId: string | null) => {
+    setAudioId(channelId)
+    if (channelId) setRadioId(null)
+  }, [])
+
   const expand = useCallback((channelId: string | null) => {
     setExpandedId(channelId)
     // Büyüten kullanıcı o kanalı dinlemek istiyordur.
-    if (channelId) setAudioId(channelId)
+    if (channelId) {
+      setAudioId(channelId)
+      setRadioId(null)
+    }
+  }, [])
+
+  /** Radyoyu açar; ses odağını kanallardan alır (tek ses kuralı). */
+  const playRadio = useCallback((id: string) => {
+    setRadioId(id)
+    setRadioPaused(false)
+    setAudioId(null)
+  }, [])
+
+  const toggleRadioPause = useCallback(() => setRadioPaused((prev) => !prev), [])
+
+  const stopRadio = useCallback(() => {
+    setRadioId(null)
+    setRadioPaused(false)
   }, [])
 
   const value = useMemo<PlayerValue>(
     () => ({
-      openIds, audioId, expandedId, quality,
-      toggle, openMany, closeAll, setAudio: setAudioId, expand, setQuality,
+      openIds, audioId, expandedId, quality, radioId, radioPaused,
+      toggle, openMany, closeAll, setAudio, expand, setQuality,
+      playRadio, toggleRadioPause, stopRadio,
     }),
-    [openIds, audioId, expandedId, quality, toggle, openMany, closeAll, expand, setQuality],
+    [openIds, audioId, expandedId, quality, radioId, radioPaused,
+      toggle, openMany, closeAll, setAudio, expand, setQuality,
+      playRadio, toggleRadioPause, stopRadio],
   )
 
   return <PlayerContext value={value}>{children}</PlayerContext>

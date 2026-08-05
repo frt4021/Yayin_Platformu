@@ -26,6 +26,15 @@ public record ChannelDto(
     boolean dvrEnabled,
     String renditions,
     String dvrRendition,
+    /**
+     * MediaMTX'e gerçekte yazılan adres; master playlist'ten bir varyant
+     * seçildiyse dolu, aksi halde {@code null}. Arayüz "girdiğin adres bu
+     * değil" durumunu görünür kılabilsin diye açılıyor.
+     */
+    String resolvedSourceUrl,
+    /** Kaynağın tespit edilen çözünürlüğü; bilinmiyorsa {@code null}. */
+    Integer sourceWidth,
+    Integer sourceHeight,
     String hlsUrl,
     Boolean streaming,
     Integer viewers,

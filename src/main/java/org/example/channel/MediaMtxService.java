@@ -35,6 +35,9 @@ public class MediaMtxService {
     @RestClient
     MediaMtxClient client;
 
+    @Inject
+    TranscodeCommand transcodeCommand;
+
 
 
 
@@ -60,7 +63,7 @@ public class MediaMtxService {
         }
 
         MediaMtxPathConfig config = MediaMtxPathConfig.alwaysOn(
-            sourceUrl, record && !recordOnRendition, TranscodeCommand.build(renditions));
+            sourceUrl, record && !recordOnRendition, transcodeCommand.build(renditions));
         try {
             client.addPath(path, config);
         } catch (WebApplicationException e) {
@@ -83,6 +86,24 @@ public class MediaMtxService {
     }
 
     /**
+     * Ses-only bir path'i (radyo) istenen yapılandırmaya getirir.
+     *
+     * <p>Kanallardan ayrı bir metot: radyoda rendition merdiveni ve DVR yok,
+     * buna karşılık {@code KOPRU} modunda {@code runOnInit} kancası var.
+     * Aynı metoda sığdırmak, ikisi de kullanılmayan parametrelerle çağrılan
+     * bir imza üretirdi.
+     *
+     * @param bridgeCommand ffmpeg köprü komutu; {@code null} ise kaynak
+     *                      MediaMTX'e doğrudan verilir
+     */
+    public void applyAudioPath(String path, String sourceUrl, String bridgeCommand) {
+        MediaMtxPathConfig config = bridgeCommand == null
+            ? MediaMtxPathConfig.alwaysOn(sourceUrl, false, null)
+            : MediaMtxPathConfig.bridged(bridgeCommand);
+        ensurePath(path, config);
+    }
+
+    /**
      * Path'i istenen yapılandırmaya getirir; {@link #applyPath} ile aynı
      * "ekle, olmazsa güncelle" mantığı ama sade yapılandırmayla.
      */
@@ -94,7 +115,7 @@ public class MediaMtxService {
                 patch(path, config);
                 return;
             }
-            throw upstream("rendition path'i yazılamadı: " + path, e);
+            throw upstream("yardımcı path yazılamadı: " + path, e);
         }
     }
 
@@ -106,6 +127,16 @@ public class MediaMtxService {
      */
     public void removePath(String path, String renditionSpec) {
         removeRenditions(path, renditionSpec);
+        deleteQuietly(path);
+    }
+
+    /**
+     * Tek bir path'i siler. Zaten yoksa sessizce geçer.
+     *
+     * <p>Radyolar için: rendition kavramı olmadığından kaldırılacak yardımcı
+     * path de yok.
+     */
+    public void removePath(String path) {
         deleteQuietly(path);
     }
 

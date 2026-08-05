@@ -30,54 +30,85 @@
   --ring: oklch(0.52 0.16 256 / 45%);
 }
 
-/* Koyu tema — göz yormayacak şekilde ayarlandı.
+/* Koyu tema — yayın merkezi paleti.
  *
- * İki şeyden bilinçli olarak kaçınıldı:
- *  1. Saf siyah zemin (oklch 0) — parlak yazıyla arasındaki aşırı kontrast
- *     uzun bakışta göz kamaşmasına ve "halo" etkisine yol açıyor.
- *  2. Saf beyaz yazı (oklch 1) — aynı sebeple.
- * Zemin 0.19, yazı 0.90 civarında tutuldu; kontrast oranı hâlâ WCAG AA'nın
- * üzerinde ama bakışı zorlamıyor.
+ * Uygulama koyu temada sabit (index.html'de <html class="dark">), yani
+ * yukarıdaki :root açık teması hiçbir zaman devreye girmiyor. Gerçek tema
+ * burasıdır; bir renk değiştirilecekse buradan değiştirilir.
  *
- * Renklere hafif bir mavi ton (hue 265) verildi: tamamen nötr griler
- * ekranda ölü görünüyor, çok az kroma canlılık katıyor.
+ * Değerler bilinçli olarak HEX: palet dışarıdan bu biçimde geldi ve
+ * oklch'e çevirmek, tasarımla kod arasındaki birebir karşılaştırmayı
+ * imkânsız hale getirirdi.
  */
 .dark {
-  /* Zemin katmanları belirgin biçimde ayrışıyor: düz tek renk bir yüzey
-     "siyah boşluk" gibi okunuyor, katman farkı yapıyı görünür kılıyor.
-       0.215 zemin  →  0.255 kart  →  0.285 açılır menü
-     Aradaki ~0.03'lük fark gölgeye ihtiyaç duymadan yükseklik hissi veriyor. */
-  --background: oklch(0.215 0.007 262);
-  --foreground: oklch(0.915 0.006 262);
+  /* --- Temel katmanlar ---
+     Üç kademe: zemin → yüzey → yükseltilmiş yüzey. Düz tek renk bir arayüz
+     "siyah boşluk" gibi okunuyor; katman farkı gölgeye ihtiyaç duymadan
+     yapıyı görünür kılıyor. */
+  --background: #111114;        /* bg-main */
+  --foreground: #FFFFFF;        /* text-primary */
 
-  --card: oklch(0.255 0.008 262);
-  --card-foreground: oklch(0.915 0.006 262);
-  --popover: oklch(0.285 0.009 262);
-  --popover-foreground: oklch(0.925 0.006 262);
+  --card: #1A1B1F;              /* bg-surface: kartlar, tablo satırları */
+  --card-foreground: #FFFFFF;
+  /* Açılır menü ve dialog, karttan bir kademe yukarıda dursun diye
+     hover tonunu kullanıyor — paletteki en açık nötr yüzey bu. */
+  --popover: #24262C;
+  --popover-foreground: #FFFFFF;
 
-  /* Birincil eylem rengi mavi. Önceki near-beyaz düğmeler zeminle aşırı
-     kontrast yapıp dikkati sürekli kendine çekiyordu. */
-  --primary: oklch(0.62 0.155 256);
-  --primary-foreground: oklch(0.98 0.005 256);
+  /* accent = "üzerine gelince" yüzeyi. shadcn'de hover:bg-accent bu
+     değişkeni okuduğu için palet doğrudan buraya bağlandı. */
+  --accent: #24262C;            /* bg-surface-hover */
+  --accent-foreground: #FFFFFF;
 
-  --secondary: oklch(0.315 0.009 262);
-  --secondary-foreground: oklch(0.915 0.006 262);
-  --muted: oklch(0.30 0.008 262);
-  /* İkincil yazı: okunur kalsın ama birincil metinle yarışmasın. */
-  --muted-foreground: oklch(0.695 0.012 262);
-  --accent: oklch(0.335 0.011 262);
-  --accent-foreground: oklch(0.93 0.006 262);
+  --input-bg: #16171B;          /* bg-input */
+  --border: #2B2D35;            /* border-color */
+  --input: #2B2D35;             /* input çerçevesi */
 
-  --destructive: oklch(0.60 0.165 24);
-  --destructive-foreground: oklch(0.98 0.008 24);
-  --success: oklch(0.66 0.135 158);
-  --warning: oklch(0.75 0.14 78);
+  --muted: #24262C;
+  --muted-foreground: #9CA3AF;  /* text-secondary */
+  --text-disabled: #4B5563;     /* pasifleşmiş metin */
 
-  /* Kenarlıklar yapıyı ima etsin, çizmesin — ama katmanlar arasında
-     seçilebilir kalsın. */
-  --border: oklch(1 0 0 / 11%);
-  --input: oklch(1 0 0 / 14%);
-  --ring: oklch(0.62 0.155 256 / 55%);
+  /* Palette secondary yüzey tanımlı değil. Kenarlık tonu seçildi: hover
+     yüzeyiyle aynı olsaydı ikincil düğmeler zeminden ayrışmazdı. */
+  --secondary: #2B2D35;
+  --secondary-foreground: #FFFFFF;
+
+  /* --- Vurgu --- */
+  --primary: #4285F4;           /* accent-primary */
+  --primary-hover: #3367D6;     /* accent-primary-hover */
+  --primary-foreground: #FFFFFF;
+  --primary-light: #60A5FA;     /* aktif sekme alt çizgisi, odak halkası */
+  --accent-purple: #8B5CF6;     /* özel roller / VIP yayıncılar */
+  --accent-cyan: #06B6D4;       /* ikincil ikonlar, bilgi ipuçları */
+
+  --ring: rgba(96, 165, 250, 0.55);
+
+  /* --- Durum ve sinyal ---
+     Her durumun bir metin rengi ve %15 opaklıkta bir zemini var: dolu renkli
+     rozet koyu arayüzde fazla bağırıyor, saydam zemin hem okunur hem sakin. */
+  --status-live: #FF4B4B;
+  --status-live-bg: rgba(255, 75, 75, 0.15);
+  --status-success: #34D399;
+  --status-success-bg: rgba(52, 211, 153, 0.15);
+  --status-warning: #FBBF24;
+  --status-warning-bg: rgba(251, 191, 36, 0.15);
+  --status-error: #EF4444;
+  --status-error-bg: rgba(239, 68, 68, 0.15);
+
+  /* shadcn'in destructive'i silme/hata anlamında; palette karşılığı error. */
+  --destructive: #EF4444;
+  --destructive-foreground: #FFFFFF;
+  --success: #34D399;
+  --warning: #FBBF24;
+
+  /* --- Ses ve grafik --- */
+  --audio-wave-active: #4285F4;
+  --audio-wave-inactive: #374151;
+  --audio-peak: #FF4B4B;
+  --chart-1: #4285F4;
+  --chart-2: #22D3EE;
+  --chart-3: #A78BFA;
+  --chart-4: #F472B6;
 }
 
 @theme inline {
@@ -102,6 +133,32 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+
+  /* Palet token'ları Tailwind yardımcı sınıflarına açılıyor:
+     bg-status-live, text-status-success, border-chart-2 … */
+  --color-input-bg: var(--input-bg);
+  --color-text-disabled: var(--text-disabled);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-light: var(--primary-light);
+  --color-accent-purple: var(--accent-purple);
+  --color-accent-cyan: var(--accent-cyan);
+
+  --color-status-live: var(--status-live);
+  --color-status-live-bg: var(--status-live-bg);
+  --color-status-success: var(--status-success);
+  --color-status-success-bg: var(--status-success-bg);
+  --color-status-warning: var(--status-warning);
+  --color-status-warning-bg: var(--status-warning-bg);
+  --color-status-error: var(--status-error);
+  --color-status-error-bg: var(--status-error-bg);
+
+  --color-audio-wave-active: var(--audio-wave-active);
+  --color-audio-wave-inactive: var(--audio-wave-inactive);
+  --color-audio-peak: var(--audio-peak);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -140,8 +197,8 @@
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
-    background: oklch(1 0 0 / 12%);
+    background: var(--border);
     border-radius: 6px;
   }
-  ::-webkit-scrollbar-thumb:hover { background: oklch(1 0 0 / 20%); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--secondary); }
 }

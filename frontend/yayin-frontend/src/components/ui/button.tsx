@@ -8,10 +8,13 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground hover:opacity-90',
+        // Hover'da opaklık düşürmek yerine palette tanımlı koyu maviye
+        // geçiliyor: opaklık düşürmek düğmeyi zemine karıştırıp "sönüyor"
+        // gibi gösteriyordu, oysa hover geri bildirimi belirginleşmeli.
+        default: 'bg-primary text-primary-foreground hover:bg-primary-hover',
         destructive: 'bg-destructive text-destructive-foreground hover:opacity-90',
         outline: 'border bg-transparent hover:bg-accent hover:text-accent-foreground',
-        secondary: 'bg-secondary text-secondary-foreground hover:opacity-80',
+        secondary: 'bg-secondary text-secondary-foreground hover:bg-accent',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
         link: 'text-foreground underline-offset-4 hover:underline',
       },

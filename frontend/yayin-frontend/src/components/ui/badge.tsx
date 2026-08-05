@@ -10,7 +10,18 @@ const badgeVariants = cva(
         default: 'border-transparent bg-primary text-primary-foreground',
         secondary: 'border-transparent bg-secondary text-secondary-foreground',
         destructive: 'border-transparent bg-destructive text-destructive-foreground',
-        outline: 'text-foreground',
+        outline: 'text-muted-foreground',
+
+        // Yayın durumu rozetleri: dolu renk yerine %15 opaklıkta zemin +
+        // renkli yazı. Koyu arayüzde dolu kırmızı/yeşil bir rozet göz
+        // hizasında bağırıyor; tabloda onlarca satır olduğunda okunaksızlaşır.
+        live: 'border-transparent bg-status-live-bg text-status-live',
+        success: 'border-transparent bg-status-success-bg text-status-success',
+        warning: 'border-transparent bg-status-warning-bg text-status-warning',
+        error: 'border-transparent bg-status-error-bg text-status-error',
+
+        /** Özel roller / VIP yayıncılar — paletteki mor vurgu. */
+        role: 'border-accent-purple/30 bg-accent-purple/15 text-accent-purple',
       },
     },
     defaultVariants: { variant: 'default' },

@@ -10,6 +10,7 @@ import org.example.channel.dto.MediaMtxPathList;
 import org.example.channel.dto.UpdateChannelRequest;
 import org.example.channel.entity.Channel;
 import org.example.exception.AppException;
+import org.example.radio.entity.Radio;
 import org.example.user.entity.AppUser;
 import org.jboss.logging.Logger;
 
@@ -39,6 +40,9 @@ public class ChannelService {
 
     @ConfigProperty(name = "channels.max-active")
     int maxActiveChannels;
+
+    @Inject
+    SourceProbe sourceProbe;
 
     /** @param active şu an yayında olan kanal sayısı */
     public record Capacity(long active, int max) {
@@ -90,11 +94,12 @@ public class ChannelService {
         channel.dvrEnabled = req.dvrEnabled();
         channel.renditions = normalize(req.renditions());
         channel.dvrRendition = resolveDvrRendition(req.dvrRendition(), channel.renditions);
+        applySourceProbe(channel);
         channel.createdBy = requireLocalUser(keycloakId);
         channel.persist();
 
         if (channel.active) {
-            mediaMtx.applyPath(channel.mediamtxPath, channel.sourceUrl,
+            mediaMtx.applyPath(channel.mediamtxPath, channel.effectiveSourceUrl(),
                 channel.dvrEnabled, channel.renditions, channel.dvrRendition);
         }
         LOG.infof("Kanal oluşturuldu: %s (path=%s, aktif=%s)",
@@ -124,6 +129,7 @@ public class ChannelService {
         channel.dvrEnabled = req.dvrEnabled();
         channel.renditions = normalize(req.renditions());
         channel.dvrRendition = resolveDvrRendition(req.dvrRendition(), channel.renditions);
+        applySourceProbe(channel);
 
         // Path adı değiştiyse eski path artık hiçbir kanala ait değil; kaldırılmazsa
         // MediaMTX'te sahipsiz bir yayın olarak akmaya devam eder.
@@ -136,7 +142,7 @@ public class ChannelService {
         }
 
         if (channel.active) {
-            mediaMtx.applyPath(channel.mediamtxPath, channel.sourceUrl,
+            mediaMtx.applyPath(channel.mediamtxPath, channel.effectiveSourceUrl(),
                 channel.dvrEnabled, channel.renditions, channel.dvrRendition);
         } else if (wasActive) {
             mediaMtx.removePath(channel.mediamtxPath, channel.renditions);
@@ -179,7 +185,7 @@ public class ChannelService {
         int restored = 0;
         for (Channel channel : active) {
             try {
-                mediaMtx.applyPath(channel.mediamtxPath, channel.sourceUrl,
+                mediaMtx.applyPath(channel.mediamtxPath, channel.effectiveSourceUrl(),
                     channel.dvrEnabled, channel.renditions, channel.dvrRendition);
                 restored++;
             } catch (RuntimeException e) {
@@ -213,6 +219,55 @@ public class ChannelService {
                     + "720p|1280x720|1500k,480p|854x480|800k");
         }
         return trimmed;
+    }
+
+    /**
+     * Kaynağı inceler, MediaMTX'e verilecek adresi belirler ve merdiveni
+     * kaynağın çözünürlüğüne karşı doğrular.
+     *
+     * <p>İki ayrı sorunu kapatıyor:
+     *
+     * <ol>
+     *   <li><b>Master playlist tuzağı.</b> Master verildiğinde MediaMTX en
+     *       yüksek varyantı seçiyor; segmentleri ~4 MB'ı aşarsa yayın hiç
+     *       başlamıyor ve kullanıcı hata görmüyor. Artık varyantı uygulama
+     *       seçip {@code resolvedSourceUrl}'e yazıyor.</li>
+     *   <li><b>Merdiven kaynağın üstüne çıkamaz.</b> Kaynağın vermediği
+     *       ayrıntı üretilemez; büyütme yalnızca bant genişliği ve GPU harcar.
+     *       Çözünürlük tespit edilemediyse doğrulama atlanıyor — bilinmezlik
+     *       yüzünden kaydetmeyi engellemek, düzeltmeyi imkânsızlaştırırdı.</li>
+     * </ol>
+     */
+    private void applySourceProbe(Channel channel) {
+        SourceProbe.Result result = sourceProbe.probe(channel.sourceUrl);
+
+        channel.sourceWidth = result.width();
+        channel.sourceHeight = result.height();
+        channel.resolvedSourceUrl =
+            result.effectiveUrl().equals(channel.sourceUrl) ? null : result.effectiveUrl();
+
+        if (result.note() != null) {
+            LOG.infof("%s: %s", channel.name, result.note());
+        }
+
+        requireLadderWithinSource(channel);
+    }
+
+    /** Merdivendeki hiçbir hedef kaynağın çözünürlüğünü aşamaz. */
+    private void requireLadderWithinSource(Channel channel) {
+        if (channel.sourceHeight == null) {
+            return;
+        }
+        for (Rendition rendition : Rendition.parse(channel.renditions)) {
+            if (rendition.height() > channel.sourceHeight) {
+                throw AppException.badRequest(String.format(
+                    "'%s' rendition'ı kaynaktan yüksek: kaynak %dx%d, istenen %dx%d. "
+                        + "Kaynağın vermediği ayrıntı üretilemez; büyütme yalnızca bant "
+                        + "genişliği ve GPU harcar.",
+                    rendition.suffix(), channel.sourceWidth, channel.sourceHeight,
+                    rendition.width(), rendition.height()));
+            }
+        }
     }
 
     /** DVR kaydı için varsayılan rendition. */
@@ -251,9 +306,21 @@ public class ChannelService {
         }
     }
 
+    /**
+     * Path hem kanallarda hem radyolarda benzersiz olmalı.
+     *
+     * <p>İkisi MediaMTX'te <b>aynı isim alanını</b> paylaşıyor. Yalnızca kendi
+     * tablosuna bakan bir kontrol, aynı path'i kullanan bir kanal ile radyonun
+     * birbirinin yayınını ezmesine izin verirdi; iki ayrı unique kısıt bunu
+     * yakalayamaz.
+     */
     private void requirePathFree(String path, UUID exceptId) {
         if (Channel.pathTaken(path, exceptId)) {
             throw AppException.conflict("Bu MediaMTX path'i zaten kullanılıyor: " + path);
+        }
+        if (Radio.pathTaken(path, null)) {
+            throw AppException.conflict(
+                "Bu MediaMTX path'i bir radyo tarafından kullanılıyor: " + path);
         }
     }
 
@@ -281,6 +348,9 @@ public class ChannelService {
             channel.dvrEnabled,
             channel.renditions,
             channel.dvrRendition,
+            channel.resolvedSourceUrl,
+            channel.sourceWidth,
+            channel.sourceHeight,
             hlsBaseUrl + "/" + channel.mediamtxPath + "/index.m3u8",
             state == null ? null : state.ready(),
             state == null || state.readers() == null ? null : state.readers().size(),

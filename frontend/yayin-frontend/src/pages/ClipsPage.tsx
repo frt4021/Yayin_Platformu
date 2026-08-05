@@ -26,21 +26,22 @@ import {
 const POLL_ACTIVE_MS = 3000
 const POLL_IDLE_MS = 30000
 
+/** Klip durumları palet renkleriyle: bekleyen sarı, işlenen mavi, biten yeşil. */
 function statusBadge(status: ClipStatus) {
   switch (status) {
     case 'HAZIR':
-      return <Badge>Hazır</Badge>
+      return <Badge variant="success">Hazır</Badge>
     case 'ISLENIYOR':
       return (
-        <Badge variant="secondary" className="gap-1">
+        <Badge variant="default" className="gap-1">
           <Loader2Icon className="size-3 animate-spin" />
           İşleniyor
         </Badge>
       )
     case 'BEKLIYOR':
-      return <Badge variant="outline">Kuyrukta</Badge>
+      return <Badge variant="warning">Kuyrukta</Badge>
     case 'HATA':
-      return <Badge variant="destructive">Hata</Badge>
+      return <Badge variant="error">Hata</Badge>
   }
 }
 

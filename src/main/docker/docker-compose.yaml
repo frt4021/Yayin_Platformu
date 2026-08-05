@@ -122,10 +122,25 @@ services:
     image: yayin/mediamtx:1.19.3
     container_name: mediamtx
     restart: unless-stopped
-    # Donanim kodlayici. Aygit gecirilmezse ffmpeg yazilim kodlamaya duser
-    # ve CPU maliyeti 10 kata cikar.
+    # Donanim kodlayici. Hangi GPU'nun kullanilacagi .env ile belirleniyor;
+    # ayri bir compose dosyasi yok (bkz. README "Donanim kodlayici").
+    #
+    #   Intel/AMD (VAAPI) : MEDIA_DEVICE=/dev/dri:/dev/dri   (varsayilan)
+    #   NVIDIA (NVENC)    : CONTAINER_RUNTIME=nvidia
+    #                       NVIDIA_VISIBLE_DEVICES=all
+    #                       NVIDIA_DRIVER_CAPABILITIES=video,compute,utility
+    #                       MEDIA_DEVICE=/dev/null:/dev/null
+    #
+    # MEDIA_DEVICE neden gerekli: NVIDIA sunucularinda /dev/dri bulunmayabilir
+    # ve sabit yazilirsa konteyner hic baslamaz. /dev/null zararsiz bir yer
+    # tutucu.
+    runtime: ${CONTAINER_RUNTIME:-runc}
     devices:
-      - /dev/dri:/dev/dri
+      - ${MEDIA_DEVICE:-/dev/dri:/dev/dri}
+    environment:
+      # NVIDIA kullanilmiyorsa bos kalir ve hicbir etkisi olmaz.
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-}
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-}
     volumes:
       - ./mediamtx.yml:/mediamtx.yml
       # Adlandirilmis volume yerine host dizinleri: uretilen manifest,
@@ -171,6 +186,11 @@ services:
       # erisilen adres yazilmali yoksa oynatici yayini bulamaz.
       MEDIAMTX_HLS_BASE_URL: ${MEDIAMTX_HLS_BASE_URL:-http://localhost:8888}
 
+      # Rendition kodlayicisi: VAAPI | NVENC | YAZILIM
+      # Komutu backend uretiyor ama KODLAMA mediamtx konteynerinde calisiyor;
+      # bu yuzden deger oradaki donanima gore secilmeli.
+      CHANNELS_ENCODER: ${CHANNELS_ENCODER:-VAAPI}
+
       MINIO_ENDPOINT: http://minio:9000
       # Imzali indirme adresleri tarayicida acilir; S3 imzasi Host basligini
       # de kapsadigi icin adresi sonradan degistirmek imkansiz.
@@ -180,6 +200,11 @@ services:
 
       REDIS_URL: redis://redis:6379
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+
+      # Video isleri ayri konteynerde (ffmpeg burada yok). Klipler burada
+      # kaliyor: onlarin isi MediaMTX'ten akis cekmek, ffmpeg gerektirmiyor.
+      VIDEOS_WORKER_ENABLED: "false"
+      CLIPS_WORKER_ENABLED: "true"
     depends_on:
       - postgres
       - keycloak
@@ -188,6 +213,74 @@ services:
       - mediamtx
     ports:
       - "8090:8081"
+    networks:
+      - yayin-merkezi
+
+  # --- Video isleme iscisi ---
+  # Backend ile AYNI jar, ustune ffmpeg eklenmis imaj. Ayri olmasinin sebebi
+  # ffmpeg'in backend imajini ~300 MB buyutmesi ve REST surecinin onu hic
+  # kullanmamasi. Sorumluluk ayrimi ortam degiskenleriyle yapiliyor.
+  video-worker:
+    build:
+      context: ../../..
+      dockerfile: src/main/docker/Dockerfile.worker
+    image: yayin/video-worker:latest
+    container_name: video-worker
+    restart: unless-stopped
+    environment:
+      QUARKUS_PROFILE: ${QUARKUS_PROFILE:-prod}
+      POSTGRES_USER: ${POSTGRES_USER:-app_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/yayin_merkezi
+
+      # Isci REST sunmuyor ama OIDC yapilandirmasi acilis icin gerekli.
+      KEYCLOAK_SERVER_URL: http://keycloak:8080
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-YayinYonetimi}
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM:-YayinYonetimi}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-Yayın_App}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-change_me}
+
+      MEDIAMTX_API_URL: http://mediamtx:9997
+      MEDIAMTX_PLAYBACK_URL: http://mediamtx:9996
+
+      MINIO_ENDPOINT: http://minio:9000
+      # Isci ffmpeg'e IC agdaki imzali adresi veriyor (VideoStorage
+      # .internalReadUrl), yani MINIO_ENDPOINT uzerinden. Buradaki public-url
+      # yalnizca bean uretimi icin gerekli; isci disariya adres sunmuyor.
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change_me}
+
+      REDIS_URL: redis://redis:6379
+
+      # Sorumluluk ayrimi: video isleri BURADA, klipler backend'de.
+      VIDEOS_WORKER_ENABLED: "true"
+      CLIPS_WORKER_ENABLED: "false"
+      VIDEOS_CONCURRENCY: ${VIDEOS_CONCURRENCY:-2}
+
+      # Onizleme klibi kodlayicisi: YAZILIM | VAAPI | NVENC
+      # Varsayilan YAZILIM -- 5 saniyelik 480p klip zaten saniyeler icinde
+      # kodlaniyor ve aygit gecirilmesini gerektirmiyor.
+      #
+      # Donanim secimi .env ile (bkz. README "Donanim kodlayici").
+      VIDEOS_ENCODER: ${VIDEOS_ENCODER:-YAZILIM}
+
+      # NVIDIA kullanilmiyorsa bos kalir ve hicbir etkisi olmaz.
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-}
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-}
+
+      # Flyway backend'de calisiyor; iki surecin ayni semayi migrate etmeye
+      # calismasi yaris durumu yaratirdi.
+      QUARKUS_FLYWAY_MIGRATE_AT_START: "false"
+    runtime: ${CONTAINER_RUNTIME:-runc}
+    # Varsayilan /dev/null: worker'a aygit gerekmiyor (YAZILIM kodlama).
+    # VAAPI icin WORKER_MEDIA_DEVICE=/dev/dri:/dev/dri verin.
+    devices:
+      - ${WORKER_MEDIA_DEVICE:-/dev/null:/dev/null}
+    depends_on:
+      - postgres
+      - minio
+      - redis
     networks:
       - yayin-merkezi
 

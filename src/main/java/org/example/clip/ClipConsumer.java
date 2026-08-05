@@ -54,10 +54,25 @@ public class ClipConsumer {
     @ConfigProperty(name = "clips.concurrency")
     int concurrency;
 
+    /**
+     * Klip işçisi bu süreçte çalışsın mı.
+     *
+     * <p>Aynı jar artık iki konteynerde çalışıyor (backend ve video işçisi).
+     * Bayrak olmasaydı klip tüketicisi ve süpürücüsü <b>ikisinde birden</b>
+     * ayağa kalkardı: {@code SKIP LOCKED} veri bozulmasını engeller ama iki
+     * kat boşa iş ve iki kat log üretirdi.
+     */
+    @ConfigProperty(name = "clips.worker.enabled")
+    boolean enabled;
+
     private final AtomicBoolean running = new AtomicBoolean(true);
     private ExecutorService pool;
 
     void start(@Observes StartupEvent event) {
+        if (!enabled) {
+            LOG.debug("Klip işçisi bu süreçte kapalı (clips.worker.enabled=false).");
+            return;
+        }
         // Önceki çalışmadan asılı kalmış girişler; işin kendisi veritabanında
         // BEKLIYOR olarak duruyor ve süpürücü tarafından alınacak.
         queue.clearProcessing();
@@ -121,6 +136,9 @@ public class ClipConsumer {
      */
     @Scheduled(every = "{clips.sweep-interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     void sweep() {
+        if (!enabled) {
+            return;
+        }
         List<UUID> forgotten = worker.claimBatch();
         if (forgotten.isEmpty()) {
             return;

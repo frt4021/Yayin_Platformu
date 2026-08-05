@@ -38,6 +38,35 @@ public class Channel extends PanacheEntityBase {
     @Column(name = "source_url", nullable = false, length = 512)
     public String sourceUrl;
 
+    /**
+     * MediaMTX'e gerçekte yazılan adres.
+     *
+     * <p>Master playlist verildiğinde MediaMTX en yüksek bant genişlikli
+     * varyantı seçiyor ve o varyantın segmentleri gohlslib'in ~4 MB sınırını
+     * aşarsa yayın hiç başlamıyor. Bu yüzden varyant seçimini uygulama
+     * yapıyor ve sonucu buraya yazıyor.
+     *
+     * <p>{@link #sourceUrl} <b>ezilmiyor</b>: kullanıcı ne yazdığını görmeye
+     * devam etsin ve master playlist'e yeni varyantlar eklendiğinde yeniden
+     * seçim yapılabilsin.
+     */
+    @Column(name = "resolved_source_url", length = 512)
+    public String resolvedSourceUrl;
+
+    /** Kaynağın tespit edilen çözünürlüğü; bilinmiyorsa {@code null}. */
+    @Column(name = "source_width")
+    public Integer sourceWidth;
+
+    @Column(name = "source_height")
+    public Integer sourceHeight;
+
+    /** MediaMTX'e verilecek adres — çözümlenmişi varsa o, yoksa girilen. */
+    public String effectiveSourceUrl() {
+        return resolvedSourceUrl == null || resolvedSourceUrl.isBlank()
+            ? sourceUrl
+            : resolvedSourceUrl;
+    }
+
     @Column(name = "mediamtx_path", nullable = false, unique = true, length = 128)
     public String mediamtxPath;
 

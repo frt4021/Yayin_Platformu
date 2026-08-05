@@ -9,6 +9,282 @@ Quarkus tabanlı backend'de; arayüz React + shadcn/ui.
 
 ---
 
+## Hızlı başlangıç
+
+```bash
+./baslat.sh
+```
+
+Hepsi bu. Script ön koşulları kontrol eder, `.env` yoksa üretir, jar'ı
+paketler, imajları kurar, servisleri başlatır ve hepsi hazır olana kadar
+bekler.
+
+**Hiçbir şey ayarlamanız gerekmiyor** — makinenin LAN adresi ve GPU'su
+kendiliğinden bulunur:
+
+| Bulunan | Sonuç |
+|---|---|
+| NVIDIA (`nvidia-smi` çalışıyor) | `CHANNELS_ENCODER=NVENC`, konteynerlere GPU açılır |
+| Intel/AMD (`/dev/dri/renderD128`) | `CHANNELS_ENCODER=VAAPI`, `/dev/dri` geçirilir |
+| Donanım yok | `CHANNELS_ENCODER=YAZILIM` (libx264) |
+
+LAN adresi de otomatik: HLS ve MinIO adresleri `localhost` yerine makinenin
+gerçek IP'siyle üretilir, böylece ağdaki başka cihazlardan da çalışır.
+
+### Diğer komutlar
+
+```bash
+./baslat.sh --yeniden    # imajları sıfırdan kurarak başlat
+./baslat.sh --durdur     # durdur (veri korunur)
+./baslat.sh --sifirla    # durdur ve TÜM VERİYİ sil
+```
+
+### Ön koşullar
+
+`docker`, `docker compose` (v2) ve `java` (21+). Script yoksa söyler.
+
+### Adresler
+
+| | |
+|---|---|
+| Arayüz | http://localhost:3000 |
+| API belgesi | http://localhost:8090/docs |
+| Keycloak | http://localhost:8080 — `admin` / `admin` |
+| MinIO konsolu | http://localhost:9001 |
+
+Uygulama kullanıcılarının ilk şifresi **12345678**. Keycloak client secret'ı
+da `12345678`; `realm-export.json` içine gömülü olduğu için `.env`'deki
+`KEYCLOAK_CLIENT_SECRET` ile **aynı kalmak zorunda**.
+
+> Realm yalnızca **ilk açılışta** kurulur. `realm-export.json`'ı sonradan
+> değiştirmek mevcut bir Keycloak'ı güncellemez; `--sifirla` gerekir.
+
+### Donanım kodlayıcı — elle değiştirmek
+
+Otomatik tespit yanlışsa `.env`'de düzeltilir (ayrı compose dosyası yok):
+
+```bash
+# NVIDIA
+CHANNELS_ENCODER=NVENC
+VIDEOS_ENCODER=NVENC
+CONTAINER_RUNTIME=nvidia
+NVIDIA_VISIBLE_DEVICES=all
+NVIDIA_DRIVER_CAPABILITIES=video,compute,utility
+MEDIA_DEVICE=/dev/null:/dev/null
+
+# Intel / AMD
+CHANNELS_ENCODER=VAAPI
+CONTAINER_RUNTIME=runc
+MEDIA_DEVICE=/dev/dri:/dev/dri
+```
+
+`MEDIA_DEVICE` neden var: `/dev/dri` sabit yazılsaydı, o aygıtın bulunmadığı
+bir NVIDIA sunucusunda konteyner hiç başlamazdı. `/dev/null` zararsız bir yer
+tutucu.
+
+NVIDIA için host'ta `nvidia-container-toolkit` kurulu olmalı:
+
+```bash
+sudo apt install nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+```
+
+> **NVENC oturum sınırı:** GeForce kartlarda eşzamanlı NVENC oturumu sürücü
+> tarafından sınırlı (genellikle 3-8). Çok kanallı transcode için
+> Quadro/RTX Ada/Tesla sınıfı kart gerekir.
+
+---
+
+## Servisler
+
+Dokuz konteyner. `./baslat.sh` hepsini birlikte ayağa kaldırır.
+
+| Servis | İmaj | Port | Görevi |
+|---|---|---|---|
+| `postgres` | postgres:16 | 5433→5432 | Uygulama verisi |
+| `keycloak-postgres` | postgres:16 | — | Keycloak'ın kendi veritabanı |
+| `keycloak` | keycloak:25 | 8080 | Kimlik ve roller |
+| `minio` | minio:latest | 9000, 9001 | Klip, video, küçük resim |
+| `redis` | redis:7 | 6379 | İş kuyruğu bildirimi |
+| `mediamtx` | özel | 8554, 8888, 9997, 9996 | Yayın sunucusu |
+| `backend` | özel | 8090→8081 | REST API, kontrol düzlemi |
+| `video-worker` | özel | — | ffmpeg işleri |
+| `frontend` | özel | 3000 | Arayüz (nginx) |
+
+### postgres
+
+Kanallar, radyolar, klipler, videolar, kullanıcılar. Şema **Flyway** ile
+yönetiliyor; Hibernate şemayı değiştirmiyor, yalnızca doğruluyor.
+
+Host'ta **5433**'e açılıyor çünkü 5432'yi makinede kurulu PostgreSQL tutabiliyor.
+Compose ağı içinde adres yine `postgres:5432`.
+
+### keycloak-postgres
+
+Keycloak'ın verisi uygulama verisinden **ayrı** tutuluyor: Keycloak sürüm
+yükseltmeleri kendi şemasını değiştiriyor ve bunun uygulama tablolarıyla aynı
+veritabanında olması geri dönüşü zorlaştırırdı. Dışarı port açmıyor.
+
+### keycloak
+
+`start-dev --import-realm` ile açılıyor. Realm tanımı
+`src/main/docker/keycloak/realm-export.json`.
+
+> **Realm yalnızca ilk açılışta kurulur.** Dosya sonradan değiştirilirse
+> mevcut Keycloak güncellenmez — `./baslat.sh --sifirla` gerekir.
+
+Backend Keycloak'ı üç şekilde kullanıyor: token doğrulama (OIDC), kullanıcı
+yönetimi (Admin REST API, service account ile) ve şifre doğrulama
+(direct grant).
+
+### minio
+
+S3 uyumlu nesne depolama. `klipler` ve `videolar` kovaları açılışta
+kendiliğinden oluşturuluyor.
+
+**Dosyalar backend'den geçmiyor:** yükleme imzalı PUT adresiyle doğrudan
+tarayıcıdan, indirme imzalı GET adresiyle doğrudan MinIO'dan. 5 GB'lık bir
+dosyayı backend üzerinden akıtmak canlı yayın API'siyle aynı süreci
+dakikalarca meşgul ederdi.
+
+### redis
+
+Klip ve video kuyruklarının **bildirim kanalı** — doğruluk kaynağı değil.
+İşin kalıcı hali veritabanında; Redis çökse iş kaybolmaz, yalnızca gecikme
+süpürücünün aralığına düşer.
+
+### mediamtx
+
+Yayın sunucusu. Kaynağı çeker, HLS üretir, DVR kaydı yazar, geçmişten oynatır.
+
+Özel imaj çünkü resmi imaj `scratch` tabanlı — içinde kabuk bile yok. Rendition
+üretimi ve radyo köprüsü `runOnAvailable`/`runOnInit` kancalarıyla **konteynerin
+içinde** ffmpeg çalıştırıyor, dolayısıyla ffmpeg oraya girmek zorunda. İmaj
+ayrıca kendi VAAPI sürücüsünü (iHD) taşıyor.
+
+| Port | Ne |
+|---|---|
+| 8554 | RTSP |
+| 8888 | HLS (tarayıcı buradan izliyor) |
+| 9997 | REST API (backend path'leri buradan yönetiyor) |
+| 9996 | Geriye sarma — **yalnızca 127.0.0.1**, yetkilendirme backend'de |
+
+### backend
+
+Quarkus. Kanal/radyo/video/klip yönetimi, kimlik, MediaMTX'e path yazma.
+Video **içeriği** buradan geçmiyor; tek istisna geriye sarma akışı, o da
+yetkilendirme gerektirdiği için.
+
+### video-worker
+
+Backend ile **aynı jar**, üstüne ffmpeg eklenmiş ikinci imaj. Küçük resim,
+önizleme klibi, faststart remux ve metadata çıkarımı burada.
+
+Ayrı olmasının sebebi ffmpeg'in backend imajını ~300 MB büyütmesi ve REST
+sürecinin onu hiç kullanmaması. Sorumluluk ayrımı ortam değişkenleriyle:
+`VIDEOS_WORKER_ENABLED=true` burada, `CLIPS_WORKER_ENABLED=true` backend'de.
+
+### frontend
+
+React + Vite, nginx ile sunuluyor. nginx `/api/` yolunu backend'e proxy'liyor,
+bu yüzden tarayıcı **tek origin** görüyor ve API çağrılarında CORS devreye
+girmiyor.
+
+---
+
+## `.env` alanları
+
+`.env` gitignore'da. `./baslat.sh` yoksa üretir; **varsa dokunmaz**.
+Yeniden ürettirmek için silip scripti tekrar çalıştırın.
+
+### Profil
+
+| Alan | Değerler | Açıklama |
+|---|---|---|
+| `QUARKUS_PROFILE` | `prod` \| `dev` | `dev` SQL loglarını açar ve konsol çıktısını okunur yapar. Konteynerde `prod` önerilir. |
+
+### Veritabanı
+
+| Alan | Örnek | Açıklama |
+|---|---|---|
+| `POSTGRES_USER` | `app_user` | Uygulama veritabanı kullanıcısı |
+| `POSTGRES_PASSWORD` | serbest | **Üretimde mutlaka değiştirin.** İlk açılışta oluşturulur; sonradan değiştirmek için `--sifirla` gerekir |
+| `KEYCLOAK_DB_USER` | `keycloak` | Keycloak'ın veritabanı kullanıcısı |
+| `KEYCLOAK_DB_PASSWORD` | serbest | Aynı uyarı |
+
+### Keycloak
+
+| Alan | Değer | Açıklama |
+|---|---|---|
+| `KEYCLOAK_CLIENT_SECRET` | `12345678` | **`realm-export.json` içindekiyle AYNI olmak zorunda.** Farklı olursa giriş sessizce başarısız olur |
+| `KEYCLOAK_CLIENT_ID` | `Yayın_App` | Realm'deki client adı — değiştirilirse realm dosyası da değişmeli |
+| `KEYCLOAK_REALM` | `YayinYonetimi` | Realm adı |
+| `KEYCLOAK_ADMIN` / `_PASSWORD` | `admin` / `admin` | Keycloak yönetim konsolu girişi. **Üretimde değiştirin** |
+| `KEYCLOAK_BOOTSTRAP_PASSWORD` | `12345678` | Realm import edilirken tanımlı kullanıcılara verilen ilk şifre |
+
+### Nesne depolama
+
+| Alan | Örnek | Açıklama |
+|---|---|---|
+| `MINIO_ROOT_USER` | `minio_admin` | MinIO erişim anahtarı |
+| `MINIO_ROOT_PASSWORD` | serbest | **En az 8 karakter.** İlk açılışta belirlenir |
+
+### Tarayıcıda açılan adresler ⚠️
+
+Bu üçü **en sık hata kaynağı**. `localhost` yazılırsa ağdaki başka bir cihaz
+onu kendi makinesi sanar; yayın da indirme de çalışmaz.
+
+| Alan | Örnek | Açıklama |
+|---|---|---|
+| `MEDIAMTX_HLS_BASE_URL` | `http://192.168.1.20:8888` | Oynatıcının bağlanacağı adres. Makinenin **LAN IP'si** olmalı |
+| `MINIO_PUBLIC_URL` | `http://192.168.1.20:9000` | İmzalı adresler bununla üretilir. S3 imzası Host başlığını kapsadığı için **sonradan değiştirilemez** |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,http://192.168.1.20:3000` | Virgülle ayrılır. `/…/` ile sarılan girdi **regex** sayılır: `/https?://192\.168\.1\.[0-9]+(:[0-9]+)?/`. Regex içinde **virgül kullanmayın** — liste ayracı |
+
+> IP değişirse bu üçü de değişmeli. En kolayı: `.env`'i silip `./baslat.sh`.
+
+### Donanım kodlayıcı
+
+| Alan | Değerler | Açıklama |
+|---|---|---|
+| `CHANNELS_ENCODER` | `NVENC` \| `VAAPI` \| `YAZILIM` | Kanal rendition'ları — **mediamtx** konteynerinde çalışır |
+| `VIDEOS_ENCODER` | aynı | Kütüphane işleri — **video-worker**'da çalışır. Ayrı, çünkü iki konteyner farklı aygıtlara erişebilir |
+| `CONTAINER_RUNTIME` | `runc` \| `nvidia` | NVIDIA için `nvidia` |
+| `NVIDIA_VISIBLE_DEVICES` | boş \| `all` \| `0,1` | Hangi GPU'lar açılacak |
+| `NVIDIA_DRIVER_CAPABILITIES` | boş \| `video,compute,utility` | **`video` şart** — yoksa NVENC/NVDEC görünmez |
+| `MEDIA_DEVICE` | `/dev/dri:/dev/dri` \| `/dev/null:/dev/null` | mediamtx'e geçirilen aygıt. NVIDIA'da `/dev/dri` olmayabilir, o yüzden `/dev/null` |
+| `WORKER_MEDIA_DEVICE` | aynı | video-worker için |
+
+### Yol
+
+| Alan | Varsayılan | Açıklama |
+|---|---|---|
+| `DVR_PATH` | `./mediamtx-data/recordings` | DVR kayıtları. **Üretimde büyük diski gösterin**: 16 kanal × 7 gün × 6 Mbps ≈ 7,3 TB |
+
+### İsteğe bağlı ince ayar
+
+`.env`'de bulunmuyorlar; gerekirse eklenir.
+
+| Alan | Varsayılan | Açıklama |
+|---|---|---|
+| `CHANNELS_MAX_ACTIVE` | `16` | Aynı anda yayında olabilecek kanal. Donanım sınırını yansıtır |
+| `RADIOS_MAX_ACTIVE` | `32` | Radyolar ayrı sayılır — maliyeti aynı ölçekte değil (~%2.6 CPU) |
+| `RADIOS_DEFAULT_BITRATE` | `128k` | Köprü modunda üretilen AAC bit hızı |
+| `CHANNELS_HLS_MAX_SEGMENT_BYTES` | `3670016` | Master playlist'ten seçilecek varyantın segment üst sınırı. MediaMTX ~4 MB'ta düşüyor |
+| `CHANNELS_GPU_FULL_PIPELINE` | `true` | NVENC'te kareler GPU'da kalsın mı. Sürücü sorun çıkarırsa `false` |
+| `CLIPS_MAX_DURATION_MINUTES` | `120` | Klip üst sınırı |
+| `CLIPS_CONCURRENCY` | `2` | Eşzamanlı klip. Yüksek tutulursa canlı yayın etkilenir |
+| `CLIPS_URL_TTL` | `15` | İmzalı indirme adresi ömrü (dakika) |
+| `VIDEOS_MAX_UPLOAD_BYTES` | `5368709120` | 5 GB. S3 tek PUT sınırı |
+| `VIDEOS_STREAM_TTL_HOURS` | `6` | İzleme adresi ömrü. Kısa olursa video **ortasında** ileri sarma 403 alır |
+| `VIDEOS_ALLOWED_EXTENSIONS` | `mp4,webm,mov,m4v` | Erken süzgeç; gerçek doğrulama işçide ffprobe ile |
+| `VIDEOS_CONCURRENCY` | `2` | Eşzamanlı video işi |
+| `VIDEOS_PREVIEW_SECONDS` | `5` | Önizleme klibi süresi |
+| `VIDEOS_FFMPEG_TIMEOUT` | `30` | ffmpeg üst sınırı (dakika) |
+
+---
+
 ## İçindekiler
 
 - [Ne yapar](#ne-yapar)

@@ -1,0 +1,59 @@
+# Video işçisi: backend ile AYNI jar, üstüne ffmpeg.
+#
+# Neden ayrı imaj: thumbnail, önizleme klibi ve faststart remux ffmpeg
+# gerektiriyor, ama backend imajına ffmpeg eklemek onu ~300 MB büyütür ve
+# REST sürecinin hiç kullanmayacağı bir bağımlılık taşır.
+#
+# Neden ayrı bir servis/dil DEĞİL: veritabanı, MinIO ve Redis istemcileri,
+# entity'ler ve durum makinesi zaten yazılı. İkinci bir dilde yeniden yazmak
+# iki ayrı doğruluk kaynağı demek olurdu.
+#
+# Build etmeden önce (backend ile aynı):
+#   ./mvnw package
+#
+# Hangi işlerin çalışacağı ortam değişkenleriyle belirleniyor:
+#   VIDEOS_WORKER_ENABLED=true   -> video işleri bu konteynerde
+#   CLIPS_WORKER_ENABLED=false   -> klipler backend'de kalsın
+
+# TABAN DEGISTI: onceki surum UBI9 + johnvansickle statik ffmpeg kullaniyordu.
+# O yapida NE nvenc NE vaapi vardi (yalnizca libx264), yani CUDA/VAAPI
+# secenekleri kagit uzerinde kalirdi. Ubuntu'nun ffmpeg paketi h264_nvenc,
+# h264_vaapi ve h264_qsv'yi birlikte getiriyor -- mediamtx imajindakiyle
+# ayni kodlayici kumesi.
+FROM eclipse-temurin:21-jre-noble
+
+# ffmpeg + ffprobe. VAAPI calisma zamani da ekleniyor; NVENC icin ayrica
+# host'ta NVIDIA surucusu ve nvidia-container-toolkit gerekiyor, kutuphaneler
+# konteynere calisma zamaninda baglaniyor.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ffmpeg \
+      libva2 \
+      libva-drm2 \
+ && rm -rf /var/lib/apt/lists/*
+
+# Quarkus'un beklediği düzen. UBI imajındaki run-java.sh burada olmadığı için
+# bellek ayarları aşağıda elle veriliyor.
+WORKDIR /deployments
+COPY --chown=1000 target/quarkus-app/lib/ /deployments/lib/
+COPY --chown=1000 target/quarkus-app/*.jar /deployments/
+COPY --chown=1000 target/quarkus-app/app/ /deployments/app/
+COPY --chown=1000 target/quarkus-app/quarkus/ /deployments/quarkus/
+
+# Kök olmayan kullanıcı. VAAPI kullanılacaksa bu kullanıcının /dev/dri'ye
+# erişebilmesi gerekir (compose'da group_add ile video grubu).
+RUN useradd -u 1000 -m -s /usr/sbin/nologin isci || true
+USER 1000
+
+# İşçi HTTP sunmuyor ama Quarkus yine de bir port açıyor; backend'inkiyle
+# çakışmasın diye farklı.
+EXPOSE 8082
+
+# MaxRAMPercentage: UBI'nin run-java.sh betiği bunu kendisi hesaplıyordu.
+ENTRYPOINT ["java", \
+  "-XX:MaxRAMPercentage=80.0", \
+  "-XX:+ExitOnOutOfMemoryError", \
+  "-Dquarkus.http.host=0.0.0.0", \
+  "-Dquarkus.http.port=8082", \
+  "-Djava.util.logging.manager=org.jboss.logmanager.LogManager", \
+  "-jar", "/deployments/quarkus-run.jar"]

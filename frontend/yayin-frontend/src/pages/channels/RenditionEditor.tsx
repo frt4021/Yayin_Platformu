@@ -47,24 +47,47 @@ export function fromSpec(spec: string): Rendition[] {
 export function RenditionEditor({
   rows,
   onChange,
+  sourceWidth,
+  sourceHeight,
 }: {
   rows: Rendition[]
   onChange: (rows: Rendition[]) => void
+  /** Kaynağın tespit edilen çözünürlüğü; bilinmiyorsa null. */
+  sourceWidth?: number | null
+  sourceHeight?: number | null
 }) {
   function update(index: number, patch: Partial<Rendition>) {
     onChange(rows.map((r, i) => (i === index ? { ...r, ...patch } : r)))
   }
 
   function addPreset() {
-    // Sırada olmayan ilk hazır seçeneği ekle; hepsi eklendiyse boş satır.
-    const missing = PRESETS.find((p) => !rows.some((r) => r.suffix === p.suffix))
+    // Kaynaktan yuksek preset'ler hic onerilmiyor: backend zaten reddediyor,
+    // once eklettirip sonra hata gostermek gereksiz bir tur olurdu.
+    const usable = PRESETS.filter(
+      (p) => !sourceHeight || Number(p.height) <= sourceHeight,
+    )
+    const missing = usable.find((p) => !rows.some((r) => r.suffix === p.suffix))
     onChange([...rows, missing ?? { suffix: '', width: '', height: '', bitrate: '' }])
+  }
+
+  /** Kaynaktan yüksek satırlar işaretleniyor; backend bunları reddedecek. */
+  function exceedsSource(row: Rendition) {
+    return Boolean(sourceHeight) && Number(row.height) > Number(sourceHeight)
   }
 
   return (
     <div className="flex flex-col gap-2 rounded-lg border p-3">
       <div className="flex items-center justify-between">
-        <Label>Çözünürlük merdiveni</Label>
+        <div className="flex items-center gap-2">
+          <Label>Çözünürlük merdiveni</Label>
+          {sourceHeight ? (
+            <span className="text-xs text-muted-foreground">
+              kaynak: {sourceWidth}x{sourceHeight}
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">kaynak çözünürlüğü bilinmiyor</span>
+          )}
+        </div>
         <Button type="button" size="sm" variant="outline" onClick={addPreset}>
           <PlusIcon />
           Ekle
@@ -78,7 +101,8 @@ export function RenditionEditor({
       ) : (
         <div className="flex flex-col gap-2">
           {rows.map((r, i) => (
-            <div key={i} className="grid grid-cols-[5rem_4rem_4rem_5rem_auto] items-center gap-1.5">
+            <div key={i} className="flex flex-col gap-1">
+            <div className="grid grid-cols-[5rem_4rem_4rem_5rem_auto] items-center gap-1.5">
               <Input
                 aria-label="Ad"
                 placeholder="720p"
@@ -114,6 +138,13 @@ export function RenditionEditor({
               >
                 <XIcon />
               </Button>
+            </div>
+            {exceedsSource(r) && (
+              <p className="text-xs text-destructive">
+                Kaynaktan yüksek ({sourceWidth}x{sourceHeight}) — kaydedilemez.
+                Büyütme ayrıntı kazandırmaz, yalnızca bant genişliği ve GPU harcar.
+              </p>
+            )}
             </div>
           ))}
         </div>

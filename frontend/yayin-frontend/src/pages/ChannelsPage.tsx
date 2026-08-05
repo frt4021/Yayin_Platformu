@@ -30,10 +30,16 @@ const REFRESH_MS = 15000
 function statusBadge(channel: ChannelDto) {
   if (!channel.active) return <Badge variant="outline">Pasif</Badge>
   // streaming null ise MediaMTX'e ulaşılamamış demektir — "akmıyor" demek
-  // yanıltıcı olurdu, kanal pekâlâ yayında olabilir.
-  if (channel.streaming === null) return <Badge variant="outline">Bilinmiyor</Badge>
-  if (!channel.streaming) return <Badge variant="destructive">Akmıyor</Badge>
-  return <Badge>Yayında</Badge>
+  // yanıltıcı olurdu, kanal pekâlâ yayında olabilir. Bilinmezlik arızadan
+  // farklı bir durum, o yüzden uyarı rengi.
+  if (channel.streaming === null) return <Badge variant="warning">Bilinmiyor</Badge>
+  if (!channel.streaming) return <Badge variant="error">Akmıyor</Badge>
+  return (
+    <Badge variant="success" className="gap-1.5">
+      <span className="size-1.5 animate-pulse rounded-full bg-status-success" />
+      Yayında
+    </Badge>
+  )
 }
 
 export function ChannelsPage() {

@@ -228,7 +228,25 @@ export function ChannelFormDialog({
               )}
             </div>
 
-            <RenditionEditor rows={renditions} onChange={setRenditions} />
+            <RenditionEditor
+              rows={renditions}
+              onChange={setRenditions}
+              sourceWidth={channel?.sourceWidth}
+              sourceHeight={channel?.sourceHeight}
+            />
+
+            {channel?.resolvedSourceUrl && (
+              // Master playlist verilmis ve uygulama bir varyant secmis.
+              // Kullanicinin girdigi adresle MediaMTX'e yazilan adres
+              // farkli oldugu icin bunu gizlemek yaniltici olurdu.
+              <p className="text-xs text-muted-foreground">
+                MediaMTX'e yazılan adres, master playlist'ten seçilen varyant:{' '}
+                <code className="break-all">{channel.resolvedSourceUrl}</code>
+                <br />
+                En yüksek varyant MediaMTX'in segment sınırını aştığı için otomatik
+                olarak daha düşüğü seçildi.
+              </p>
+            )}
           </DialogBody>
 
           {/* Kaydırma alanının dışında: hata Kaydet'e basınca çıkıyor, gövdenin

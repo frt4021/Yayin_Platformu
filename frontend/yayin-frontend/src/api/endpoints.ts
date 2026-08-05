@@ -7,12 +7,19 @@ import type {
   ClipLinks,
   CreateClipRequest,
   CreateUserRequest,
+  CreateVideoRequest,
+  RadioDto,
+  RadioRequest,
   RestoreResult,
   Role,
   SyncResultDto,
   TimelineSpan,
   TokenResponse,
+  UpdateVideoRequest,
+  UploadTicket,
   UserDto,
+  VideoDto,
+  VideoLinks,
 } from './types'
 
 /** Backend uçlarının tek tanım yeri; bileşenler ham yol string'i taşımaz. */
@@ -66,6 +73,60 @@ export const channelsApi = {
 
   /** Aktif kanalları MediaMTX'e yeniden yazar; MediaMTX bağımsız yeniden başlatıldığında gerekir. */
   restore: () => api.post<RestoreResult>('/api/channels/restore'),
+}
+
+export const radiosApi = {
+  list: () => api.get<RadioDto[]>('/api/radios'),
+
+  create: (request: RadioRequest) => api.post<RadioDto>('/api/radios', request),
+
+  update: (id: string, request: RadioRequest) =>
+    api.put<RadioDto>(`/api/radios/${id}`, request),
+
+  remove: (id: string) => api.delete<void>(`/api/radios/${id}`),
+
+  /** Kanal kapasitesinden ayrı sayaç: radyonun maliyeti aynı ölçekte değil. */
+  capacity: () => api.get<Capacity>('/api/radios/capacity'),
+
+  restore: () => api.post<RestoreResult>('/api/radios/restore'),
+}
+
+export const videosApi = {
+  list: (query?: string, offset = 0, limit = 50) => {
+    const params = new URLSearchParams({ offset: String(offset), limit: String(limit) })
+    if (query) params.set('q', query)
+    return api.get<VideoDto[]>(`/api/videos?${params}`)
+  },
+
+  get: (id: string) => api.get<VideoDto>(`/api/videos/${id}`),
+
+  /** İzleme ve indirme adresleri; yalnızca oynatma anında isteniyor. */
+  links: (id: string) => api.get<VideoLinks>(`/api/videos/${id}/links`),
+
+  /**
+   * Yüklemeyi başlatır. Dosya bu istekte GİTMEZ — yanıttaki imzalı adrese
+   * ayrıca PUT edilir (bkz. uploadToStorage).
+   */
+  startUpload: (request: CreateVideoRequest) =>
+    api.post<UploadTicket>('/api/videos', request),
+
+  completeUpload: (id: string) => api.post<VideoDto>(`/api/videos/${id}/tamamlandi`, {}),
+
+  update: (id: string, request: UpdateVideoRequest) =>
+    api.put<VideoDto>(`/api/videos/${id}`, request),
+
+  /**
+   * Küçük resim olarak görsel yükler. Video dosyasının aksine bu BACKEND
+   * ÜZERİNDEN gidiyor: birkaç yüz kilobayt için imzalı adres dansı kurmak
+   * gereksiz olurdu.
+   */
+  uploadThumbnail: (id: string, file: File) => {
+    const form = new FormData()
+    form.append('dosya', file)
+    return api.postForm<VideoDto>(`/api/videos/${id}/kucukresim`, form)
+  },
+
+  remove: (id: string) => api.delete<void>(`/api/videos/${id}`),
 }
 
 export const dvrApi = {

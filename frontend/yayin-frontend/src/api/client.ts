@@ -93,7 +93,12 @@ interface RequestOptions {
 
 async function request<T>(path: string, options: RequestOptions = {}, retry = true): Promise<T> {
   const headers: Record<string, string> = {}
-  if (options.body !== undefined) headers['Content-Type'] = 'application/json'
+
+  // FormData'da Content-Type ELLE AYARLANMAMALI: tarayıcı multipart sınır
+  // dizgisini (boundary) kendisi üretip başlığa ekliyor. Elle yazılırsa
+  // boundary eksik kalır ve sunucu gövdeyi çözemez.
+  const isForm = options.body instanceof FormData
+  if (options.body !== undefined && !isForm) headers['Content-Type'] = 'application/json'
 
   if (!options.anonymous) {
     const tokens = readTokens()
@@ -103,7 +108,12 @@ async function request<T>(path: string, options: RequestOptions = {}, retry = tr
   const response = await fetch(path, {
     method: options.method ?? 'GET',
     headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body:
+      options.body === undefined
+        ? undefined
+        : isForm
+          ? (options.body as FormData)
+          : JSON.stringify(options.body),
   })
 
   // Access token varsayılan olarak 5 dakikada doluyor; yenilemeden sayfa
@@ -124,6 +134,9 @@ export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown, opts?: { anonymous?: boolean }) =>
     request<T>(path, { method: 'POST', body, anonymous: opts?.anonymous }),
+  /** Dosya yükleme; Content-Type'ı tarayıcı belirler (bkz. request). */
+  postForm: <T>(path: string, form: FormData) =>
+    request<T>(path, { method: 'POST', body: form }),
   put: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 }
