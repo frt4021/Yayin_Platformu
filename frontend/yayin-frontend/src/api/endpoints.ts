@@ -1,5 +1,6 @@
 import { api } from './client'
 import type {
+  StopRecordingResult,
   ScheduledRecordingDto,
   CreateScheduledRecordingRequest,
   Capacity,
@@ -142,9 +143,14 @@ export const recordingsApi = {
   start: (channelId: string) =>
     api.post<ActiveRecordingDto>(`/api/channels/${channelId}/clips/kayit`, {}),
 
-  /** Durdurma klip işi açar; yanıt 202 ve dosya henüz yoktur. */
+  /**
+   * Durdurma klip işi açar; yanıt 202 ve dosya henüz yoktur.
+   *
+   * <p>Klip açılamasa bile 202 döner — kayıt durmuştur. Sebep
+   * {@code error} alanında; çağıran ikisini ayırmalı.
+   */
   stop: (channelId: string) =>
-    api.delete<ClipDto>(`/api/channels/${channelId}/clips/kayit`),
+    api.delete<StopRecordingResult>(`/api/channels/${channelId}/clips/kayit`),
 
   active: () => api.get<ActiveRecordingDto[]>('/api/clips/kayitlar/devam-eden'),
 }

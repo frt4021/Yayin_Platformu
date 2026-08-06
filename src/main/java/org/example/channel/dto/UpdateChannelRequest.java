@@ -9,7 +9,7 @@ import jakarta.validation.constraints.Size;
  * Kanal güncelleme. PUT semantiği: tüm alanlar gönderilir, gönderilen hal
  * kanalın yeni hali olur.
  *
- * <p><b>renditions ve dvrRendition {@code @NotNull}</b> — eksik gönderilirse
+ * <p><b>renditions {@code @NotNull}</b> — eksik gönderilirse
  * 400 döner. Bu alanlar sonradan eklendi ve eski bir istemci onları
  * göndermediğinde PUT semantiği gereği sessizce siliniyorlardı: kanalın
  * çözünürlük merdiveni ve kayıt ayarı, kimse fark etmeden kayboluyordu.
@@ -27,8 +27,6 @@ public record UpdateChannelRequest(
     boolean active,
     boolean dvrEnabled,
     @NotNull(message = "gönderilmeli; merdiveni temizlemek için boş string yollayın")
-    @Size(max = 512) String renditions,
-    @NotNull(message = "gönderilmeli; kaynaktan kaydetmek için boş string yollayın")
-    @Size(max = 32) String dvrRendition
+    @Size(max = 512) String renditions
 ) {
 }

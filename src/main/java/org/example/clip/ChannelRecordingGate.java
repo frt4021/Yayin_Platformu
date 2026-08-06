@@ -4,6 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.example.channel.MediaMtxService;
 import org.example.channel.entity.Channel;
+import org.example.exception.AppException;
 import org.example.clip.entity.ActiveRecording;
 import org.example.clip.entity.ScheduledRecording;
 import org.jboss.logging.Logger;
@@ -38,6 +39,7 @@ public class ChannelRecordingGate {
      *         açıksa {@code false} döner ve hiçbir şeye dokunulmaz.
      */
     public boolean acquire(Channel channel) {
+        requireLive(channel);
         if (channel.dvrEnabled) {
             return false;
         }
@@ -85,8 +87,32 @@ public class ChannelRecordingGate {
         }
     }
 
+    /**
+     * Kanalın <b>gerçekten yayında</b> olduğunu doğrular.
+     *
+     * <p>Yayın akmıyorsa MediaMTX kaydı açar, klasörü oluşturur ve içine
+     * hiçbir şey yazmaz. Kullanıcı dakikalarca kaydettiğini sanır, durdurduğunda
+     * "bu aralıkta kayıt bulunamadı" alır. Baştan reddetmek dürüst: kaybedilen
+     * bir şey yok, çünkü kaydedilecek bir şey de yoktu.
+     *
+     * <p>MediaMTX'e ulaşılamıyorsa <b>engellemiyoruz</b>: {@code pathStates()}
+     * o durumda boş harita dönüyor ve bunu "yayın yok" saymak, medya
+     * sunucusunun anlık bir aksaklığında kaydı gereksizce reddederdi.
+     */
+    private void requireLive(Channel channel) {
+        var states = mediaMtx.pathStates();
+        if (states.isEmpty()) {
+            return;
+        }
+        var state = states.get(channel.mediamtxPath);
+        if (state == null || !state.ready()) {
+            throw AppException.badRequest(
+                "Bu kanal şu anda yayında değil, kayıt alınamaz: " + channel.name);
+        }
+    }
+
     private void apply(Channel channel, boolean record) {
         mediaMtx.applyPath(channel.mediamtxPath, channel.effectiveSourceUrl(),
-            record, channel.renditions, channel.dvrRendition);
+            record, channel.renditions);
     }
 }

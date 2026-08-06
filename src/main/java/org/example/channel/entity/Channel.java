@@ -106,8 +106,6 @@ public class Channel extends PanacheEntityBase {
      * diskte %29 tasarruf. Kayıt her zaman kaynaktan alınsaydı 7 günlük DVR
      * gereksiz yere büyürdü.
      */
-    @Column(name = "dvr_rendition", nullable = false, length = 32)
-    public String dvrRendition = "";
 
     /**
      * Kaydın gerçekte yazıldığı MediaMTX path'i.
@@ -115,8 +113,15 @@ public class Channel extends PanacheEntityBase {
      * <p>Geriye sarma ve klip çıkarma bu path üzerinden yapılmalı; kaynak
      * path'ine bakılırsa kayıt bulunamaz.
      */
+    /**
+     * Kaydın okunacağı path — <b>kaynak</b>.
+     *
+     * <p>Eskiden bir rendition'a yazılıyordu; kalite kaybı ve rendition
+     * düştüğünde sessizce boş kalan kayıtlar yüzünden vazgeçildi. Bkz.
+     * {@link org.example.channel.MediaMtxService#applyPath}.
+     */
     public String recordingPath() {
-        return dvrRendition.isBlank() ? mediamtxPath : mediamtxPath + "_" + dvrRendition;
+        return mediamtxPath;
     }
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)

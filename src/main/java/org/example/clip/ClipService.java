@@ -82,7 +82,12 @@ ClipService {
         if (channel == null) {
             throw AppException.notFound("Kanal bulunamadı: " + channelId);
         }
-        if (!channel.dvrEnabled) {
+        // Geriye sarma sarti YALNIZCA aralik seciminde. Manuel ve planli
+        // kayitta kanalin DVR'i kapali olabilir: kayit is suresince
+        // aciliyor (ChannelRecordingGate) ve bitince geri kapaniyor, yani
+        // istenen aralik diske YAZILMIS oluyor. Burada koru koru reddetmek,
+        // kaydin durdurulup hicbir klip uretilmemesine yol aciyordu.
+        if (origin == ClipOrigin.ARALIK && !channel.dvrEnabled) {
             throw AppException.badRequest("Bu kanalda geriye sarma kapalı: " + channel.name);
         }
 

@@ -47,6 +47,10 @@ NVIDIA ve Intel/AMD için hazır örnekler var.
 ./baslat.sh --sifirla    # durdur ve TÜM VERİYİ sil
 ```
 
+> **`--sifirla` geri alınamaz.** `docker compose down -v` çalıştırır: kanallar,
+> radyolar, kullanıcılar, klipler ve yüklenen videolar dahil her şey gider.
+> Yalnızca temiz bir kurulum istediğinde kullan.
+
 > **`--zorla` kurulu bir sistemde dikkat ister.** Veritabanı ve MinIO
 > parolaları volume ilk oluşturulurken içine gömülüyor; yeni `.env` farklı
 > parola yazarsa bağlantı kopar. Script bunu fark edip onay soruyor ve eskisini
@@ -372,7 +376,6 @@ politikayı logluyor.
 - [MediaMTX'e binen yük](#mediamtxe-binen-yük)
 - [Depolama hesabı](#depolama-hesabı)
 - [Bilinçli tasarım kararları](#bilinçli-tasarım-kararları)
-- [Bilinen eksikler](#bilinen-eksikler)
 - [Geliştirme](#geliştirme)
 
 ---
@@ -381,7 +384,8 @@ politikayı logluyor.
 
 | Yetenek | Durum |
 |---|---|
-| Manuel kayıt (kayda başla / durdur) | ✅ |
+| Manuel kayıt (kayda başla / durdur) — **DVR kapalı kanallarda da** | ✅ |
+| Planlı kayıt (geçmiş veya gelecek saat aralığı için kayıt emri) | ✅ |
 | Canlı yayından kare yakalama ve kronolojik galeri | ✅ |
 | Kullanıcı başına depolama kotası ve temizlik politikası | ✅ |
 | Radyo yayınları (Icecast köprüsü dahil) | ✅ |
@@ -394,7 +398,7 @@ politikayı logluyor.
 | Sayfa değiştirince yayının kesilmemesi | ✅ |
 | 7 günlük DVR ve zaman çizelgesi üzerinden geriye sarma | ✅ |
 | Zaman çizelgesinden aralık seçip klip çıkarma | ✅ |
-| İzleyici kimlik doğrulaması (HLS erişimi) | ❌ bkz. [Bilinen eksikler](#bilinen-eksikler) |
+| İzleyici kimlik doğrulaması (HLS erişimi) | ❌ bkz. `notlar.md` |
 | Uyarlanabilir bit hızı (transcode) | ❌ kaynak ne veriyorsa o dağıtılır |
 
 ### Roller
@@ -404,9 +408,22 @@ Keycloak'ta `Yayın_App` client'ının **client rolleri** olarak tanımlıdır
 
 | Rol | Yetki |
 |---|---|
-| `Yönetici` | Her şey — kullanıcı yönetimi dahil |
-| `Moderatör` | Kanal ve klip yönetimi; kullanıcı yönetemez |
-| `İzleyici` | Salt okuma — izler, geriye sarar |
+| `Yönetici` | Her şey — kullanıcı yönetimi dahil; başkasının klibini, videosunu, kaydını görür ve yönetir |
+| `Moderatör` | Kanal ve radyo yönetimi, video yükleme; kullanıcı yönetemez |
+| `İzleyici` | Kendi adına kayıt, klip ve kare yakalar; kütüphaneyi görür ama **video yükleyemez** |
+
+#### Görünürlük kuralı
+
+İki farklı model var; karıştırmak kolay:
+
+| İçerik | Kim görür | Kim üretir |
+|---|---|---|
+| Klip, kayıt, ekran görüntüsü | **yalnızca sahibi** (+ yönetici) | giriş yapmış herkes |
+| Video kütüphanesi | **herkes** | Yönetici, Moderatör |
+
+Klip ve ekran görüntüsü kişisel kayıt içeriği — varsayılan kapalı olmalı.
+Kütüphane ise paylaşılan bir arşiv. Kütüphanede düzenleme ve silme yine
+sahibine özel; yönetici tümüne dokunabilir.
 
 ---
 
@@ -453,7 +470,7 @@ başlatılması yayını kesmez.
 | Keycloak | 8080 | Kimlik |
 | PostgreSQL | 5433 | Uygulama verisi |
 | MinIO | 9000 / 9001 | Klip dosyaları |
-| Redis | 6379 | Şu an kullanılmıyor |
+| Redis | 6379 | Klip/video iş bildirimi (`BLMOVE`) |
 
 ---
 
@@ -502,6 +519,10 @@ adresler olmalı. Container içi isimler (`http://mediamtx:8888`) yazılırsa
 oynatıcı yayını bulamaz, indirme çalışmaz.
 
 ### 2. Backend'i paketleyin
+
+> **Sıra önemli.** `docker compose build backend` imajı `target/quarkus-app`'tan
+> kopyalıyor, Maven'ı kendisi çalıştırmıyor. Paketlemeyi atlarsan imaj eski
+> kodla kurulur ve yeni migration'lar *sessizce* uygulanmaz.
 
 ```bash
 ./mvnw clean package -DskipTests
@@ -592,6 +613,63 @@ Kanallar sayfasındaki "MediaMTX'e yeniden yaz" düğmesiyle elle tetiklenir.
 4. Kullanıcı Klipler sayfasından izler veya indirir
    → GET /api/clips/{id}/links → imzalı MinIO adresleri
 ```
+
+### Kayıt: manuel ve planlı
+
+Üçünün de **ürettiği şey aynı**: bir klip. Ayrıldıkları yer, aralığın nasıl
+belirlendiği.
+
+| | Aralık nasıl belirlenir | Uç |
+|---|---|---|
+| Aralık seçimi | çizelgeden sürükleyerek | `POST /api/channels/{id}/clips` |
+| Manuel kayıt | başlat → durdur, bitiş **o anda** | `POST …/clips/kayit` |
+| Planlı kayıt | başlangıç ve bitiş **baştan** verilir | `POST …/planli-kayitlar` |
+
+Planlı kayıtta aralık geçmişte, şu anda ya da **gelecekte** olabilir. Tamamen
+geçmişteyse beklenmez, klip hemen açılır; aksi halde emir kuyruğa girer ve
+30 saniyede bir dönen zamanlayıcı yürütür:
+
+```
+BEKLIYOR ──(başlangıç geldi)──► KAYITTA ──(bitiş geçti)──► TAMAMLANDI
+    │                              │                          │
+    └──────── IPTAL ───────────────┘                    veya BASARISIZ
+```
+
+Emirler veritabanında; sunucu kapalıyken aralığı geçen bir emir açılışta
+toplanır. Bellekte zamanlanmış görev olsaydı yeniden başlatmada sessizce
+düşerdi.
+
+#### DVR kapalı kanallarda kayıt
+
+Yeni bir kayıt mekanizması yok. Klip hattı, MediaMTX'in diske yazdığı bir
+aralığı MinIO'ya kopyalıyor — arada ffmpeg bile yok, saf bayt aktarımı. Eksik
+olan tek şey, **o aralığın diske yazılmış olması**.
+
+Kanalın geriye sarması kapalıysa kayıt **iş süresince açılıyor**, bitince geri
+kapatılıyor. Kullanıcıdan önce kanal ayarını değiştirmesini istemek, tam da
+kaydedilmek istenen anın kaçırılması demekti.
+
+Manuel ve planlı kayıt aynı kanalda çakışabildiği için kapatma kararı tek bir
+soruya bakıyor: *bu kanalda kaydı kendisi açmış başka bir iş kaldı mı?* Aksi
+halde biri bitince diğerinin aralığı ortasından kesilirdi.
+
+### Nesne depolama düzeni
+
+```
+<kullanıcı>/<kanal>/<id>.mp4        klip ve kayıt
+<kullanıcı>/<kanal>/<id>.jpg        ekran görüntüsü
+<kullanıcı>/<uuid>/kaynak.<uzantı>  kütüphane videosu (kanalı yok)
+```
+
+Kullanıcı en üstte çünkü içerik zaten kullanıcıya özel. Kovaya konsoldan bakan
+biri de aynı ayrımı görsün; kanala göre gruplamak tek bir kullanıcının
+dosyalarını onlarca kanala dağıtıyordu.
+
+Klasör adı okunabilirlik için kullanıcı adından türetiliyor — kimlik olarak
+değil. Türkçe harfler sadeleştiriliyor (`buğra → bugra`, `Ayşe Öz → ayse-oz`).
+**Bilinen sınır:** Keycloak'ta kullanıcı adı değişirse yeni dosyalar yeni
+klasöre gider, eskiler yerinde kalır. Anahtar veritabanında saklandığı için
+hiçbiri kaybolmaz, yalnızca iki klasöre dağılır.
 
 ---
 
@@ -701,23 +779,31 @@ paketliyor. Sonuçları:
 Kurum dışına dağıtım hedefleniyorsa araya bir transcode katmanı gerekir ve
 CPU tablosu tamamen değişir (kanal başına 1+ çekirdek).
 
-### Kuyruk veritabanında, Redis değil
+### Doğruluk veritabanında, bildirim Redis'te
 
-Klip işleri `clips` tablosunda tutulur ve işçi `FOR UPDATE SKIP LOCKED` ile
-alır. Redis stack'te mevcut ama **kullanılmıyor**.
+Klip işinin kalıcı hali `clips` tablosunda; Redis yalnızca **"yeni iş var"**
+haberini taşır. İşçi işi `FOR UPDATE SKIP LOCKED` ile tablodan talep eder —
+tekilliği garanti eden adım budur, Redis değil.
 
-Gerekçe: iş zaten `clips` tablosunda kalıcı olmak zorunda. İki yere birden
-yazmak, biri başarılı diğeri başarısız olduğunda ya kaybolan ya iki kez
-işlenen işler üretirdi. Tek kaynak = tutarlılık sorunu yok.
+**Neden ikisi birden:** iş zaten tabloda kalıcı olmak zorunda, dolayısıyla
+kuyruğu tamamen Redis'e taşımak iki doğruluk kaynağı demek olurdu; biri
+başarılı diğeri başarısız olduğunda ya kaybolan ya iki kez işlenen işler
+çıkardı. Redis'siz tasarımın bedeli ise yoklama gecikmesiydi — iş hazır
+olmasına rağmen bir sonraki taramaya kadar bekliyordu.
 
-Bedeli: yoklama aralığı kadar gecikme (5 sn). Klip üretimi zaten dakikalar
-sürdüğü için önemsiz.
+Bu ayrım sayesinde **Redis tamamen çökse bile hiçbir iş kaybolmaz**; gecikme
+süpürücünün aralığına (`clips.sweep-interval`, varsayılan 60 sn) düşer.
 
-**İleride Redis eklenecek.** Gerekçesi olduğunda: çok sayıda backend kopyası,
-saniye altı iş dağıtımı, ya da kuyruk derinliğinin veritabanını yormaya
-başlaması. O noktada `clips` tablosu doğruluk kaynağı olarak kalmalı ve Redis
-yalnızca bildirim kanalı olmalı — kuyruğu tamamen Redis'e taşımak yukarıdaki
-tutarlılık sorununu geri getirir.
+İki liste kullanılıyor:
+
+| Liste | Ne zaman |
+|---|---|
+| `bekleyen` | yeni iş buraya itilir |
+| `isleniyor` | işçi iş aldığında atomik olarak buraya taşınır |
+
+Taşıma `BLMOVE` ile **tek adımda**. Basit bir `BRPOP` kullanılsaydı, işçi işi
+aldıktan hemen sonra çökerse iş hiçbir listede olmaz ve Redis tarafında iz
+bırakmadan kaybolurdu.
 
 ### Klip üretimi asenkron
 
@@ -746,49 +832,6 @@ Sayfa değiştirince yayının kesilmemesi için oynatıcılar `<Outlet/>`'in
 (mozaik ↔ mini oynatıcı); bileşen ağacı hiç değişmez. Farklı durumlar için
 farklı JSX dalları döndürülseydi React ağacı söker ve her geçişte yayın
 baştan bağlanırdı.
-
----
-
-## Bilinen eksikler
-
-Bunlar bilinen ve kabul edilmiş boşluklar — sürpriz değil, sıradaki iş.
-
-### İstisnaların tamamı düşünülmedi
-
-Şu an yalnızca **öngörülen** hata yolları ele alınmış durumda: MediaMTX
-erişilemezliği, Keycloak yetki hataları, kayıt bulunamaması, kapasite aşımı,
-geçici/kalıcı klip hataları. Bunların dışındaki her şey
-`GenericExceptionMapper`'a düşüp 500 dönüyor.
-
-Detaylandırılacak alanlar:
-
-- MinIO erişilemezliği ve yarım kalan yükleme
-- Klip işçisi süreç ortasında ölürse `ISLENIYOR` durumunda kalan işler —
-  şu an kimse toparlamıyor, elle `BEKLIYOR`'a çekmek gerekir
-- MediaMTX ile veritabanı arasındaki kayma senaryolarının tamamı
-- Eşzamanlı düzenleme çakışmaları (iyimser kilit yok)
-- Disk dolduğunda davranış
-
-### İzleyici kimlik doğrulaması yok
-
-`:8888`'e erişebilen herkes, uygulamaya hiç giriş yapmadan tüm kanalları
-izleyebilir. `mediamtx.yml`'da izleme izni `ips: []` ile herkese açık.
-
-Bu, "video backend'den geçmez" tasarımının doğrudan sonucu: backend video
-isteklerini görmediği için yetki de kontrol edemiyor. Çözüm backend'i araya
-sokmak değil (ölçeklenebilirlik kaybedilir), MediaMTX'in kendi doğrulama
-mekanizmasını kullanmak.
-
-### Diğer
-
-| Eksik | Not |
-|---|---|
-| Tek nokta arızası | MediaMTX kümelenmiyor; düşerse tüm kanallar gider |
-| İzleyici sayısı geç düşer | `hlsMuxerCloseAfter: 1m` — gösterge "son bir dakikada izleyen" |
-| Klip temizliği yok | Süresi dolan klipler silinmiyor, MinIO sınırsız büyür |
-| WebRTC kapalı | MediaMTX'te açık ama `:8889` compose'da yayınlanmamış |
-| Otomatik test yok | Doğrulama elle yapıldı |
-| Paket boyutu | Frontend 965 kB (302 kB gzip); hls.js'in payı ~520 kB |
 
 ---
 

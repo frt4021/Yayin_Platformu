@@ -18,6 +18,23 @@ function gecenSure(startedAt: string): string {
 }
 
 /**
+ * Kaydın süresi — bitiş anı SUNUCUDAN geliyor.
+ *
+ * <p>{@link gecenSure} kullanılamaz: o, tarayıcı saatine göre "şimdi"ye kadar
+ * geçeni ölçüyor. Klibin aralığı sunucuda belirleniyor ve iki saat birkaç
+ * saniye kayabilir; kullanıcıya gerçekte kaydedilen aralık söylenmeli.
+ */
+function sureMetni(start: string, end: string): string {
+  const s = Math.max(0, Math.round((new Date(end).getTime() - new Date(start).getTime()) / 1000))
+  if (s < 60) {
+    return `${s} saniye`
+  }
+  const dk = Math.floor(s / 60)
+  const sn = s % 60
+  return sn === 0 ? `${dk} dakika` : `${dk} dk ${sn} sn`
+}
+
+/**
  * Karo üzerindeki kayıt ve kare yakalama düğmeleri.
  *
  * <p><b>Kare tarayıcıda yakalanıyor.</b> Canvas'a çizilen görüntü kullanıcının
@@ -53,8 +70,19 @@ export function TileActions({
     setBusy(true)
     try {
       if (recording) {
-        await recordingsApi.stop(channel.id)
-        toast.success('Kayıt durduruldu, klip hazırlanıyor.')
+        const sonuc = await recordingsApi.stop(channel.id)
+        // Durdurma her koşulda başarılı; klip AYRI bir iş ve açılamayabilir
+        // (örneğin aralığın tamamı kayıtlı değilse). Her iki durumda da
+        // "hazırlanıyor" demek, gelmeyecek bir klip vaat etmek olurdu.
+        if (sonuc.clip) {
+          toast.success('Kayıt durduruldu, klip hazırlanıyor.', {
+            description: `${sureMetni(sonuc.start, sonuc.end)} · hazır olunca Klipler sayfasında.`,
+          })
+        } else {
+          toast.warning('Kayıt durduruldu ama klip açılamadı.', {
+            description: sonuc.error ?? undefined,
+          })
+        }
       } else {
         await recordingsApi.start(channel.id)
         toast.success(`${channel.name} kaydediliyor.`)

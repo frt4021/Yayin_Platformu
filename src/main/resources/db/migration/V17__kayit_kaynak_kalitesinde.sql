@@ -1,0 +1,21 @@
+-- Kayit artik KAYNAK path'ine yaziliyor, secili bir rendition'a degil.
+--
+-- Eski davranis: dvr_rendition = '720p' ise kayit kanal2_720p path'ine
+-- yaziliyordu. Gerekcesi disk tasarrufuydu; iki bedeli agir basti:
+--
+--   1) Kalite kaybi. Kaynak 1080p verse bile arsivde 720p/1500k kaliyordu.
+--      Kayit bir arsiv -- kaynagin verdigi kalitede tutulmali.
+--
+--   2) SESSIZ BOS KAYIT. O rendition'i ureten ffmpeg calismiyorsa (kaynak
+--      daha dusuk cozunurluklu, transcode dusmus, GPU yok) MediaMTX kaydi
+--      aciyor ve klasoru olusturuyor ama icine hicbir sey yazmiyordu.
+--      Kullanici dakikalarca kaydettigini saniyor, sonunda "bu aralikta
+--      kayit bulunamadi" aliyordu. Yasandi.
+--
+-- Kaynak path'i her kosulda yayinda; rendition'lar ondan turuyor. Kayit
+-- oraya yazilinca merdivenin sagligindan bagimsiz hale geliyor.
+--
+-- DIKKAT: bu degisiklikten ONCE alinmis kayitlar <path>_<rendition>
+-- klasorlerinde duruyor ve artik okunmuyor. Silinmiyorlar; saklama suresi
+-- (MTX_PATHDEFAULTS_RECORDDELETEAFTER) dolunca MediaMTX kendisi temizler.
+ALTER TABLE channels DROP COLUMN dvr_rendition;

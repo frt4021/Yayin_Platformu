@@ -44,26 +44,37 @@ public class MediaMtxService {
     /**
      * Path'i istenen yapılandırmaya getirir. Yoksa oluşturur, varsa günceller —
      * çağıran hangi durumda olduğunu bilmek zorunda değil.
-     */
-    /**
-     * @param dvrRendition kaydın alınacağı rendition adı; boş ise kaynak.
-     *                     Kayıt tek bir path'e yazılır — her rendition'ı
-     *                     kaydetmek diski rendition sayısıyla çarpardı.
+     *
+     * <h2>Kayıt her zaman KAYNAK path'ine</h2>
+     * Önceden kayıt, seçilen bir rendition'a ({@code dvrRendition}) yazılıyordu;
+     * gerekçe disk tasarrufuydu. Bunun iki bedeli vardı ve ikisi de ağır bastı:
+     *
+     * <ul>
+     *   <li><b>Kalite kaybı</b> — kaynak 1080p verse bile kayıt 720p/1500k
+     *       oluyordu. Kayıt arşiv; kaynağın verdiği kalitede tutulmalı.</li>
+     *   <li><b>Sessiz boş kayıt</b> — o rendition'ı üreten ffmpeg çalışmıyorsa
+     *       (kaynak daha düşük çözünürlüklü, transcode düşmüş, GPU yok) MediaMTX
+     *       kaydı açıyor, klasörü oluşturuyor ama içine hiçbir şey yazmıyordu.
+     *       Kullanıcı dakikalarca kaydettiğini sanıp sonunda "bu aralıkta kayıt
+     *       bulunamadı" alıyordu. Yaşandı.</li>
+     * </ul>
+     *
+     * <p>Kaynak path'i her koşulda yayında; rendition'lar ondan türüyor.
+     * Kayıt oraya yazılınca merdivenin sağlığından bağımsız hale geliyor.
      */
     public void applyPath(String path, String sourceUrl, boolean record,
-                          String renditionSpec, String dvrRendition) {
+                          String renditionSpec) {
         List<Rendition> renditions = Rendition.parse(renditionSpec);
-        boolean recordOnRendition = record && !dvrRendition.isBlank();
 
         // Transcode cikti path'leri ONCE olusturulmali: MediaMTX tanimsiz bir
         // path'e yayin kabul etmiyor, ffmpeg "400 Bad Request" alir.
+        // Hicbiri kayit yapmiyor -- kayit kaynakta.
         for (Rendition r : renditions) {
-            boolean thisOneRecords = recordOnRendition && r.suffix().equals(dvrRendition);
-            ensurePath(r.pathFor(path), MediaMtxPathConfig.publisherFed(thisOneRecords));
+            ensurePath(r.pathFor(path), MediaMtxPathConfig.publisherFed(false));
         }
 
         MediaMtxPathConfig config = MediaMtxPathConfig.alwaysOn(
-            sourceUrl, record && !recordOnRendition, transcodeCommand.build(renditions));
+            sourceUrl, record, transcodeCommand.build(renditions));
         try {
             client.addPath(path, config);
         } catch (WebApplicationException e) {

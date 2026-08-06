@@ -93,14 +93,13 @@ public class ChannelService {
         channel.active = req.active();
         channel.dvrEnabled = req.dvrEnabled();
         channel.renditions = normalize(req.renditions());
-        channel.dvrRendition = resolveDvrRendition(req.dvrRendition(), channel.renditions);
         applySourceProbe(channel);
         channel.createdBy = requireLocalUser(keycloakId);
         channel.persist();
 
         if (channel.active) {
             mediaMtx.applyPath(channel.mediamtxPath, channel.effectiveSourceUrl(),
-                channel.dvrEnabled, channel.renditions, channel.dvrRendition);
+                channel.dvrEnabled, channel.renditions);
         }
         LOG.infof("Kanal oluşturuldu: %s (path=%s, aktif=%s)",
             channel.name, channel.mediamtxPath, channel.active);
@@ -128,7 +127,6 @@ public class ChannelService {
         channel.active = req.active();
         channel.dvrEnabled = req.dvrEnabled();
         channel.renditions = normalize(req.renditions());
-        channel.dvrRendition = resolveDvrRendition(req.dvrRendition(), channel.renditions);
         applySourceProbe(channel);
 
         // Path adı değiştiyse eski path artık hiçbir kanala ait değil; kaldırılmazsa
@@ -143,7 +141,7 @@ public class ChannelService {
 
         if (channel.active) {
             mediaMtx.applyPath(channel.mediamtxPath, channel.effectiveSourceUrl(),
-                channel.dvrEnabled, channel.renditions, channel.dvrRendition);
+                channel.dvrEnabled, channel.renditions);
         } else if (wasActive) {
             mediaMtx.removePath(channel.mediamtxPath, channel.renditions);
         }
@@ -186,7 +184,7 @@ public class ChannelService {
         for (Channel channel : active) {
             try {
                 mediaMtx.applyPath(channel.mediamtxPath, channel.effectiveSourceUrl(),
-                    channel.dvrEnabled, channel.renditions, channel.dvrRendition);
+                    channel.dvrEnabled, channel.renditions);
                 restored++;
             } catch (RuntimeException e) {
                 LOG.errorf(e, "Kanal MediaMTX'e yazılamadı: %s (path=%s)",
@@ -281,17 +279,6 @@ public class ChannelService {
      * diskte %29 tasarruf. İstenen rendition merdivende yoksa kaynağa düşülür,
      * çünkü var olmayan bir path'e kayıt açmak sessizce hiç kayıt üretmezdi.
      */
-    private String resolveDvrRendition(String requested, String renditionSpec) {
-        List<Rendition> ladder = Rendition.parse(renditionSpec);
-        if (ladder.isEmpty()) {
-            return "";
-        }
-        String wanted = (requested == null || requested.isBlank())
-            ? DEFAULT_DVR_RENDITION
-            : requested.trim();
-        return ladder.stream().anyMatch(r -> r.suffix().equals(wanted)) ? wanted : "";
-    }
-
     private Channel require(UUID id) {
         Channel channel = Channel.findById(id);
         if (channel == null) {
@@ -347,7 +334,6 @@ public class ChannelService {
             channel.active,
             channel.dvrEnabled,
             channel.renditions,
-            channel.dvrRendition,
             channel.resolvedSourceUrl,
             channel.sourceWidth,
             channel.sourceHeight,

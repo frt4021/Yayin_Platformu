@@ -52,3 +52,6 @@ src/main/docker/mediamtx-data/
 # Frontend derleme ciktilari ve bagimliliklari
 node_modules/
 dist/
+
+# Ertelenen isler — kisisel calisma notu, depoya girmiyor.
+notlar.md

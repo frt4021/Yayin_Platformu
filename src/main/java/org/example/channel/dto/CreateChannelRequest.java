@@ -26,7 +26,6 @@ public record CreateChannelRequest(
     String mediamtxPath,
     boolean active,
     boolean dvrEnabled,
-    @Size(max = 512) String renditions,
-    @Size(max = 32) String dvrRendition
+    @Size(max = 512) String renditions
 ) {
 }

@@ -65,11 +65,18 @@ public class DvrService {
      * @param format {@code mp4} indirme, {@code fmp4} tarayıcıda oynatma için
      */
     public Response stream(UUID channelId, Instant start, Duration duration, String format) {
-        Channel channel = requireDvrChannel(channelId);
+        // DVR SARTI YOK. Kanalin geriye sarmasi kapali olsa bile diskte kayit
+        // BULUNABILIR: manuel ve planli kayit, is suresince kaydi aciyor
+        // (ChannelRecordingGate). Klip iscisi icerigi tam da buradan cekiyor;
+        // sarti korumak, kaydin durdurulup hicbir klip uretilmemesine yol
+        // aciyordu. Aralik gercekten yoksa MediaMTX 404 doner ve asagida
+        // anlasilir bir hataya cevriliyor.
+        Channel channel = requireChannel(channelId);
         requireSaneRange(duration);
 
         try {
-            // Kayit kaynak path'inde degil, dvrRendition ile secilen path'te.
+            // Kayit KAYNAK path'inde: rendition'a yazmak hem kaliteyi
+            // dusuruyor hem de merdiven coktugunde sessizce bos kaliyordu.
             return playback.get(channel.recordingPath(), start.toString(),
                 duration.toMillis() / 1000.0, format);
         } catch (WebApplicationException e) {
@@ -128,11 +135,23 @@ public class DvrService {
         }
     }
 
-    private Channel requireDvrChannel(UUID channelId) {
+    private Channel requireChannel(UUID channelId) {
         Channel channel = Channel.findById(channelId);
         if (channel == null) {
             throw AppException.notFound("Kanal bulunamadı: " + channelId);
         }
+        return channel;
+    }
+
+    /**
+     * Kanalı getirir ve geriye sarmasının açık olmasını şart koşar.
+     *
+     * <p>Yalnızca <b>çizelge</b> uçlarında kullanılıyor. Kayıt okuma
+     * ({@link #stream}) bu şarttan muaf: geriye sarması kapalı bir kanalda da
+     * manuel/planlı kayıt yüzünden diskte içerik olabilir.
+     */
+    private Channel requireDvrChannel(UUID channelId) {
+        Channel channel = requireChannel(channelId);
         if (!channel.dvrEnabled) {
             throw AppException.badRequest(
                 "Bu kanalda geriye sarma kapalı: " + channel.name);

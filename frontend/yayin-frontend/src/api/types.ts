@@ -51,7 +51,6 @@ export interface ChannelDto {
   /** Çözünürlük merdiveni: "720p|1280x720|1500k,480p|854x480|800k". Boş = transcode yok. */
   renditions: string
   /** DVR kaydının alındığı rendition adı; boş ise kaynak çözünürlüğü. */
-  dvrRendition: string
   /**
    * MediaMTX'e gerçekte yazılan adres. Master playlist'ten bir varyant
    * seçildiyse dolu — girilen adresle aynıysa null.
@@ -83,7 +82,6 @@ export interface ChannelRequest {
   active: boolean
   dvrEnabled: boolean
   renditions: string
-  dvrRendition: string
 }
 
 /** POST /api/channels/restore yanıtı. */
@@ -337,4 +335,20 @@ export interface ScheduledRecordingDto {
 export interface CreateScheduledRecordingRequest {
   baslangic: string
   bitis: string
+}
+
+/**
+ * Kayıt durdurma sonucu.
+ *
+ * <p>Durdurma <b>her koşulda başarılı olur</b>; klip açılamazsa bu ayrı bir
+ * hata değil, {@link error} dolu döner. Bu yüzden yanıt bir ClipDto değil:
+ * "durdu ama klip yok" durumu anlatılabilmeli.
+ */
+export interface StopRecordingResult {
+  start: string
+  end: string
+  /** Klip işi açıldıysa; açılamadıysa null. */
+  clip: ClipDto | null
+  /** Klip açılamadıysa sebebi. Kayıt yine de durmuştur. */
+  error: string | null
 }

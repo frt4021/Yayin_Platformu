@@ -27,7 +27,6 @@ const EMPTY = {
   mediamtxPath: '',
   active: true,
   dvrEnabled: false,
-  dvrRendition: '',
 }
 
 /**
@@ -66,7 +65,6 @@ export function ChannelFormDialog({
             mediamtxPath: channel.mediamtxPath,
             active: channel.active,
             dvrEnabled: channel.dvrEnabled,
-            dvrRendition: channel.dvrRendition,
           }
         : EMPTY,
     )
@@ -86,7 +84,6 @@ export function ChannelFormDialog({
       active: form.active,
       dvrEnabled: form.dvrEnabled,
       renditions: toSpec(renditions),
-      dvrRendition: form.dvrRendition,
     }
 
     if (!PATH_PATTERN.test(payload.mediamtxPath)) {
@@ -199,32 +196,12 @@ export function ChannelFormDialog({
                 ~454 GB yer kaplar — disk kapasitesini hesaba katın.
               </p>
 
-              {form.dvrEnabled && renditions.length > 0 && (
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="dvrRendition" className="text-xs">
-                    Kayıt çözünürlüğü
-                  </Label>
-                  <select
-                    id="dvrRendition"
-                    className="h-9 rounded-md border bg-transparent px-3 text-sm"
-                    value={form.dvrRendition}
-                    onChange={(e) => set('dvrRendition', e.target.value)}
-                  >
-                    <option value="">Kaynak (en yüksek)</option>
-                    {renditions
-                      .filter((r) => r.suffix)
-                      .map((r) => (
-                        <option key={r.suffix} value={r.suffix}>
-                          {r.suffix} ({r.width}x{r.height}, {r.bitrate})
-                        </option>
-                      ))}
-                  </select>
-                  <p className="text-xs text-muted-foreground">
-                    Kayıt tek bir çözünürlükten alınır — hepsini kaydetmek diski
-                    rendition sayısıyla çarpardı. 720p seçmek kaynağa göre ~%29
-                    tasarruf sağlıyor (ölçüm: 2.33 → 1.65 Mbps).
-                  </p>
-                </div>
+              {form.dvrEnabled && (
+                <p className="text-xs text-muted-foreground">
+                  Kayıt <b>kaynağın verdiği kalitede</b> alınır. Önceden seçili bir
+                  rendition'a yazılıyordu; hem kalite düşüyordu hem de o rendition
+                  üretilmediğinde kayıt sessizce boş kalıyordu.
+                </p>
               )}
             </div>
 
