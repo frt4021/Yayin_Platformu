@@ -111,7 +111,7 @@ ClipWorker {
         }
         try {
             Duration duration = Duration.between(job.start(), job.end());
-            try (Response response = dvrService.stream(job.channelId(), job.start(), duration, "mp4");
+            try (Response response = dvrService.streamPath(job.recordingPath(), job.start(), duration, "mp4");
                  InputStream body = response.readEntity(InputStream.class)) {
 
                 long size = storage.put(job.objectKey(), body, "video/mp4");
@@ -126,7 +126,7 @@ ClipWorker {
     // ------------------------------------------------------------------
 
     /** İşin transaction dışında kullanılacak alanları — lazy proxy taşımamak için. */
-    private record ClipJob(UUID channelId, Instant start, Instant end, String objectKey) {
+    private record ClipJob(String recordingPath, Instant start, Instant end, String objectKey) {
     }
 
     @Transactional
@@ -140,7 +140,9 @@ ClipWorker {
         String key = org.example.storage.StoragePaths.channelFile(
             clip.requestedBy, clip.channel.mediamtxPath, clip.id + ".mp4");
         clip.objectKey = key;
-        return new ClipJob(clip.channel.id, clip.startAt, clip.endAt, key);
+        // Path BURADA cozuluyor: process() transaction disinda calisiyor ve
+        // orada kanala erismek ContextNotActiveException veriyor.
+        return new ClipJob(clip.channel.recordingPath(), clip.startAt, clip.endAt, key);
     }
 
     @Transactional

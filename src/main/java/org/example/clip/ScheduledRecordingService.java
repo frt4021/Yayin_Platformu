@@ -55,6 +55,9 @@ public class ScheduledRecordingService {
     @Inject
     ChannelRecordingGate gate;
 
+    @Inject
+    org.example.dvr.DvrService dvrService;
+
     @ConfigProperty(name = "clips.max-duration-minutes")
     int maxDurationMinutes;
 
@@ -178,9 +181,27 @@ public class ScheduledRecordingService {
     /** Klip işini açar ve gerekiyorsa kaydı geri kapatır. */
     private void finish(ScheduledRecording plan) {
         try {
+            // İstenen aralık ile diskteki aralık aynı değil: kaydı açmak path'i
+            // yeniden başlatıyor ve kaynak yeniden bağlanana kadar saniyeler
+            // geçiyor. Kırpmadan istenirse MediaMTX 404 döner.
+            //
+            // Kırpma kaydı KAPATMADAN yapılıyor: MediaMTX süren bölümü de
+            // güncel süresiyle listeliyor. Önce kapatmak daha doğru görünürdü
+            // ama kapı bu emri hâlâ KAYITTA gördüğü için kaydı zaten
+            // kapatmazdı — durum aşağıda değişiyor.
+            var kirpilmis = dvrService.clampToRecorded(
+                plan.channel.id, plan.baslangic, plan.bitis);
+            if (kirpilmis.isEmpty()) {
+                plan.durum = ScheduledStatus.BASARISIZ;
+                plan.hata = "Bu aralıkta diske yazılmış kayıt yok. "
+                    + "Kanal o sırada yayında olmamış olabilir.";
+                LOG.warnf("Planlı kayıt aralığında hiç kayıt yok: %s", plan.id);
+                return;
+            }
+
             ClipDto clip = clipService.create(
                 plan.channel.id,
-                new CreateClipRequest(plan.baslangic, plan.bitis),
+                new CreateClipRequest(kirpilmis.get().start(), kirpilmis.get().end()),
                 plan.user.keycloakId,
                 ClipOrigin.MANUEL_KAYIT);
             plan.clip = org.example.clip.entity.Clip.findById(clip.id());
@@ -194,8 +215,8 @@ public class ScheduledRecordingService {
             plan.hata = e.getMessage();
             LOG.warnf("Planlı kayıt kliplenemedi: %s (%s)", plan.id, e.getMessage());
         } finally {
-            // Durum yukarida TAMAMLANDI/BASARISIZ oldu; kapi bu emri artik
-            // saymiyor ve kanalda baska is yoksa kaydi kapatiyor.
+            // Durum artık KAYITTA değil; kapı bu emri saymıyor ve kanalda
+            // başka iş yoksa kaydı gerçekten kapatabiliyor.
             gate.release(plan.channel.id, plan.dvrBizden);
         }
     }

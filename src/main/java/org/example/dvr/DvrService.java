@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -71,13 +72,26 @@ public class DvrService {
         // sarti korumak, kaydin durdurulup hicbir klip uretilmemesine yol
         // aciyordu. Aralik gercekten yoksa MediaMTX 404 doner ve asagida
         // anlasilir bir hataya cevriliyor.
-        Channel channel = requireChannel(channelId);
+        return streamPath(requireChannel(channelId).recordingPath(), start, duration, format);
+    }
+
+    /**
+     * Aynı iş, ama kanal <b>kimlikle değil path'le</b> veriliyor.
+     *
+     * <p>Klip işçisi için: aktarım bilerek transaction DIŞINDA yapılıyor
+     * (saatlik bir bölüm ~2,7 GB, tutmak sunucuyu düşürürdü) ve orada
+     * veritabanına dokunmak {@code ContextNotActiveException} veriyor. Yaşandı:
+     * ilk deneme bu yüzden düşüyordu. Path zaten işi yüklerken — transaction
+     * içindeyken — biliniyor; oraya kadar taşımak tek doğru çözüm.
+     */
+    public Response streamPath(String recordingPath, Instant start,
+                               Duration duration, String format) {
         requireSaneRange(duration);
 
         try {
             // Kayit KAYNAK path'inde: rendition'a yazmak hem kaliteyi
             // dusuruyor hem de merdiven coktugunde sessizce bos kaliyordu.
-            return playback.get(channel.recordingPath(), start.toString(),
+            return playback.get(recordingPath, start.toString(),
                 duration.toMillis() / 1000.0, format);
         } catch (WebApplicationException e) {
             int status = e.getResponse().getStatus();
@@ -92,7 +106,9 @@ public class DvrService {
 
     /** Kanalın kayıt bulunan aralıkları — klip isteğinin doğrulanmasında da kullanılır. */
     public List<TimelineSpan> recordedSpans(UUID channelId) {
-        return fetchSpans(requireDvrChannel(channelId)).stream()
+        // stream() ile ayni gerekce: DVR kapali kanalda da manuel/planli
+        // kayit yuzunden diskte bolum olabilir.
+        return fetchSpans(requireChannel(channelId)).stream()
             .map(this::toTimelineSpan)
             .filter(span -> span != null)
             .toList();
@@ -107,6 +123,41 @@ public class DvrService {
     public boolean isFullyRecorded(UUID channelId, Instant start, Instant end) {
         return recordedSpans(channelId).stream()
             .anyMatch(span -> !span.start().isAfter(start) && !span.end().isBefore(end));
+    }
+
+    /**
+     * İstenen aralığı <b>diskte gerçekten olan</b> bölüme kırpar.
+     *
+     * <h2>Neden gerekli</h2>
+     * Kullanıcı "kaydı başlat"a bastığı an ile MediaMTX'in yazmaya başladığı
+     * an aynı değil: kaydı açmak path'i yeniden başlatıyor, kaynak yeniden
+     * bağlanıyor ve arada saniyeler geçiyor. Klip {@code [basılan, durdurulan]}
+     * aralığı için isteniyordu; başlangıçta veri olmadığı için MediaMTX 404
+     * dönüyor ve kullanıcı <i>"Bu aralıkta kayıt bulunamadı"</i> alıyordu.
+     * Ölçüldü: düğmeye basıldıktan sonra ilk bölüm 6-14 saniye gecikmeyle
+     * başlıyor.
+     *
+     * <p>Kırpmak, sessizce eksik vermek değil — kaydedilen <b>tam olarak</b>
+     * budur. Alternatif olan 404, kullanıcının elinde hiçbir şey bırakmıyordu.
+     *
+     * @return kırpılmış aralık; hiç örtüşme yoksa {@link Optional#empty()}
+     */
+    public Optional<TimelineSpan> clampToRecorded(UUID channelId, Instant start, Instant end) {
+        // En cok ortusen bolum seciliyor. Aralik birden fazla bolume yayilmis
+        // olabilir (kayit sirasinda kaynak koptu); MediaMTX bosluklu araligi
+        // sorunsuz veriyor, o yuzden ucları genisletmek yerine EN GENIS
+        // ortusmeyi almak dogru sonucu veriyor.
+        Instant en = null, boy = null;
+        for (TimelineSpan span : recordedSpans(channelId)) {
+            Instant s = span.start().isAfter(start) ? span.start() : start;
+            Instant e = span.end().isBefore(end) ? span.end() : end;
+            if (!e.isAfter(s)) {
+                continue;
+            }
+            en = (en == null || s.isBefore(en)) ? s : en;
+            boy = (boy == null || e.isAfter(boy)) ? e : boy;
+        }
+        return en == null ? Optional.empty() : Optional.of(new TimelineSpan(en, boy));
     }
 
     // ------------------------------------------------------------------

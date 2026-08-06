@@ -37,6 +37,9 @@ public class RecordingService {
     @Inject
     ChannelRecordingGate gate;
 
+    @Inject
+    org.example.dvr.DvrService dvrService;
+
     /**
      * Kayıt bu süreyi aşarsa süpürücü otomatik durdurur.
      *
@@ -121,26 +124,44 @@ public class RecordingService {
         Duration length = Duration.between(start, end);
         LOG.infof("Kayıt durduruldu: %s (%d sn)", channelId, length.toSeconds());
 
+        // Kaydi ONCE kapatiyoruz, klipten once: MediaMTX son bolumu ancak
+        // kayit dururken tamamliyor ve asagidaki kirpma o listeye bakiyor.
+        // Ayrica burada olmasi, hangi yoldan cikilirsa cikilsin calismasini
+        // garanti ediyor -- finally'ye gerek kalmiyor.
+        gate.release(durdurulan.kanalId(), durdurulan.dvrBizden());
+
+        if (length.toSeconds() < 1) {
+            return new StopResult(start, end, null,
+                "Kayıt bir saniyeden kısa, klip üretilmedi.");
+        }
+
+        // Istenen aralik ile DISKTEKI aralik ayni degil: kaydi acmak path'i
+        // yeniden baslatiyor ve kaynak yeniden baglanana kadar saniyeler
+        // geciyor. Kirpmadan istenirse MediaMTX 404 doner ve kullanicinin
+        // elinde HICBIR SEY kalmaz.
+        var kirpilmis = dvrService.clampToRecorded(channelId, start, end);
+        if (kirpilmis.isEmpty()) {
+            return new StopResult(start, end, null,
+                "Bu aralıkta diske yazılmış kayıt yok. Kanal o sırada yayında "
+                    + "olmayabilir ya da kayıt henüz başlamadan durdurulmuş olabilir.");
+        }
+        Instant kStart = kirpilmis.get().start();
+        Instant kEnd = kirpilmis.get().end();
+        if (!kStart.equals(start) || !kEnd.equals(end)) {
+            LOG.infof("Kayıt aralığı diske göre kırpıldı: %s → %s (istenen %s → %s)",
+                kStart, kEnd, start, end);
+        }
+
         try {
-            if (length.toSeconds() < 1) {
-                return new StopResult(start, end, null,
-                    "Kayıt bir saniyeden kısa, klip üretilmedi.");
-            }
-            try {
-                ClipDto clip = io.quarkus.narayana.jta.QuarkusTransaction.requiringNew()
-                    .call(() -> clipService.create(channelId, new CreateClipRequest(start, end),
-                        keycloakId, ClipOrigin.MANUEL_KAYIT));
-                return new StopResult(start, end, clip, null);
-            } catch (RuntimeException e) {
-                // Kayit zaten durdu; klip acilamadi. Kullaniciya sebebi
-                // soyleniyor ama islem basarisiz sayilmiyor.
-                LOG.warnf(e, "Kayıt durduruldu ama klip açılamadı: %s", channelId);
-                return new StopResult(start, end, null, e.getMessage());
-            }
-        } finally {
-            // Her donus yolunda calismali: erken cikista da birakilmazsa kanal
-            // sonsuza kadar diske yazmaya devam ederdi.
-            gate.release(durdurulan.kanalId(), durdurulan.dvrBizden());
+            ClipDto clip = io.quarkus.narayana.jta.QuarkusTransaction.requiringNew()
+                .call(() -> clipService.create(channelId, new CreateClipRequest(kStart, kEnd),
+                    keycloakId, ClipOrigin.MANUEL_KAYIT));
+            return new StopResult(kStart, kEnd, clip, null);
+        } catch (RuntimeException e) {
+            // Kayit zaten durdu; klip acilamadi. Kullaniciya sebebi
+            // soyleniyor ama islem basarisiz sayilmiyor.
+            LOG.warnf(e, "Kayıt durduruldu ama klip açılamadı: %s", channelId);
+            return new StopResult(kStart, kEnd, null, e.getMessage());
         }
     }
 
