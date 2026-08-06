@@ -13,8 +13,33 @@
 set -euo pipefail
 
 KOK="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPOSE="$KOK/src/main/docker/docker-compose.yaml"
+DOCKER_DIZINI="$KOK/src/main/docker"
+COMPOSE="$DOCKER_DIZINI/docker-compose.yaml"
 ENV_DOSYASI="$KOK/.env"
+
+# Docker Compose değişkenleri, compose dosyasının BULUNDUĞU dizindeki .env'den
+# okuyor — proje kökünden değil. Kökteki .env'i orada da görünür kılmak şart:
+# aksi halde her değişken compose'daki varsayılana düşer ve örneğin
+# KEYCLOAK_CLIENT_SECRET "change_me" olur, giriş sessizce çalışmaz.
+#
+# Bu dosya git'te YOK (.gitignore ".env" ile eşleşiyor), yani temiz bir klonda
+# kendiliğinden oluşmaz. Script her çalıştığında yeniden kuruyor.
+env_baglantisi_kur() {
+  local hedef="$DOCKER_DIZINI/.env"
+  # Zaten doğru yere bakan bir bağlantı varsa dokunma.
+  if [ -L "$hedef" ] && [ "$(readlink -f "$hedef")" = "$(readlink -f "$ENV_DOSYASI")" ]; then
+    return
+  fi
+  rm -f "$hedef"
+  # Symlink kurulamayan dosya sistemleri (bazı ağ/Windows bağları) için
+  # kopyalamaya düşülüyor; kopya bayat kalabileceğinden bağlantı tercih ediliyor.
+  if ln -s ../../../.env "$hedef" 2>/dev/null; then
+    gri "  compose .env bağlantısı kuruldu"
+  else
+    cp "$ENV_DOSYASI" "$hedef"
+    gri "  compose .env kopyalandı (symlink kurulamadı)"
+  fi
+}
 
 kirmizi() { printf '\033[31m%s\033[0m\n' "$*"; }
 yesil()   { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -149,7 +174,8 @@ EOF
 
 durdur() {
   baslik "Durduruluyor"
-  docker compose -f "$COMPOSE" down
+  [ -f "$ENV_DOSYASI" ] || touch "$ENV_DOSYASI"
+  docker compose --env-file "$ENV_DOSYASI" -f "$COMPOSE" down
   yesil "Durduruldu."
 }
 
@@ -158,7 +184,7 @@ sifirla() {
   kirmizi "  Tüm veritabanları, MinIO içeriği ve DVR kayıtları SİLİNECEK."
   read -r -p "  Emin misiniz? (evet yazın): " onay
   [ "$onay" = "evet" ] || { echo "  Vazgeçildi."; exit 0; }
-  docker compose -f "$COMPOSE" down -v
+  docker compose --env-file "$ENV_DOSYASI" -f "$COMPOSE" down -v
   rm -rf "$KOK/src/main/docker/mediamtx-data/recordings"/* \
          "$KOK/src/main/docker/mediamtx-data/hls"/* 2>/dev/null || true
   yesil "Sıfırlandı."
@@ -190,6 +216,7 @@ baslat() {
   else
     env_uret
   fi
+  env_baglantisi_kur
 
   baslik "Uygulama paketleniyor"
   gri "  ./mvnw package — ilk çalıştırmada bağımlılıklar inecek, sürebilir"
@@ -198,13 +225,13 @@ baslat() {
 
   baslik "İmajlar kuruluyor"
   if [ "$yeniden" = "evet" ]; then
-    docker compose -f "$COMPOSE" build --no-cache
+    docker compose --env-file "$ENV_DOSYASI" -f "$COMPOSE" build --no-cache
   else
-    docker compose -f "$COMPOSE" build
+    docker compose --env-file "$ENV_DOSYASI" -f "$COMPOSE" build
   fi
 
   baslik "Servisler başlatılıyor"
-  docker compose -f "$COMPOSE" up -d
+  docker compose --env-file "$ENV_DOSYASI" -f "$COMPOSE" up -d
 
   baslik "Hazır olması bekleniyor"
   hazir_bekle "postgres"  "docker exec postgres pg_isready -U app_user"
