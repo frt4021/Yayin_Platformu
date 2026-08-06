@@ -20,15 +20,31 @@ type Status = 'loading' | 'playing' | 'error'
  *              Tarayıcılar sesli otomatik oynatmayı engellediği için ilk
  *              yükleme her zaman sessiz başlar.
  */
+/**
+ * Kare yakalama için dışarıya açılan tutamak.
+ *
+ * <p>Video elementi bileşenin içinde; ekran görüntüsü alabilmek için ona
+ * erişim gerekiyor. {@code playingDate} ise karenin ait olduğu YAYIN anını
+ * veriyor — HLS'te izlenen an ile "şu an" arasında 6-20 saniye fark var ve
+ * kareyi "şimdi" diye kaydetmek onu yanlış etiketlerdi.
+ */
+export interface CaptureHandle {
+  video: HTMLVideoElement | null
+  playingDate: () => Date
+}
+
 export function HlsPlayer({
   src,
   muted = true,
   controls = false,
   className,
   onStatusChange,
+  captureRef,
 }: {
   src: string
   muted?: boolean
+  /** Doldurulursa kare yakalama tutamağı buraya yazılır. */
+  captureRef?: { current: CaptureHandle | null }
   /** Duraklatma, ses, tam ekran, ileri/geri sarma. Mozaikte kapalı: 16 karoda
    *  16 kontrol çubuğu görüntüyü boğar, karo zaten çok küçük. */
   controls?: boolean
@@ -44,6 +60,30 @@ export function HlsPlayer({
   useEffect(() => {
     onStatusChange?.(status)
   }, [status, onStatusChange])
+
+  // Tutamağı her render'da tazele: video elementi ve hls örneği değişebiliyor.
+  useEffect(() => {
+    if (!captureRef) return
+    captureRef.current = {
+      video: videoRef.current,
+      playingDate: () => {
+        // hls.js, playlist'te EXT-X-PROGRAM-DATE-TIME varsa karenin gerçek
+        // saatini veriyor (MediaMTX bunu üretiyor). Yoksa gecikmeyi canlı uç
+        // ile oynatma konumu arasındaki farktan tahmin ediyoruz.
+        const hls = hlsRef.current
+        if (hls?.playingDate) return hls.playingDate
+        const video = videoRef.current
+        const live = hls?.liveSyncPosition
+        if (video && live != null) {
+          return new Date(Date.now() - (live - video.currentTime) * 1000)
+        }
+        return new Date()
+      },
+    }
+    return () => {
+      if (captureRef) captureRef.current = null
+    }
+  })
 
   useEffect(() => {
     const video = videoRef.current

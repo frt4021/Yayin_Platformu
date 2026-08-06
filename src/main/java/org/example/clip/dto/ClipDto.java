@@ -1,5 +1,6 @@
 package org.example.clip.dto;
 
+import org.example.clip.ClipOrigin;
 import org.example.clip.ClipStatus;
 
 import java.time.Instant;
@@ -19,6 +20,8 @@ public record ClipDto(
     Instant end,
     long durationSeconds,
     ClipStatus status,
+    /** Klibin nasıl istendiği: aralık seçimi mi, manuel kayıt mı. */
+    ClipOrigin origin,
     Long sizeBytes,
     String error,
     String requestedBy,

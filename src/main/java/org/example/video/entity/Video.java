@@ -155,6 +155,17 @@ public class Video extends PanacheEntityBase {
             .list();
     }
 
+    /** Kullanıcının videolarının toplam boyutu — kota hesabı için. */
+    public static long totalBytesOf(String keycloakId) {
+        return find("uploadedBy.keycloakId = ?1 and sizeBytes is not null", keycloakId)
+            .project(SizeOnly.class).stream()
+            .mapToLong(SizeOnly::sizeBytes).sum();
+    }
+
+    /** Yalnızca boyut sütununu çeken izdüşüm. */
+    public record SizeOnly(long sizeBytes) {
+    }
+
     public static long countByStatus(VideoStatus status) {
         return count("status", status);
     }
@@ -164,14 +175,30 @@ public class Video extends PanacheEntityBase {
      * büyük/küçük harf duyarsız ({@code idx_videos_baslik} bu aramayı
      * karşılıyor).
      */
-    public static List<Video> search(String query, int offset, int limit) {
-        if (query == null || query.isBlank()) {
-            return find("order by createdAt desc").page(offset / limit, limit).list();
+    /**
+     * @param ownerKeycloakId {@code null} ise tüm videolar (yönetici); doluysa
+     *                        yalnızca o kullanıcının yüklediği videolar.
+     *                        Kliplerdeki kuralın aynısı: kütüphane kişisel,
+     *                        varsayılan kapalı.
+     */
+    public static List<Video> search(String query, String ownerKeycloakId, int offset, int limit) {
+        StringBuilder ql = new StringBuilder();
+        Parameters params = new Parameters();
+
+        if (ownerKeycloakId != null) {
+            ql.append("uploadedBy.keycloakId = :sahip");
+            params.and("sahip", ownerKeycloakId);
         }
-        return find("lower(title) like lower(:q) order by createdAt desc",
-            Parameters.with("q", "%" + query.trim() + "%"))
-            .page(offset / limit, limit)
-            .list();
+        if (query != null && !query.isBlank()) {
+            if (!ql.isEmpty()) {
+                ql.append(" and ");
+            }
+            ql.append("lower(title) like lower(:q)");
+            params.and("q", "%" + query.trim() + "%");
+        }
+        ql.append(ql.isEmpty() ? "order by createdAt desc" : " order by createdAt desc");
+
+        return find(ql.toString(), params).page(offset / limit, limit).list();
     }
 
     /** İzlenebilir mi — küçük resim ve metadata hazır mı. */

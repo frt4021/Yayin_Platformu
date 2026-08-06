@@ -43,6 +43,23 @@ gerçek IP'siyle üretilir, böylece ağdaki başka cihazlardan da çalışır.
 
 `docker`, `docker compose` (v2) ve `java` (21+). Script yoksa söyler.
 
+### Compose'u elle çalıştırmak
+
+`docker-compose.yaml` **proje kökünde**, yani `-f` gerekmiyor:
+
+```bash
+docker compose up -d
+docker compose logs -f backend
+docker compose down
+```
+
+`.env` de kökte ve compose onu kendi dizininden okuyor — ek bir ayar yok.
+
+> Compose dosyasında `name: yayin-merkezi` **açıkça yazılı**. Verilmezse
+> Compose proje adını bulunduğu dizinden türetir ve volume adları da ona
+> bağlanır; dosya taşındığında adlar değişir ve veritabanı bir anda "boş"
+> görünür. Bu satır o tuzağı kapatıyor — **silmeyin**.
+
 ### Adresler
 
 | | |
@@ -256,11 +273,31 @@ onu kendi makinesi sanar; yayın da indirme de çalışmaz.
 | `MEDIA_DEVICE` | `/dev/dri:/dev/dri` \| `/dev/null:/dev/null` | mediamtx'e geçirilen aygıt. NVIDIA'da `/dev/dri` olmayabilir, o yüzden `/dev/null` |
 | `WORKER_MEDIA_DEVICE` | aynı | video-worker için |
 
+### Depolama: kota ve temizlik
+
+Süreler **gün ya da saat** olarak yazılabilir: `P30D` = 30 gün · `720h` = aynı
+süre · `PT12H` = 12 saat · `0` = kapalı. Uygulama açılışta yürürlükteki
+politikayı logluyor.
+
+| Alan | Varsayılan | Açıklama |
+|---|---|---|
+| `STORAGE_USER_QUOTA_BYTES` | `21474836480` (20 GB) | Kullanıcı başına. Klip + kayıt + ekran görüntüsü + video toplamı. `0` = sınırsız |
+| `STORAGE_CLIP_RETENTION` | `0` | Klip ve kayıt saklama süresi. **Varsayılan kapalı** — baskıyı kota kursun, saat değil |
+| `STORAGE_SCREENSHOT_RETENTION` | `0` | Aynı |
+| `STORAGE_FAILED_CLIP_RETENTION` | `P7D` | Başarısız klipler. Dosyaları zaten yok, yalnızca sebep gösterilsin diye bekletiliyor |
+| `STORAGE_SWEEP_INTERVAL` | `1h` | Süpürücü aralığı |
+| `SCREENSHOTS_BUCKET` | `ekran-goruntuleri` | Galeri kovası |
+| `SCREENSHOTS_MAX_BYTES` | `10485760` (10 MB) | Tek kare üst sınırı |
+
+> **Kota dolunca yeni iş reddedilir, var olan silinmez.** Sessizce silmek
+> kullanıcının verisini habersiz yok etmek olurdu; ne silineceğine kullanıcı
+> karar vermeli.
+
 ### Yol
 
 | Alan | Varsayılan | Açıklama |
 |---|---|---|
-| `DVR_PATH` | `./mediamtx-data/recordings` | DVR kayıtları. **Üretimde büyük diski gösterin**: 16 kanal × 7 gün × 6 Mbps ≈ 7,3 TB |
+| `DVR_PATH` | `./src/main/docker/mediamtx-data/recordings` | DVR kayıtları. **Üretimde büyük diski gösterin**: 16 kanal × 7 gün × 6 Mbps ≈ 7,3 TB |
 
 ### İsteğe bağlı ince ayar
 
@@ -303,6 +340,11 @@ onu kendi makinesi sanar; yayın da indirme de çalışmaz.
 
 | Yetenek | Durum |
 |---|---|
+| Manuel kayıt (kayda başla / durdur) | ✅ |
+| Canlı yayından kare yakalama ve kronolojik galeri | ✅ |
+| Kullanıcı başına depolama kotası ve temizlik politikası | ✅ |
+| Radyo yayınları (Icecast köprüsü dahil) | ✅ |
+| Video kütüphanesi (yükleme, küçük resim, önizleme klibi) | ✅ |
 | Keycloak ile kimlik doğrulama ve rol bazlı yetki | ✅ |
 | Kullanıcı yönetimi (ekleme, rol atama, şifre sıfırlama, silme) | ✅ |
 | Kanal CRUD, en fazla 16 eşzamanlı yayın | ✅ |

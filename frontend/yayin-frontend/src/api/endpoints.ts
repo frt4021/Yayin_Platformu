@@ -3,15 +3,19 @@ import type {
   Capacity,
   ChannelDto,
   ChannelRequest,
+  ActiveRecordingDto,
   ClipDto,
   ClipLinks,
+  ClipOrigin,
   CreateClipRequest,
   CreateUserRequest,
   CreateVideoRequest,
   RadioDto,
   RadioRequest,
+  QuotaUsage,
   RestoreResult,
   Role,
+  ScreenshotDto,
   SyncResultDto,
   TimelineSpan,
   TokenResponse,
@@ -37,6 +41,9 @@ export const profileApi = {
 
   changePassword: (currentPassword: string, newPassword: string) =>
     api.put<void>('/api/users/me/password', { currentPassword, newPassword }),
+
+  /** Klip, kayıt, ekran görüntüsü ve video toplamı. */
+  quota: () => api.get<QuotaUsage>('/api/users/me/kota'),
 }
 
 export const adminUsersApi = {
@@ -129,6 +136,42 @@ export const videosApi = {
   remove: (id: string) => api.delete<void>(`/api/videos/${id}`),
 }
 
+export const recordingsApi = {
+  start: (channelId: string) =>
+    api.post<ActiveRecordingDto>(`/api/channels/${channelId}/clips/kayit`, {}),
+
+  /** Durdurma klip işi açar; yanıt 202 ve dosya henüz yoktur. */
+  stop: (channelId: string) =>
+    api.delete<ClipDto>(`/api/channels/${channelId}/clips/kayit`),
+
+  active: () => api.get<ActiveRecordingDto[]>('/api/clips/kayitlar/devam-eden'),
+}
+
+export const screenshotsApi = {
+  gallery: (channelId?: string, offset = 0, limit = 60) => {
+    const params = new URLSearchParams({ offset: String(offset), limit: String(limit) })
+    if (channelId) params.set('channelId', channelId)
+    return api.get<ScreenshotDto[]>(`/api/screenshots?${params}`)
+  },
+
+  /**
+   * Kare TARAYICIDA yakalanıp buraya yükleniyor. capturedAt, kullanıcının
+   * izlediği ANI bildiriyor — HLS gecikmesi nedeniyle "şu an"dan farklı.
+   */
+  capture: (channelId: string, blob: Blob, capturedAt: Date,
+            width: number, height: number, note?: string) => {
+    const form = new FormData()
+    form.append('dosya', blob, 'kare.jpg')
+    form.append('capturedAt', capturedAt.toISOString())
+    form.append('width', String(width))
+    form.append('height', String(height))
+    if (note) form.append('note', note)
+    return api.postForm<ScreenshotDto>(`/api/screenshots/${channelId}`, form)
+  },
+
+  remove: (id: string) => api.delete<void>(`/api/screenshots/${id}`),
+}
+
 export const dvrApi = {
   /** Verilen pencerede kayıt bulunan aralıklar. */
   timeline: (channelId: string, from: Date, to: Date) =>
@@ -151,8 +194,13 @@ export const clipsApi = {
   create: (channelId: string, request: CreateClipRequest) =>
     api.post<ClipDto>(`/api/channels/${channelId}/clips`, request),
 
-  list: (channelId?: string) =>
-    api.get<ClipDto[]>(`/api/clips${channelId ? `?channelId=${channelId}` : ''}`),
+  list: (channelId?: string, origin?: ClipOrigin) => {
+    const params = new URLSearchParams()
+    if (channelId) params.set('channelId', channelId)
+    if (origin) params.set('origin', origin)
+    const q = params.toString()
+    return api.get<ClipDto[]>(`/api/clips${q ? `?${q}` : ''}`)
+  },
 
   get: (id: string) => api.get<ClipDto>(`/api/clips/${id}`),
 

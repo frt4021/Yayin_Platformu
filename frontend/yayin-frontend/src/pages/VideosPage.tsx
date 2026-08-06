@@ -4,11 +4,9 @@ import { ApiError } from '@/api/client'
 import { videosApi } from '@/api/endpoints'
 import { formatBytes, formatDuration } from '@/api/upload'
 import type { VideoDto } from '@/api/types'
-import { useAuth } from '@/auth/AuthContext'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { cn } from '@/lib/utils'
 import {
   FilmIcon,
   Loader2Icon,
@@ -26,8 +24,9 @@ import { VideoUploadDialog } from './videos/VideoUploadDialog'
 const REFRESH_MS = 5000
 
 export function VideosPage() {
-  const { hasRole } = useAuth()
-  const canManage = hasRole('Yönetici', 'Moderatör')
+  // Kutuphane kisisel: giris yapmis herkes KENDI videolarini yukler,
+  // duzenler ve siler. Sunucu zaten sahiplik disina cikilmasina izin
+  // vermiyor, dolayisiyla arayuzde rol kontrolu gereksiz.
 
   const [videos, setVideos] = useState<VideoDto[]>([])
   const [loading, setLoading] = useState(true)
@@ -98,12 +97,10 @@ export function VideosPage() {
           />
         </div>
 
-        {canManage && (
-          <Button onClick={() => setUploadOpen(true)}>
-            <UploadIcon />
-            Video yükle
-          </Button>
-        )}
+        <Button onClick={() => setUploadOpen(true)}>
+          <UploadIcon />
+          Video yükle
+        </Button>
       </div>
 
       {error && <p className="text-sm text-status-error">{error}</p>}
@@ -127,7 +124,6 @@ export function VideosPage() {
               key={video.id}
               video={video}
               busy={pending.has(video.id)}
-              canManage={canManage}
               onPlay={() => setPlaying(video)}
               onEdit={() => setEditing(video)}
               onDelete={() => void remove(video)}
@@ -168,14 +164,12 @@ const PREVIEW_DELAY_MS = 400
 function VideoCard({
   video,
   busy,
-  canManage,
   onPlay,
   onEdit,
   onDelete,
 }: {
   video: VideoDto
   busy: boolean
-  canManage: boolean
   onPlay: () => void
   onEdit: () => void
   onDelete: () => void
@@ -291,32 +285,31 @@ function VideoCard({
           </p>
         )}
 
-        {canManage && (
-          <div className={cn(
-            'mt-2 flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100',
-          )}>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              title="Düzenle"
-              disabled={video.status === 'YUKLENIYOR'}
-              onClick={onEdit}
-            >
-              <PencilIcon />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              title={video.status === 'ISLENIYOR' ? 'İşlenirken silinemez' : 'Sil'}
-              disabled={busy || video.status === 'ISLENIYOR'}
-              onClick={onDelete}
-            >
-              {busy ? <Loader2Icon className="animate-spin" /> : <Trash2Icon />}
-            </Button>
-          </div>
-        )}
+        {/* Düzenle/sil herkese açık: liste zaten yalnızca kullanıcının kendi
+            videolarını içeriyor, sunucu da sahiplik dışına çıkılmasına izin
+            vermiyor. Yönetici başkasının videosunu görürse onu da yönetebilir. */}
+        <div className="mt-2 flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            title="Düzenle"
+            disabled={video.status === 'YUKLENIYOR'}
+            onClick={onEdit}
+          >
+            <PencilIcon />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            title={video.status === 'ISLENIYOR' ? 'İşlenirken silinemez' : 'Sil'}
+            disabled={busy || video.status === 'ISLENIYOR'}
+            onClick={onDelete}
+          >
+            {busy ? <Loader2Icon className="animate-spin" /> : <Trash2Icon />}
+          </Button>
+        </div>
       </div>
     </div>
   )

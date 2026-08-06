@@ -8,6 +8,7 @@ import {
   ClapperboardIcon,
   FilmIcon,
   HistoryIcon,
+  ImageIcon,
   LogOutIcon,
   MonitorPlayIcon,
   RadioIcon,
@@ -34,6 +35,7 @@ const NAV: NavItem[] = [
   { to: '/geriye-sarma', label: 'Geriye sarma', icon: HistoryIcon },
   { to: '/klipler', label: 'Klipler', icon: ClapperboardIcon },
   { to: '/videolar', label: 'Videolar', icon: FilmIcon },
+  { to: '/galeri', label: 'Galeri', icon: ImageIcon },
   { to: '/profil', label: 'Profilim', icon: UserIcon },
   { to: '/yonetim/kullanicilar', label: 'Kullanıcılar', icon: UsersIcon, roles: ['Yönetici'] },
 ]

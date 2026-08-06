@@ -45,6 +45,9 @@ ClipService {
     @ConfigProperty(name = "clips.max-duration-minutes")
     int maxDurationMinutes;
 
+    @Inject
+    org.example.storage.QuotaService quota;
+
     /**
      * Klip işi oluşturur ve kuyruğa alır.
      *
@@ -54,6 +57,17 @@ ClipService {
      */
     @Transactional
     public ClipDto create(UUID channelId, CreateClipRequest req, String keycloakId) {
+        return create(channelId, req, keycloakId, ClipOrigin.ARALIK);
+    }
+
+    /**
+     * @param origin klibin nasıl istendiği. Manuel kayıtlar da bu yoldan
+     *               geçiyor — ürün ve yaşam döngüsü aynı olduğu için ayrı bir
+     *               üretim hattı kurmak gereksiz olurdu.
+     */
+    @Transactional
+    public ClipDto create(UUID channelId, CreateClipRequest req, String keycloakId,
+                          ClipOrigin origin) {
         Duration duration = Duration.between(req.start(), req.end());
         if (duration.isNegative() || duration.isZero()) {
             throw AppException.badRequest("Bitiş zamanı başlangıçtan sonra olmalı.");
@@ -79,12 +93,17 @@ ClipService {
                 "Seçilen aralığın tamamı kayıtlı değil. Zaman çizelgesinde dolu bir bölge seçin.");
         }
 
+        // Klip boyutu ONCEDEN bilinmiyor (dosya arka planda uretiliyor), o
+        // yuzden yalnizca "kota zaten dolu mu" sorulabiliyor.
+        quota.requireRoom(keycloakId, 0);
+
         Clip clip = new Clip();
         clip.channel = channel;
         clip.requestedBy = requireLocalUser(keycloakId);
         clip.startAt = req.start();
         clip.endAt = req.end();
         clip.status = ClipStatus.BEKLIYOR;
+        clip.origin = origin;
         clip.persist();
 
         queued.fire(new ClipQueuedEvent(clip.id));
@@ -95,18 +114,45 @@ ClipService {
     }
 
     public List<ClipDto> list(UUID channelId, String keycloakId, boolean isAdmin) {
+        return list(channelId, null, keycloakId, isAdmin);
+    }
+
+    /**
+     * @param origin {@code null} ise hepsi; doluysa yalnızca o türdekiler
+     *               ("kliplerim" / "kayıtlarım" ayrımı)
+     */
+    public List<ClipDto> list(UUID channelId, ClipOrigin origin,
+                              String keycloakId, boolean isAdmin) {
+        // Adlandirilmis parametre: uc opsiyonel suzgecte konumsal (?1, ?2)
+        // yaklasim sira hatasina cok acikti.
+        StringBuilder ql = new StringBuilder();
+        io.quarkus.panache.common.Parameters params = new io.quarkus.panache.common.Parameters();
+
         // Yönetici hepsini görür; diğerleri yalnızca kendi kliplerini.
         // Klipler kayıt içeriği barındırdığı için varsayılan kapalı olmalı.
-        String query = isAdmin ? "1=1" : "requestedBy.keycloakId = ?1";
-        Object[] params = isAdmin ? new Object[0] : new Object[]{keycloakId};
+        if (!isAdmin) {
+            ql.append("requestedBy.keycloakId = :sahip");
+            params.and("sahip", keycloakId);
+        }
+        if (channelId != null) {
+            appendAnd(ql).append("channel.id = :kanal");
+            params.and("kanal", channelId);
+        }
+        if (origin != null) {
+            appendAnd(ql).append("origin = :kaynak");
+            params.and("kaynak", origin);
+        }
+        ql.append(ql.isEmpty() ? "order by createdAt desc" : " order by createdAt desc");
 
-        List<Clip> clips = channelId == null
-            ? Clip.find(query + " order by createdAt desc", params).list()
-            : Clip.find(query + " and channel.id = ?" + (params.length + 1)
-                + " order by createdAt desc",
-                append(params, channelId)).list();
+        return Clip.find(ql.toString(), params).<Clip>list()
+            .stream().map(this::toDto).toList();
+    }
 
-        return clips.stream().map(this::toDto).toList();
+    private static StringBuilder appendAnd(StringBuilder ql) {
+        if (!ql.isEmpty()) {
+            ql.append(" and ");
+        }
+        return ql;
     }
 
     public ClipDto get(UUID id, String keycloakId, boolean isAdmin) {
@@ -173,13 +219,6 @@ ClipService {
         return user;
     }
 
-    private static Object[] append(Object[] params, Object extra) {
-        Object[] out = new Object[params.length + 1];
-        System.arraycopy(params, 0, out, 0, params.length);
-        out[params.length] = extra;
-        return out;
-    }
-
     static String fileNameOf(Clip clip) {
         return clip.channel.mediamtxPath + "_" + clip.startAt.toString().replace(":", "-") + ".mp4";
     }
@@ -197,6 +236,7 @@ ClipService {
             clip.endAt,
             clip.duration().toSeconds(),
             clip.status,
+            clip.origin,
             clip.sizeBytes,
             clip.error,
             clip.requestedBy.username,

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { ApiError } from '@/api/client'
 import { clipsApi } from '@/api/endpoints'
-import type { ClipDto, ClipStatus } from '@/api/types'
+import type { ClipDto, ClipOrigin, ClipStatus } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -60,20 +60,21 @@ function formatDuration(seconds: number) {
 
 export function ClipsPage() {
   const [clips, setClips] = useState<ClipDto[]>([])
+  const [origin, setOrigin] = useState<ClipOrigin | undefined>(undefined)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [watching, setWatching] = useState<{ clip: ClipDto; url: string | null } | null>(null)
 
   const load = useCallback(async () => {
     try {
-      setClips(await clipsApi.list())
+      setClips(await clipsApi.list(undefined, origin))
       setError(null)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Klipler yüklenemedi.')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [origin])
 
   // Devam eden iş varsa hızlı tazele; yoksa boşuna istek atma.
   useEffect(() => {
@@ -129,11 +130,32 @@ export function ClipsPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <h1 className="text-xl font-semibold">Klipler</h1>
-        <p className="text-sm text-muted-foreground">
-          Klipler arka planda üretilir; hazır olunca burada izlenip indirilebilir.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">Klipler ve kayıtlar</h1>
+          <p className="text-sm text-muted-foreground">
+            Arka planda üretilir; hazır olunca burada izlenip indirilebilir.
+          </p>
+        </div>
+
+        {/* İkisi de aynı tabloda: ürün ve yaşam döngüsü aynı, yalnızca nasıl
+            istendikleri farklı. */}
+        <div className="flex gap-1 rounded-lg border p-1">
+          {([
+            [undefined, 'Tümü'],
+            ['ARALIK', 'Aralık seçimi'],
+            ['MANUEL_KAYIT', 'Kayıtlarım'],
+          ] as [ClipOrigin | undefined, string][]).map(([value, label]) => (
+            <Button
+              key={label}
+              size="sm"
+              variant={origin === value ? 'secondary' : 'ghost'}
+              onClick={() => setOrigin(value)}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
       </div>
 
       {error ? (
@@ -148,6 +170,7 @@ export function ClipsPage() {
                 <TableHead>Kanal</TableHead>
                 <TableHead>Aralık</TableHead>
                 <TableHead>Süre</TableHead>
+                <TableHead>Nasıl</TableHead>
                 <TableHead>Durum</TableHead>
                 <TableHead>Boyut</TableHead>
                 <TableHead>İsteyen</TableHead>
@@ -157,7 +180,7 @@ export function ClipsPage() {
             <TableBody>
               {loading && (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                     <Loader2Icon className="mx-auto animate-spin" />
                   </TableCell>
                 </TableRow>
@@ -165,7 +188,7 @@ export function ClipsPage() {
 
               {!loading && clips.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                     Henüz klip yok. Geriye sarma sayfasından aralık seçip oluşturun.
                   </TableCell>
                 </TableRow>
@@ -180,6 +203,11 @@ export function ClipsPage() {
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatDuration(clip.durationSeconds)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">
+                        {clip.origin === 'MANUEL_KAYIT' ? 'kayıt' : 'aralık'}
+                      </Badge>
                     </TableCell>
                     <TableCell>
                       {statusBadge(clip.status)}

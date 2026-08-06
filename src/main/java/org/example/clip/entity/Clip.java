@@ -13,6 +13,7 @@ import jakarta.persistence.LockModeType;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import org.example.channel.entity.Channel;
+import org.example.clip.ClipOrigin;
 import org.example.clip.ClipStatus;
 import org.example.user.entity.AppUser;
 import org.hibernate.annotations.Generated;
@@ -57,6 +58,14 @@ public class Clip extends PanacheEntityBase {
     @Column(nullable = false, length = 16)
     public ClipStatus status = ClipStatus.BEKLIYOR;
 
+    /**
+     * Klibin nasıl istendiği. Ürün ve yaşam döngüsü aynı olduğu için manuel
+     * kayıtlar da bu tabloda; arayüz listeleri bu alana göre ayırıyor.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    public ClipOrigin origin = ClipOrigin.ARALIK;
+
     @Column(name = "object_key", length = 512)
     public String objectKey;
 
@@ -91,6 +100,17 @@ public class Clip extends PanacheEntityBase {
             .withLock(LockModeType.PESSIMISTIC_WRITE)
             .page(0, limit)
             .list();
+    }
+
+    /** Kullanıcının kliplerinin toplam boyutu — kota hesabı için. */
+    public static long totalBytesOf(String keycloakId) {
+        return find("requestedBy.keycloakId = ?1 and sizeBytes is not null", keycloakId)
+            .project(SizeOnly.class).stream()
+            .mapToLong(SizeOnly::sizeBytes).sum();
+    }
+
+    /** Yalnızca boyut sütununu çeken izdüşüm; tüm satırı belleğe almamak için. */
+    public record SizeOnly(long sizeBytes) {
     }
 
     public static long countActive() {

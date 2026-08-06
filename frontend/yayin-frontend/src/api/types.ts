@@ -161,6 +161,8 @@ export interface ClipDto {
   end: string
   durationSeconds: number
   status: ClipStatus
+  /** Klibin nasıl istendiği: aralık seçimi mi, manuel kayıt mı. */
+  origin: ClipOrigin
   /** Yalnızca HAZIR durumunda dolu. */
   sizeBytes: number | null
   /** Yalnızca HATA durumunda dolu. */
@@ -253,6 +255,48 @@ export interface VideoLinks {
   download: string
   thumbnail: string | null
   fileName: string
+}
+
+export const CLIP_ORIGIN = ['ARALIK', 'MANUEL_KAYIT'] as const
+export type ClipOrigin = (typeof CLIP_ORIGIN)[number]
+
+/** Devam eden manuel kayıt. */
+export interface ActiveRecordingDto {
+  channelId: string
+  channelName: string
+  startedAt: string
+  /** Üst sınır; arayüz "şu kadar kaldı" gösterip otomatik duracağını söyler. */
+  maxMinutes: number
+}
+
+export interface ScreenshotDto {
+  id: string
+  channelId: string
+  channelName: string
+  /** Karenin ait olduğu YAYIN anı — createdAt kaydın oluşturulduğu an. */
+  capturedAt: string
+  width: number | null
+  height: number | null
+  sizeBytes: number
+  note: string | null
+  /** İmzalı adresler listede geliyor; ızgarada kart başına istek olmasın diye. */
+  viewUrl: string
+  downloadUrl: string
+  fileName: string
+  capturedBy: string
+  createdAt: string
+}
+
+/** Depolama kullanımı. quotaBytes 0 ise sınırsız. */
+export interface QuotaUsage {
+  clipBytes: number
+  screenshotBytes: number
+  videoBytes: number
+  totalBytes: number
+  quotaBytes: number
+  unlimited: boolean
+  percentUsed: number
+  remainingBytes: number
 }
 
 /** Backend'in tüm hatalarda döndüğü tek format. */

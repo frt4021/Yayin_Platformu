@@ -4,7 +4,6 @@ import { ApiError } from '@/api/client'
 import { channelsApi, clipsApi, dvrApi } from '@/api/endpoints'
 import { readTokens } from '@/api/tokens'
 import type { ChannelDto, TimelineSpan } from '@/api/types'
-import { useAuth } from '@/auth/AuthContext'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -40,8 +39,8 @@ function estimateSize(seconds: number) {
 }
 
 export function DvrPage() {
-  const { hasRole } = useAuth()
-  const canClip = hasRole('Yönetici', 'Moderatör')
+  // Klip alma artik giris yapmis herkese acik: izleyici geriye sarmayla
+  // ayni icerigi zaten izleyebiliyordu. Uretilen klip sahibine ozel kalir.
 
   const [channels, setChannels] = useState<ChannelDto[]>([])
   const [channelId, setChannelId] = useState<string | null>(null)
@@ -280,19 +279,13 @@ export function DvrPage() {
                       </Badge>
                     )}
 
-                    {canClip ? (
-                      <Button
-                        onClick={() => void createClip()}
-                        disabled={creating || selectionSeconds > 2 * 3600 || selectionSeconds < 1}
-                      >
-                        {creating ? <Loader2Icon className="animate-spin" /> : <ScissorsIcon />}
-                        Klip oluştur
-                      </Button>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        Klip oluşturmak için yönetici veya moderatör olmalısınız.
-                      </p>
-                    )}
+                    <Button
+                      onClick={() => void createClip()}
+                      disabled={creating || selectionSeconds > 2 * 3600 || selectionSeconds < 1}
+                    >
+                      {creating ? <Loader2Icon className="animate-spin" /> : <ScissorsIcon />}
+                      Klip oluştur
+                    </Button>
                   </>
                 )}
               </CardContent>
