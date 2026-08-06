@@ -46,6 +46,9 @@ public class VideoService {
     @Inject
     VideoStorage storage;
 
+    @Inject
+    org.example.storage.QuotaService quota;
+
     /**
      * Dinleyici AFTER_SUCCESS ile bağlı: bildirim ancak transaction commit
      * edildikten sonra gider. Öncesinde gönderilseydi işçi henüz görünmeyen
@@ -100,6 +103,10 @@ public class VideoService {
                     + "(seçilen: " + humanSize(req.sizeBytes()) + ").");
         }
 
+        // Yukleme boyutu biliniyor; kotaya sigmayacaksa 5 GB'i bosuna
+        // yukletmeden burada reddediliyor.
+        quota.requireRoom(keycloakId, req.sizeBytes() == null ? 0 : req.sizeBytes());
+
         String extension = extensionOf(req.fileName());
 
         Video video = new Video();
@@ -114,9 +121,15 @@ public class VideoService {
         // Kova adi anahtarin icinde TEKRARLANMIYOR: "videolar" kovasinda
         // "videolar/..." anahtari, adreslerde videolar/videolar/... gibi
         // kafa karistirici bir yol uretiyordu.
-        video.objectKey = UUID.randomUUID() + "/kaynak." + extension;
-        video.status = VideoStatus.YUKLENIYOR;
+        // Sahip ONCE atanmali: anahtar kullanici klasoruyle basliyor.
         video.uploadedBy = requireLocalUser(keycloakId);
+        // Kutuphane videosunun kanali yok: <kullanici>/<uuid>/kaynak.<uzanti>
+        // Klasor icin ayri bir UUID uretiliyor; kaydin kendi kimligi persist
+        // oncesi henuz yok. Kucuk resim ve onizleme bu yoldan turetildigi
+        // icin ayrica tasinmalari gerekmiyor.
+        video.objectKey = org.example.storage.StoragePaths.userFile(
+            video.uploadedBy, UUID.randomUUID().toString(), "kaynak." + extension);
+        video.status = VideoStatus.YUKLENIYOR;
         video.updatedAt = Instant.now();
         video.persist();
 
@@ -137,8 +150,11 @@ public class VideoService {
      * doğruluk kaynağı değil.
      */
     @Transactional
-    public VideoDto completeUpload(UUID id) {
-        Video video = require(id);
+    public VideoDto completeUpload(UUID id, String keycloakId, boolean isAdmin) {
+        // Sahiplik burada da dogrulaniyor: uc artik giris yapmis herkese acik,
+        // yoksa bir kullanici baskasinin yuklemesini tamamlayip isleme
+        // sokabilirdi.
+        Video video = requireVisible(id, keycloakId, isAdmin);
         if (video.status != VideoStatus.YUKLENIYOR) {
             // Süpürücü önce davranmış olabilir; tekrarlanan çağrı hata değil.
             return toDto(video);
@@ -199,11 +215,25 @@ public class VideoService {
     // CRUD
     // ------------------------------------------------------------------
 
-    public List<VideoDto> list(String query, int offset, int limit) {
-        return Video.search(query, offset, limit).stream().map(this::toDto).toList();
+    /**
+     * Kütüphane listesi.
+     *
+     * <p>Yönetici hepsini görür, diğerleri yalnızca kendi yüklediklerini —
+     * kliplerdeki kuralın aynısı. Kütüphane kişisel bir arşiv olarak
+     * kurgulandığı için varsayılan kapalı.
+     */
+    public List<VideoDto> list(String query, int offset, int limit,
+                               String keycloakId, boolean isAdmin) {
+        // Kutuphane HERKESE ACIK: giris yapmis her kullanici tum videolari
+        // gorur. Klip ve ekran goruntusunden ayriliyor -- onlar kisisel kayit
+        // icerigi, kutuphane ise paylasilan bir arsiv. Yukleme yetkisi
+        // ayrica kisitli (Yonetici/Moderator), goruntuleme degil.
+        return Video.search(query, null, offset, limit)
+            .stream().map(this::toDto).toList();
     }
 
-    public VideoDto get(UUID id) {
+    public VideoDto get(UUID id, String keycloakId, boolean isAdmin) {
+        // Okuma herkese acik; sahiplik yalnizca DEGISTIRMEYI kisitliyor.
         return toDto(require(id));
     }
 
@@ -214,7 +244,8 @@ public class VideoService {
      * gereksiz olurdu ve kullanıcı listeye bakarken adreslerin süresi
      * işlemeye başlardı.
      */
-    public VideoLinks links(UUID id) {
+    public VideoLinks links(UUID id, String keycloakId, boolean isAdmin) {
+        // Izleme ve indirme adresleri de herkese acik.
         Video video = require(id);
         if (!video.isPlayable()) {
             throw AppException.badRequest(
@@ -242,8 +273,8 @@ public class VideoService {
      * sapasağlam dururken kaydı {@code HATA}'ya düşürmek onu izlenemez kılardı.
      */
     @Transactional
-    public VideoDto update(UUID id, UpdateVideoRequest req) {
-        Video video = require(id);
+    public VideoDto update(UUID id, UpdateVideoRequest req, String keycloakId, boolean isAdmin) {
+        Video video = requireVisible(id, keycloakId, isAdmin);
         video.title = req.title().trim();
         video.description = blankToNull(req.description());
         video.updatedAt = Instant.now();
@@ -281,8 +312,9 @@ public class VideoService {
      * güncelleme kareyi yeniden üretmeye çalışmıyor.
      */
     @Transactional
-    public VideoDto uploadThumbnail(UUID id, java.nio.file.Path file, String contentType, long size) {
-        Video video = require(id);
+    public VideoDto uploadThumbnail(UUID id, java.nio.file.Path file, String contentType,
+                                    long size, String keycloakId, boolean isAdmin) {
+        Video video = requireVisible(id, keycloakId, isAdmin);
 
         String extension = imageExtensionOf(contentType);
         if (size <= 0) {
@@ -316,8 +348,8 @@ public class VideoService {
     }
 
     @Transactional
-    public void delete(UUID id) {
-        Video video = require(id);
+    public void delete(UUID id, String keycloakId, boolean isAdmin) {
+        Video video = requireVisible(id, keycloakId, isAdmin);
         if (video.status == VideoStatus.ISLENIYOR) {
             throw AppException.conflict("İşlenmekte olan video silinemez.");
         }
@@ -339,6 +371,24 @@ public class VideoService {
         Video video = Video.findById(id);
         if (video == null) {
             throw AppException.notFound("Video bulunamadı: " + id);
+        }
+        return video;
+    }
+
+    /**
+     * Kaydı getirir ve erişim hakkını doğrular.
+     *
+     * <p>Yalnızca <b>değiştiren</b> uçlarda kullanılıyor: kütüphaneyi görmek
+     * herkese açık, ama başkasının videosunu düzenlemek ya da silmek değil.
+     * Yönetici tümünü yönetebilir.
+     *
+     * <p>"Bulunamadı" değil "yasak" dönüyor: videonun varlığı zaten id'yi
+     * bilene belli. Kliplerdeki {@code requireVisible} ile aynı gerekçe.
+     */
+    private Video requireVisible(UUID id, String keycloakId, boolean isAdmin) {
+        Video video = require(id);
+        if (!isAdmin && !video.uploadedBy.keycloakId.equals(keycloakId)) {
+            throw AppException.forbidden("Bu videoya erişiminiz yok.");
         }
         return video;
     }
@@ -460,9 +510,14 @@ public class VideoService {
         );
     }
 
-    /** Yalnızca test ve işçi tarafında kullanılan yardımcı. */
-    public static boolean isManaged(Set<String> roles) {
-        return roles.contains(org.example.user.Roles.YONETICI)
-            || roles.contains(org.example.user.Roles.MODERATOR);
+    /**
+     * Yönetici <b>başkasının videosunu da yönetebilir</b> (düzenler, siler).
+     *
+     * <p>Görmek için bu artık gerekmiyor: kütüphane paylaşılan bir arşiv ve
+     * giriş yapmış herkes tümünü görüyor. Moderatör yönetici sayılmıyor —
+     * video yükleyebilir ama başkasınınkine dokunamaz.
+     */
+    public static boolean isAdmin(Set<String> roles) {
+        return roles.contains(org.example.user.Roles.YONETICI);
     }
 }

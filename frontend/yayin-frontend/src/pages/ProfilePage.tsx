@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { ApiError } from '@/api/client'
 import { profileApi } from '@/api/endpoints'
-import type { UserDto } from '@/api/types'
+import { formatBytes } from '@/api/upload'
+import type { UserDto, QuotaUsage } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -137,6 +138,74 @@ export function ProfilePage() {
           </form>
         </CardContent>
       </Card>
+      <QuotaCard />
+    </div>
+  )
+}
+
+/**
+ * Depolama kullanımı.
+ *
+ * <p>Klip, kayıt, ekran görüntüsü ve video toplamını gösteriyor. Kota
+ * dolduğunda yeni iş reddediliyor ama var olan silinmiyor — ne silineceğine
+ * kullanıcı karar veriyor, o yüzden dağılımı görmesi gerekiyor.
+ */
+export function QuotaCard() {
+  const [usage, setUsage] = useState<QuotaUsage | null>(null)
+
+  useEffect(() => {
+    void profileApi.quota().then(setUsage).catch(() => {})
+  }, [])
+
+  if (!usage) return null
+
+  const kalemler: [string, number][] = [
+    ['Klip ve kayıtlar', usage.clipBytes],
+    ['Ekran görüntüleri', usage.screenshotBytes],
+    ['Videolar', usage.videoBytes],
+  ]
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border p-4">
+      <div className="flex items-center justify-between">
+        <h2 className="font-medium">Depolama</h2>
+        <span className="text-sm text-muted-foreground">
+          {usage.unlimited
+            ? `${formatBytes(usage.totalBytes)} · sınırsız`
+            : `${formatBytes(usage.totalBytes)} / ${formatBytes(usage.quotaBytes)}`}
+        </span>
+      </div>
+
+      {!usage.unlimited && (
+        <div className="h-2 overflow-hidden rounded-full bg-secondary">
+          <div
+            className={
+              usage.percentUsed >= 90
+                ? 'h-full rounded-full bg-status-error'
+                : usage.percentUsed >= 70
+                  ? 'h-full rounded-full bg-status-warning'
+                  : 'h-full rounded-full bg-primary'
+            }
+            style={{ width: `${usage.percentUsed}%` }}
+          />
+        </div>
+      )}
+
+      <dl className="grid grid-cols-3 gap-2 text-sm">
+        {kalemler.map(([ad, bayt]) => (
+          <div key={ad}>
+            <dt className="text-xs text-muted-foreground">{ad}</dt>
+            <dd className="font-medium">{formatBytes(bayt)}</dd>
+          </div>
+        ))}
+      </dl>
+
+      {!usage.unlimited && usage.percentUsed >= 90 && (
+        <p className="text-xs text-status-error">
+          Kota dolmak üzere. Yeni klip, kayıt veya yükleme reddedilebilir —
+          yer açmak için eski kayıtları silin.
+        </p>
+      )}
     </div>
   )
 }

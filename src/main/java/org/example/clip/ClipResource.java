@@ -15,6 +15,7 @@ import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
+import org.example.clip.dto.ActiveRecordingDto;
 import org.example.clip.dto.ClipDto;
 
 import java.util.List;
@@ -48,11 +49,24 @@ public class ClipResource {
     @Inject
     ClipService clipService;
 
+    @Inject
+    RecordingService recordingService;
+
     @GET
         @Operation(summary = "Klipleri listele",
         description = "Yönetici tümünü, diğerleri yalnızca kendi kliplerini görür.")
-    public List<ClipDto> list(@QueryParam("channelId") UUID channelId) {
-        return clipService.list(channelId, jwt.getSubject(), isAdmin());
+    public List<ClipDto> list(@QueryParam("channelId") UUID channelId,
+                              @QueryParam("origin") ClipOrigin origin) {
+        return clipService.list(channelId, origin, jwt.getSubject(), isAdmin());
+    }
+
+    @GET
+    @Path("/kayitlar/devam-eden")
+    @Operation(summary = "Devam eden kayıtlarım",
+        description = "Arayüz kayıt düğmesini doğru durumda çizsin ve geçen süreyi "
+            + "gösterebilsin diye.")
+    public List<ActiveRecordingDto> activeRecordings() {
+        return recordingService.listActive(jwt.getSubject());
     }
 
     @GET

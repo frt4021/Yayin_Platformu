@@ -531,7 +531,7 @@
       "credentials": [
         {
           "type": "password",
-          "value": "$(env:KEYCLOAK_BOOTSTRAP_PASSWORD)",
+          "value": "12345678",
           "temporary": false
         }
       ],

@@ -135,7 +135,10 @@ ClipWorker {
         if (clip == null) {
             return null;
         }
-        String key = "clips/" + clip.channel.mediamtxPath + "/" + clip.id + ".mp4";
+        // <kullanici>/<kanal>/<id>.mp4 -- icerik zaten kullaniciya ozel,
+        // klasor duzeni de onu yansitiyor.
+        String key = org.example.storage.StoragePaths.channelFile(
+            clip.requestedBy, clip.channel.mediamtxPath, clip.id + ".mp4");
         clip.objectKey = key;
         return new ClipJob(clip.channel.id, clip.startAt, clip.endAt, key);
     }

@@ -7,39 +7,19 @@
 #   ./baslat.sh --durdur     durdur
 #   ./baslat.sh --sifirla    durdur ve TÜM VERİYİ sil
 #
-# Yeni bir makinede hiçbir şey ayarlamaya gerek yok: .env yoksa üretilir,
-# makinenin LAN adresi ve GPU'su kendiliğinden bulunur.
+# .env ÜRETİLMEZ — o ayrı bir adım:
+#
+#   ./yapilandir.sh    donanımı ve LAN adresini bulup .env üretir
+#   ./baslat.sh        .env'i kullanarak ayağa kaldırır
+#
+# Ayrı olmasının sebebi: donanım tespiti her zaman doğru olmayabilir ve
+# kullanıcının başlatmadan önce .env'i düzeltebilmesi gerekiyor.
 
 set -euo pipefail
 
 KOK="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DOCKER_DIZINI="$KOK/src/main/docker"
-COMPOSE="$DOCKER_DIZINI/docker-compose.yaml"
+COMPOSE="$KOK/docker-compose.yaml"
 ENV_DOSYASI="$KOK/.env"
-
-# Docker Compose değişkenleri, compose dosyasının BULUNDUĞU dizindeki .env'den
-# okuyor — proje kökünden değil. Kökteki .env'i orada da görünür kılmak şart:
-# aksi halde her değişken compose'daki varsayılana düşer ve örneğin
-# KEYCLOAK_CLIENT_SECRET "change_me" olur, giriş sessizce çalışmaz.
-#
-# Bu dosya git'te YOK (.gitignore ".env" ile eşleşiyor), yani temiz bir klonda
-# kendiliğinden oluşmaz. Script her çalıştığında yeniden kuruyor.
-env_baglantisi_kur() {
-  local hedef="$DOCKER_DIZINI/.env"
-  # Zaten doğru yere bakan bir bağlantı varsa dokunma.
-  if [ -L "$hedef" ] && [ "$(readlink -f "$hedef")" = "$(readlink -f "$ENV_DOSYASI")" ]; then
-    return
-  fi
-  rm -f "$hedef"
-  # Symlink kurulamayan dosya sistemleri (bazı ağ/Windows bağları) için
-  # kopyalamaya düşülüyor; kopya bayat kalabileceğinden bağlantı tercih ediliyor.
-  if ln -s ../../../.env "$hedef" 2>/dev/null; then
-    gri "  compose .env bağlantısı kuruldu"
-  else
-    cp "$ENV_DOSYASI" "$hedef"
-    gri "  compose .env kopyalandı (symlink kurulamadı)"
-  fi
-}
 
 kirmizi() { printf '\033[31m%s\033[0m\n' "$*"; }
 yesil()   { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -71,111 +51,11 @@ on_kosullar() {
   yesil "  docker, docker compose, java — tamam"
 }
 
-# ------------------------------------------------------------------- keşifler
-
-# Makinenin LAN adresi. Bu adres TARAYICIDA açılıyor: HLS ve MinIO adresleri
-# bundan türüyor. "localhost" yazılsaydı ağdaki başka bir cihaz onu KENDİ
-# makinesi sanardı ve ne yayın ne indirme çalışırdı.
-lan_adresi() {
-  local ip
-  ip="$(ip -4 route get 1.1.1.1 2>/dev/null | grep -oP 'src \K[\d.]+' || true)"
-  [ -n "$ip" ] || ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  [ -n "$ip" ] || ip="localhost"
-  echo "$ip"
-}
-
-# Hangi donanım kodlayıcısı kullanılabilir.
-#
-# Kodlama mediamtx ve video-worker konteynerlerinde yapılıyor; buradaki tespit
-# host'a bakıyor çünkü konteynerlere aygıtı geçiren de host.
-kodlayici_bul() {
-  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
-    echo "NVENC"
-  elif [ -e /dev/dri/renderD128 ]; then
-    echo "VAAPI"
-  else
-    echo "YAZILIM"
-  fi
-}
-
-# --------------------------------------------------------------------- .env
-
-env_uret() {
-  local ip kodlayici
-  ip="$(lan_adresi)"
-  kodlayici="$(kodlayici_bul)"
-
-  gri "  LAN adresi : $ip"
-  gri "  kodlayıcı  : $kodlayici"
-
-  # Kodlayıcıya göre konteyner aygıt ayarları.
-  local runtime="runc" nv_devices="" nv_caps="" media_dev="/dev/null:/dev/null"
-  local worker_dev="/dev/null:/dev/null" videos_enc="YAZILIM"
-
-  case "$kodlayici" in
-    NVENC)
-      runtime="nvidia"; nv_devices="all"; nv_caps="video,compute,utility"
-      videos_enc="NVENC"
-      ;;
-    VAAPI)
-      media_dev="/dev/dri:/dev/dri"
-      # Worker'a aygıt geçirmiyoruz: önizleme klibi zaten saniyeler içinde
-      # kodlanıyor ve aygıt bağımlılığı eklemeye değmez.
-      ;;
-  esac
-
-  cat > "$ENV_DOSYASI" <<EOF
-# Yayın Merkezi — baslat.sh tarafından üretildi.
-# Elle düzenlenebilir; script mevcut dosyanın ÜZERİNE YAZMAZ.
-
-QUARKUS_PROFILE=prod
-
-# --- Veritabanı ---
-POSTGRES_USER=app_user
-POSTGRES_PASSWORD=yayin_db_parola
-KEYCLOAK_DB_USER=keycloak
-KEYCLOAK_DB_PASSWORD=keycloak_db_parola
-
-# --- Keycloak ---
-# Bu secret realm-export.json içine de gömülü; ikisi AYNI olmak zorunda.
-KEYCLOAK_CLIENT_SECRET=12345678
-KEYCLOAK_CLIENT_ID=Yayın_App
-KEYCLOAK_REALM=YayinYonetimi
-KEYCLOAK_ADMIN=admin
-KEYCLOAK_ADMIN_PASSWORD=admin
-# İlk yönetici kullanıcının şifresi (realm import sırasında uygulanır).
-KEYCLOAK_BOOTSTRAP_PASSWORD=12345678
-
-# --- Nesne depolama ---
-MINIO_ROOT_USER=minio_admin
-MINIO_ROOT_PASSWORD=minio_admin_parola
-
-# --- TARAYICIDA açılan adresler ---
-# Makinenin LAN adresi kullanılıyor: hem bu bilgisayardan hem ağdaki
-# cihazlardan aynı adres çalışsın diye. Makine IP değiştirirse burası da
-# değişmeli (ya da .env silinip script yeniden çalıştırılmalı).
-MINIO_PUBLIC_URL=http://$ip:9000
-MEDIAMTX_HLS_BASE_URL=http://$ip:8888
-CORS_ALLOWED_ORIGINS=http://localhost:3000,http://$ip:3000
-
-# --- Donanım kodlayıcı (otomatik tespit: $kodlayici) ---
-CHANNELS_ENCODER=$kodlayici
-VIDEOS_ENCODER=$videos_enc
-CONTAINER_RUNTIME=$runtime
-NVIDIA_VISIBLE_DEVICES=$nv_devices
-NVIDIA_DRIVER_CAPABILITIES=$nv_caps
-MEDIA_DEVICE=$media_dev
-WORKER_MEDIA_DEVICE=$worker_dev
-EOF
-  yesil "  .env üretildi"
-}
-
 # ------------------------------------------------------------------ komutlar
 
 durdur() {
   baslik "Durduruluyor"
-  [ -f "$ENV_DOSYASI" ] || touch "$ENV_DOSYASI"
-  docker compose --env-file "$ENV_DOSYASI" -f "$COMPOSE" down
+  docker compose -f "$COMPOSE" down
   yesil "Durduruldu."
 }
 
@@ -184,7 +64,7 @@ sifirla() {
   kirmizi "  Tüm veritabanları, MinIO içeriği ve DVR kayıtları SİLİNECEK."
   read -r -p "  Emin misiniz? (evet yazın): " onay
   [ "$onay" = "evet" ] || { echo "  Vazgeçildi."; exit 0; }
-  docker compose --env-file "$ENV_DOSYASI" -f "$COMPOSE" down -v
+  docker compose -f "$COMPOSE" down -v
   rm -rf "$KOK/src/main/docker/mediamtx-data/recordings"/* \
          "$KOK/src/main/docker/mediamtx-data/hls"/* 2>/dev/null || true
   yesil "Sıfırlandı."
@@ -211,12 +91,19 @@ baslat() {
   on_kosullar
 
   baslik "Yapılandırma"
-  if [ -f "$ENV_DOSYASI" ]; then
-    gri "  .env zaten var, korunuyor (yeniden üretmek için silin)"
-  else
-    env_uret
+  # .env URETILMIYOR: yapilandirma ayri bir adim. Sebep, donanim tespitinin
+  # her zaman dogru olmamasi -- NVIDIA'li bir sunucuda kullanicinin
+  # baslatmadan ONCE araya girip duzeltebilmesi gerekiyor.
+  if [ ! -f "$ENV_DOSYASI" ]; then
+    kirmizi "  .env bulunamadı."
+    echo
+    gri "  Önce yapılandırın (donanım ve LAN adresi otomatik bulunur):"
+    echo "      ./yapilandir.sh"
+    gri "  Sonra .env'i gözden geçirip buraya dönün."
+    exit 1
   fi
-  env_baglantisi_kur
+  gri "  .env bulundu"
+  grep -E "^(CHANNELS_ENCODER|VIDEOS_ENCODER)=" "$ENV_DOSYASI" | sed 's/^/    /' || true
 
   baslik "Uygulama paketleniyor"
   gri "  ./mvnw package — ilk çalıştırmada bağımlılıklar inecek, sürebilir"
@@ -225,13 +112,13 @@ baslat() {
 
   baslik "İmajlar kuruluyor"
   if [ "$yeniden" = "evet" ]; then
-    docker compose --env-file "$ENV_DOSYASI" -f "$COMPOSE" build --no-cache
+    docker compose -f "$COMPOSE" build --no-cache
   else
-    docker compose --env-file "$ENV_DOSYASI" -f "$COMPOSE" build
+    docker compose -f "$COMPOSE" build
   fi
 
   baslik "Servisler başlatılıyor"
-  docker compose --env-file "$ENV_DOSYASI" -f "$COMPOSE" up -d
+  docker compose -f "$COMPOSE" up -d
 
   baslik "Hazır olması bekleniyor"
   hazir_bekle "postgres"  "docker exec postgres pg_isready -U app_user"

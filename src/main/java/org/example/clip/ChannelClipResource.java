@@ -1,6 +1,6 @@
 package org.example.clip;
 
-import jakarta.annotation.security.RolesAllowed;
+import io.quarkus.security.Authenticated;
 import jakarta.inject.Inject;
 import jakarta.validation.Valid;
 import jakarta.ws.rs.Consumes;
@@ -13,9 +13,9 @@ import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
+import org.example.clip.dto.ActiveRecordingDto;
 import org.example.clip.dto.ClipDto;
 import org.example.clip.dto.CreateClipRequest;
-import org.example.user.Roles;
 
 import java.util.UUID;
 
@@ -31,7 +31,11 @@ import java.util.UUID;
  * yazmak bu çakışmayı ortadan kaldırıyor.
  */
 @Path("/api/channels/{channelId}/clips")
-@RolesAllowed({Roles.YONETICI, Roles.MODERATOR})
+// Giris yapmis herkes KENDI ADINA klip alabilir. Rol kisiti kaldirildi
+// cunku tutarsizdi: izleyici geriye sarmayla ayni kayit icerigini zaten
+// izleyebiliyordu ama ondan klip alamiyordu -- kapi kilitli, pencere acikti.
+// Uretilen klip sahibine ozel kalir; goruntuleme kurali ClipService'te.
+@Authenticated
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 @Tag(name = "Klipler", description = "Kayıttan klip çıkarma")
@@ -43,6 +47,9 @@ public class ChannelClipResource {
     @Inject
     ClipService clipService;
 
+    @Inject
+    RecordingService recordingService;
+
     @POST
     @Operation(summary = "Klip oluştur",
         description = "İş kuyruğa alınır ve arka planda üretilir; yanıt hemen döner.")
@@ -51,5 +58,24 @@ public class ChannelClipResource {
         ClipDto clip = clipService.create(channelId, request, jwt.getSubject());
         // 202: kabul edildi ama tamamlanmadı. 201 yanıltıcı olurdu — dosya henüz yok.
         return Response.accepted(clip).build();
+    }
+
+    @POST
+    @jakarta.ws.rs.Path("/kayit")
+    @Operation(summary = "Kayda başla",
+        description = "Başlangıç anı sunucuda saklanır. Yeni bir kayıt mekanizması "
+            + "değil: DVR zaten kaydediyor, burada yalnızca aralığın başı işaretleniyor.")
+    public ActiveRecordingDto startRecording(@PathParam("channelId") UUID channelId) {
+        return recordingService.start(channelId, jwt.getSubject());
+    }
+
+    @jakarta.ws.rs.DELETE
+    @jakarta.ws.rs.Path("/kayit")
+    @Operation(summary = "Kaydı durdur",
+        description = "Bitiş anı sunucuda belirlenir ve aralık için klip işi açılır. "
+            + "DURDURMA HER KOŞULDA BAŞARILI OLUR: klip açılamazsa yanıtta 'error' "
+            + "dolu döner ama kayıt yine de durmuştur.")
+    public Response stopRecording(@PathParam("channelId") UUID channelId) {
+        return Response.accepted(recordingService.stop(channelId, jwt.getSubject())).build();
     }
 }

@@ -48,4 +48,17 @@ public class CurrentUserResource {
         userService.changeOwnPassword(jwt.getSubject(), TokenClaims.username(jwt), request);
         return Response.noContent().build();
     }
+
+    @GET
+    @jakarta.ws.rs.Path("/kota")
+    @Operation(summary = "Depolama kullanımım",
+        description = "Klip, kayıt, ekran görüntüsü ve video toplamı. Kütüphane "
+            + "videoları da dahil: kütüphane kişisel olduğu için kotadan muaf "
+            + "tutmanın gerekçesi yok.")
+    public org.example.storage.QuotaService.Usage quota() {
+        return quotaService.usageOf(jwt.getSubject());
+    }
+
+    @jakarta.inject.Inject
+    org.example.storage.QuotaService quotaService;
 }

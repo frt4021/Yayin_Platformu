@@ -9,6 +9,7 @@ import { ProfilePage } from '@/pages/ProfilePage'
 import { ChannelsPage } from '@/pages/ChannelsPage'
 import { RadiosPage } from '@/pages/RadiosPage'
 import { VideosPage } from '@/pages/VideosPage'
+import { GaleriPage } from '@/pages/GaleriPage'
 import { WatchPage } from '@/pages/WatchPage'
 import { DvrPage } from '@/pages/dvr/DvrPage'
 import { ClipsPage } from '@/pages/ClipsPage'
@@ -33,6 +34,7 @@ export default function App() {
               <Route path="/geriye-sarma" element={<DvrPage />} />
               <Route path="/klipler" element={<ClipsPage />} />
               <Route path="/videolar" element={<VideosPage />} />
+              <Route path="/galeri" element={<GaleriPage />} />
               <Route path="/profil" element={<ProfilePage />} />
 
               {/* Yalnızca yönetici */}

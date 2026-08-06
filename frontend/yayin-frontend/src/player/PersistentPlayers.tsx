@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { channelsApi } from '@/api/endpoints'
-import type { ChannelDto } from '@/api/types'
-import { HlsPlayer } from '@/components/HlsPlayer'
+import { channelsApi, recordingsApi } from '@/api/endpoints'
+import type { ActiveRecordingDto, ChannelDto } from '@/api/types'
+import { HlsPlayer, type CaptureHandle } from '@/components/HlsPlayer'
+import { TileActions } from './TileActions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -46,6 +47,20 @@ export function PersistentPlayers() {
     usePlayers()
 
   const [channels, setChannels] = useState<ChannelDto[]>([])
+  const [recordings, setRecordings] = useState<ActiveRecordingDto[]>([])
+
+  const loadRecordings = useCallback(async () => {
+    try {
+      setRecordings(await recordingsApi.active())
+    } catch {
+      // Kayit listesi alinamazsa dugme "kayit yok" durumunda kalir; oynatmayi
+      // etkilemedigi icin kullaniciya hata gostermeye gerek yok.
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadRecordings()
+  }, [loadRecordings])
 
   const load = useCallback(async () => {
     try {
@@ -184,6 +199,8 @@ export function PersistentPlayers() {
               onQuality={(suffix) => setQuality(channel.id, suffix)}
               showControls={singleTile}
               onToggleExpand={() => expand(expanded?.id === channel.id ? null : channel.id)}
+              recording={recordings.find((r) => r.channelId === channel.id) ?? null}
+              onRecordingChanged={() => void loadRecordings()}
               onAudio={() => setAudio(channel.id === audioId ? null : channel.id)}
               onClose={() => toggle(channel.id)}
             />
@@ -209,11 +226,15 @@ function Tile({
   quality,
   onQuality,
   showControls,
+  recording,
+  onRecordingChanged,
   onToggleExpand,
   onAudio,
   onClose,
 }: {
   channel: ChannelDto
+  recording: ActiveRecordingDto | null
+  onRecordingChanged: () => void
   visible: boolean
   expanded: boolean
   /** Mini görünüm: üst çubuk ve kenarlık gösterilmez. */
@@ -231,6 +252,9 @@ function Tile({
   const qualities = qualitiesOf(channel)
   // Seçili kalite kanaldan kaldırılmış olabilir; o durumda kaynağa düş.
   const selected = qualities.find((q) => q.suffix === quality) ?? qualities[0]
+
+  /** Kare yakalama için oynatıcının video elementine erişim. */
+  const captureRef = useRef<CaptureHandle | null>(null)
 
   /** Geri sarılan bölümün blob adresi; null ise canlı akış oynuyor. */
   const [rewindUrl, setRewindUrl] = useStateReact<string | null>(null)
@@ -272,6 +296,7 @@ function Tile({
       ) : (
       <HlsPlayer
         key={selected.hlsUrl}
+        captureRef={captureRef}
         src={selected.hlsUrl}
         muted={!hasAudio}
         // Kontroller yalnızca tek karo görünürken: 4x4 mozaikte 16 kontrol
@@ -297,7 +322,17 @@ function Tile({
         )}
       >
         <span className="truncate text-xs font-medium text-white">{channel.name}</span>
-        <div className="pointer-events-auto flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        {/* Dugmeler HER ZAMAN gorunur. Onceden yalnizca fare uzerine gelince
+            beliriyordu: kayit ve kare yakalama, varligi kesfedilmesi gereken
+            gizli ozellikler degil -- kullanici karsisinda durani kullanir.
+            Ustteki gradyan okunurlugu zaten sagliyor. */}
+        <div className="pointer-events-auto flex gap-1">
+          <TileActions
+            channel={channel}
+            capture={captureRef}
+            recording={recording}
+            onRecordingChanged={onRecordingChanged}
+          />
           {qualities.length > 1 && (
             <div className="relative">
               <select

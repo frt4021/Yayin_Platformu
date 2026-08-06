@@ -1,3 +1,14 @@
+# Proje adi ACIKCA yaziliyor.
+#
+# Compose, verilmezse proje adini compose dosyasinin BULUNDUGU DIZINDEN
+# turetiyor ve volume adlari da ona baglaniyor (proje_postgres_data gibi).
+# Bu dosya src/main/docker altindan koke tasindiginda ad "docker"dan
+# "yayinyonetim"e degisti ve compose BOS yeni volume'lar acti -- veritabani
+# ve MinIO icerigi bir anda "kaybolmus" gibi gorundu. Adi sabitlemek bu
+# tuzagi kalici olarak kapatiyor: dosya nereye tasinirsa tasinsin volume
+# adlari degismez.
+name: yayin-merkezi
+
 networks:
   yayin-merkezi:
     driver: bridge
@@ -24,7 +35,7 @@ services:
     ports:
       # Host'ta 5432'yi makinede kurulu PostgreSQL 14 servisi tutuyor;
       # container disariya 5433'ten acilir. Compose agi icinde adres yine postgres:5432.
-      - "5433:5432"
+      - "${PORT_POSTGRES:-5433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app_user}"]
       interval: 10s
@@ -67,11 +78,10 @@ services:
       # realm-export.json icindeki $(env:...) yer tutucularini Keycloak
       # bu degiskenlerden doldurur. Secret dosyaya yazilmaz.
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-change_me}
-      KEYCLOAK_BOOTSTRAP_PASSWORD: ${KEYCLOAK_BOOTSTRAP_PASSWORD:-change_me}
     volumes:
-      - ./keycloak:/opt/keycloak/data/import:ro
+      - ./src/main/docker/keycloak:/opt/keycloak/data/import:ro
     ports:
-      - "8080:8080"
+      - "${PORT_KEYCLOAK:-8080}:8080"
     depends_on:
       - keycloak-postgres
     networks:
@@ -89,8 +99,8 @@ services:
     volumes:
       - minio_data:/data
     ports:
-      - "9000:9000"   # API
-      - "9001:9001"   # Web konsolu
+      - "${PORT_MINIO_API:-9000}:9000"        # API
+      - "${PORT_MINIO_CONSOLE:-9001}:9001"    # Web konsolu
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 15s
@@ -105,7 +115,7 @@ services:
     container_name: redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "${PORT_REDIS:-6379}:6379"
     networks:
       - yayin-merkezi
 
@@ -117,7 +127,7 @@ services:
     # surucusunu (iHD) tasiyor: host'taki surucu yalnizca CQP destekliyordu,
     # imajdaki CBR aciyor ve bit hizi hedeflenebiliyor.
     build:
-      context: .
+      context: ./src/main/docker
       dockerfile: Dockerfile.mediamtx
     image: yayin/mediamtx:1.19.3
     container_name: mediamtx
@@ -141,30 +151,37 @@ services:
       # NVIDIA kullanilmiyorsa bos kalir ve hicbir etkisi olmaz.
       NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-}
       NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-}
+
+      # DVR saklama suresi. MediaMTX MTX_ onekli degiskenlerle mediamtx.yml'i
+      # eziyor, boylece dosyayi degistirmeden ayarlanabiliyor.
+      #
+      # DIKKAT: disk hesabi buna bagli. 6 Mbps'lik bir kanal saatte ~2,7 GB
+      # yaziyor; 16 kanal x 7 gun ~= 7,3 TB. Sureyi uzatmadan once diski
+      # kontrol edin, yoksa disk dolunca TUM kayitlar durur.
+      MTX_PATHDEFAULTS_RECORDDELETEAFTER: ${DVR_RETENTION:-168h}
     volumes:
-      - ./mediamtx.yml:/mediamtx.yml
+      - ./src/main/docker/mediamtx.yml:/mediamtx.yml
       # Adlandirilmis volume yerine host dizinleri: uretilen manifest,
       # segment ve kayit dosyalari dosya yoneticisinden dogrudan gorulebilsin.
-      - ./mediamtx-data/hls:/hls
+      - ./src/main/docker/mediamtx-data/hls:/hls
       # DVR kayitlari. Uretimde buyuk diski DVR_PATH ile gosterin:
       #   DVR_PATH=/mnt/dvr docker compose up -d
       # 16 kanal x 7 gun x 6 Mbps ~= 7.3 TB; %20 payla 8.7 TB disk gerekir.
-      - ${DVR_PATH:-./mediamtx-data/recordings}:/recordings
+      - ${DVR_PATH:-./src/main/docker/mediamtx-data/recordings}:/recordings
     ports:
-      - "8554:8554"   # RTSP
-      - "8888:8888"   # HLS/HTTP
-      - "9997:9997"   # REST API (dinamik path yönetimi)
+      - "${PORT_RTSP:-8554}:8554"             # RTSP
+      - "${PORT_HLS:-8888}:8888"              # HLS/HTTP
+      - "${PORT_MEDIAMTX_API:-9997}:9997"     # REST API (dinamik path yönetimi)
       # Geri sarma sunucusu. Yalnizca 127.0.0.1'e baglanir: gelistirmede
       # host'taki backend erisebilsin diye acik, ama agdan erisilemez.
       # Uretimde backend compose aginda oldugu icin bu satir kaldirilabilir.
-      - "127.0.0.1:9996:9996"
+      - "127.0.0.1:${PORT_PLAYBACK:-9996}:9996"
     networks:
       - yayin-merkezi
 
   backend:
     build:
-      # Quarkus kaynaklari proje kokunde; Dockerfile compose dosyasinin yaninda.
-      context: ../../..
+      context: .
       dockerfile: src/main/docker/Dockerfile.jvm
     container_name: backend
     restart: unless-stopped
@@ -201,6 +218,20 @@ services:
       REDIS_URL: redis://redis:6379
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
 
+      # Saklama politikasi. Sureler GUN ya da SAAT olarak yazilabilir:
+      #   P30D = 30 gun · 720h = ayni sure · PT12H = 12 saat · 0 = KAPALI
+      # Varsayilan olarak kullanici verisi silinmiyor; baskiyi kota kuruyor.
+      STORAGE_CLIP_RETENTION: ${STORAGE_CLIP_RETENTION:-0}
+      STORAGE_SCREENSHOT_RETENTION: ${STORAGE_SCREENSHOT_RETENTION:-0}
+      STORAGE_FAILED_CLIP_RETENTION: ${STORAGE_FAILED_CLIP_RETENTION:-P7D}
+      STORAGE_SWEEP_INTERVAL: ${STORAGE_SWEEP_INTERVAL:-1h}
+      STORAGE_USER_QUOTA_BYTES: ${STORAGE_USER_QUOTA_BYTES:-21474836480}
+
+      # Ekran goruntusu galerisi
+      SCREENSHOTS_BUCKET: ${SCREENSHOTS_BUCKET:-ekran-goruntuleri}
+      SCREENSHOTS_URL_TTL_HOURS: ${SCREENSHOTS_URL_TTL_HOURS:-6}
+      SCREENSHOTS_MAX_BYTES: ${SCREENSHOTS_MAX_BYTES:-10485760}
+
       # Video isleri ayri konteynerde (ffmpeg burada yok). Klipler burada
       # kaliyor: onlarin isi MediaMTX'ten akis cekmek, ffmpeg gerektirmiyor.
       VIDEOS_WORKER_ENABLED: "false"
@@ -212,7 +243,7 @@ services:
       - redis
       - mediamtx
     ports:
-      - "8090:8081"
+      - "${PORT_BACKEND:-8090}:8081"
     networks:
       - yayin-merkezi
 
@@ -222,7 +253,7 @@ services:
   # kullanmamasi. Sorumluluk ayrimi ortam degiskenleriyle yapiliyor.
   video-worker:
     build:
-      context: ../../..
+      context: .
       dockerfile: src/main/docker/Dockerfile.worker
     image: yayin/video-worker:latest
     container_name: video-worker
@@ -286,12 +317,12 @@ services:
 
   frontend:
     build:
-      context: ../../../frontend/yayin-frontend
+      context: ./frontend/yayin-frontend
     container_name: frontend
     restart: unless-stopped
     depends_on:
       - backend
     ports:
-      - "3000:80"
+      - "${PORT_FRONTEND:-3000}:80"
     networks:
       - yayin-merkezi

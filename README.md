@@ -11,16 +11,19 @@ Quarkus tabanlı backend'de; arayüz React + shadcn/ui.
 
 ## Hızlı başlangıç
 
+**İki adım:**
+
 ```bash
-./baslat.sh
+./yapilandir.sh    # donanımı bulup .env üretir
+./baslat.sh        # paketler, kurar, başlatır
 ```
 
-Hepsi bu. Script ön koşulları kontrol eder, `.env` yoksa üretir, jar'ı
-paketler, imajları kurar, servisleri başlatır ve hepsi hazır olana kadar
-bekler.
+Neden ayrı: donanım tespiti her zaman doğru olmayabilir — birden fazla GPU,
+eksik sürücü, sunucuda farklı bir kart. Arada `.env`'i gözden geçirip
+düzeltebilmeniz gerekiyor. `baslat.sh`, `.env` yoksa başlatmaz ve
+`yapilandir.sh`'e yönlendirir.
 
-**Hiçbir şey ayarlamanız gerekmiyor** — makinenin LAN adresi ve GPU'su
-kendiliğinden bulunur:
+`yapilandir.sh` bulduğu donanımı ekrana yazar ve `.env`'i buna göre doldurur:
 
 | Bulunan | Sonuç |
 |---|---|
@@ -31,17 +34,44 @@ kendiliğinden bulunur:
 LAN adresi de otomatik: HLS ve MinIO adresleri `localhost` yerine makinenin
 gerçek IP'siyle üretilir, böylece ağdaki başka cihazlardan da çalışır.
 
+Tespit yanlışsa `.env`'deki kodlayıcı bloğunu elle düzeltin — dosyanın içinde
+NVIDIA ve Intel/AMD için hazır örnekler var.
+
 ### Diğer komutlar
 
 ```bash
+./yapilandir.sh --zorla  # .env'i yeniden üret (var olanın üzerine)
+
 ./baslat.sh --yeniden    # imajları sıfırdan kurarak başlat
 ./baslat.sh --durdur     # durdur (veri korunur)
 ./baslat.sh --sifirla    # durdur ve TÜM VERİYİ sil
 ```
 
+> **`--zorla` kurulu bir sistemde dikkat ister.** Veritabanı ve MinIO
+> parolaları volume ilk oluşturulurken içine gömülüyor; yeni `.env` farklı
+> parola yazarsa bağlantı kopar. Script bunu fark edip onay soruyor ve eskisini
+> `.env.yedek` olarak saklıyor.
+
 ### Ön koşullar
 
 `docker`, `docker compose` (v2) ve `java` (21+). Script yoksa söyler.
+
+### Compose'u elle çalıştırmak
+
+`docker-compose.yaml` **proje kökünde**, yani `-f` gerekmiyor:
+
+```bash
+docker compose up -d
+docker compose logs -f backend
+docker compose down
+```
+
+`.env` de kökte ve compose onu kendi dizininden okuyor — ek bir ayar yok.
+
+> Compose dosyasında `name: yayin-merkezi` **açıkça yazılı**. Verilmezse
+> Compose proje adını bulunduğu dizinden türetir ve volume adları da ona
+> bağlanır; dosya taşındığında adlar değişir ve veritabanı bir anda "boş"
+> görünür. Bu satır o tuzağı kapatıyor — **silmeyin**.
 
 ### Adresler
 
@@ -222,7 +252,6 @@ Yeniden ürettirmek için silip scripti tekrar çalıştırın.
 | `KEYCLOAK_CLIENT_ID` | `Yayın_App` | Realm'deki client adı — değiştirilirse realm dosyası da değişmeli |
 | `KEYCLOAK_REALM` | `YayinYonetimi` | Realm adı |
 | `KEYCLOAK_ADMIN` / `_PASSWORD` | `admin` / `admin` | Keycloak yönetim konsolu girişi. **Üretimde değiştirin** |
-| `KEYCLOAK_BOOTSTRAP_PASSWORD` | `12345678` | Realm import edilirken tanımlı kullanıcılara verilen ilk şifre |
 
 ### Nesne depolama
 
@@ -244,6 +273,35 @@ onu kendi makinesi sanar; yayın da indirme de çalışmaz.
 
 > IP değişirse bu üçü de değişmeli. En kolayı: `.env`'i silip `./baslat.sh`.
 
+### Host portları
+
+Hepsi `.env`'den ayarlanabilir. Yalnızca **host tarafı** değişir; konteyner içi
+portlar sabit ve compose ağında adresler hep aynı kalır (`backend:8081`,
+`mediamtx:8888` …). Başka bir uygulama portu tutuyorsa burayı değiştirin.
+
+| Alan | Varsayılan | Servis |
+|---|---|---|
+| `PORT_FRONTEND` | `3000` | Arayüz (nginx) |
+| `PORT_BACKEND` | `8090` | REST API — konteyner içi 8081 |
+| `PORT_KEYCLOAK` | `8080` | Kimlik sunucusu |
+| `PORT_MINIO_API` | `9000` | Nesne depolama API'si |
+| `PORT_MINIO_CONSOLE` | `9001` | MinIO web konsolu |
+| `PORT_HLS` | `8888` | HLS yayını — tarayıcı buradan çalar |
+| `PORT_RTSP` | `8554` | RTSP |
+| `PORT_MEDIAMTX_API` | `9997` | MediaMTX REST API'si |
+| `PORT_PLAYBACK` | `9996` | Geriye sarma; yalnızca `127.0.0.1`'e bağlanır |
+| `PORT_POSTGRES` | `5433` | Makinede kurulu PostgreSQL 5432'yi tutabildiği için 5433 |
+| `PORT_REDIS` | `6379` | Kuyruk bildirimi |
+
+> **Üçü tarayıcıya da yazılı.** Bunları değiştirirseniz yukarıdaki adresleri de
+> elden geçirin — uyuşmazlarsa yayın ve indirme *sessizce* kırılır:
+>
+> | Port | Ayrıca güncellenecek |
+> |---|---|
+> | `PORT_FRONTEND` | `CORS_ALLOWED_ORIGINS` |
+> | `PORT_MINIO_API` | `MINIO_PUBLIC_URL` |
+> | `PORT_HLS` | `MEDIAMTX_HLS_BASE_URL` |
+
 ### Donanım kodlayıcı
 
 | Alan | Değerler | Açıklama |
@@ -256,11 +314,31 @@ onu kendi makinesi sanar; yayın da indirme de çalışmaz.
 | `MEDIA_DEVICE` | `/dev/dri:/dev/dri` \| `/dev/null:/dev/null` | mediamtx'e geçirilen aygıt. NVIDIA'da `/dev/dri` olmayabilir, o yüzden `/dev/null` |
 | `WORKER_MEDIA_DEVICE` | aynı | video-worker için |
 
+### Depolama: kota ve temizlik
+
+Süreler **gün ya da saat** olarak yazılabilir: `P30D` = 30 gün · `720h` = aynı
+süre · `PT12H` = 12 saat · `0` = kapalı. Uygulama açılışta yürürlükteki
+politikayı logluyor.
+
+| Alan | Varsayılan | Açıklama |
+|---|---|---|
+| `STORAGE_USER_QUOTA_BYTES` | `21474836480` (20 GB) | Kullanıcı başına. Klip + kayıt + ekran görüntüsü + video toplamı. `0` = sınırsız |
+| `STORAGE_CLIP_RETENTION` | `0` | Klip ve kayıt saklama süresi. **Varsayılan kapalı** — baskıyı kota kursun, saat değil |
+| `STORAGE_SCREENSHOT_RETENTION` | `0` | Aynı |
+| `STORAGE_FAILED_CLIP_RETENTION` | `P7D` | Başarısız klipler. Dosyaları zaten yok, yalnızca sebep gösterilsin diye bekletiliyor |
+| `STORAGE_SWEEP_INTERVAL` | `1h` | Süpürücü aralığı |
+| `SCREENSHOTS_BUCKET` | `ekran-goruntuleri` | Galeri kovası |
+| `SCREENSHOTS_MAX_BYTES` | `10485760` (10 MB) | Tek kare üst sınırı |
+
+> **Kota dolunca yeni iş reddedilir, var olan silinmez.** Sessizce silmek
+> kullanıcının verisini habersiz yok etmek olurdu; ne silineceğine kullanıcı
+> karar vermeli.
+
 ### Yol
 
 | Alan | Varsayılan | Açıklama |
 |---|---|---|
-| `DVR_PATH` | `./mediamtx-data/recordings` | DVR kayıtları. **Üretimde büyük diski gösterin**: 16 kanal × 7 gün × 6 Mbps ≈ 7,3 TB |
+| `DVR_PATH` | `./src/main/docker/mediamtx-data/recordings` | DVR kayıtları. **Üretimde büyük diski gösterin**: 16 kanal × 7 gün × 6 Mbps ≈ 7,3 TB |
 
 ### İsteğe bağlı ince ayar
 
@@ -303,6 +381,11 @@ onu kendi makinesi sanar; yayın da indirme de çalışmaz.
 
 | Yetenek | Durum |
 |---|---|
+| Manuel kayıt (kayda başla / durdur) | ✅ |
+| Canlı yayından kare yakalama ve kronolojik galeri | ✅ |
+| Kullanıcı başına depolama kotası ve temizlik politikası | ✅ |
+| Radyo yayınları (Icecast köprüsü dahil) | ✅ |
+| Video kütüphanesi (yükleme, küçük resim, önizleme klibi) | ✅ |
 | Keycloak ile kimlik doğrulama ve rol bazlı yetki | ✅ |
 | Kullanıcı yönetimi (ekleme, rol atama, şifre sıfırlama, silme) | ✅ |
 | Kanal CRUD, en fazla 16 eşzamanlı yayın | ✅ |
@@ -398,7 +481,6 @@ KEYCLOAK_CLIENT_ID=Yayın_App
 KEYCLOAK_CLIENT_SECRET=<client-secret>
 KEYCLOAK_ADMIN=admin
 KEYCLOAK_ADMIN_PASSWORD=<güçlü-bir-şifre>
-KEYCLOAK_BOOTSTRAP_PASSWORD=<ilk-yönetici-şifresi>
 
 MINIO_ROOT_USER=minio_admin
 MINIO_ROOT_PASSWORD=<güçlü-bir-şifre>
@@ -446,7 +528,7 @@ client, roller, service account yetkileri ve `admin1` kullanıcısı hazır geli
 | | |
 |---|---|
 | Arayüz | http://localhost:3000 |
-| Kullanıcı | `admin1` / `KEYCLOAK_BOOTSTRAP_PASSWORD` |
+| Kullanıcı | `admin1` / `12345678` (realm-export.json'da gömülü, kalıcı) |
 | API dokümanı | http://localhost:8090/docs |
 | MinIO konsolu | http://localhost:9001 |
 | Keycloak | http://localhost:8080 |
