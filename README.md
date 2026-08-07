@@ -116,18 +116,141 @@ MEDIA_DEVICE=/dev/dri:/dev/dri
 bir NVIDIA sunucusunda konteyner hiç başlamazdı. `/dev/null` zararsız bir yer
 tutucu.
 
-NVIDIA için host'ta `nvidia-container-toolkit` kurulu olmalı:
-
-```bash
-sudo apt install nvidia-container-toolkit
-sudo nvidia-ctk runtime configure --runtime=docker
-sudo systemctl restart docker
-docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
-```
-
 > **NVENC oturum sınırı:** GeForce kartlarda eşzamanlı NVENC oturumu sürücü
 > tarafından sınırlı (genellikle 3-8). Çok kanallı transcode için
 > Quadro/RTX Ada/Tesla sınıfı kart gerekir.
+
+---
+
+## NVIDIA kurulumu
+
+`.env`'de `CONTAINER_RUNTIME=nvidia` yazıyor ama şu hatayı alıyorsanız:
+
+```
+unknown or invalid runtime name: nvidia
+```
+
+…ya da video-worker NVENC tarafında hata veriyorsa, **host'ta eksik olan
+bileşenler var.** Aşağıdaki adımlar tamamlandığında `.env`'i doldurup
+çalıştırabilirsiniz.
+
+Gereken iki şey: **çalışan bir NVIDIA sürücüsü** ve **NVIDIA Container
+Toolkit**. CUDA Toolkit'in tamamını host'a kurmanıza gerek yok.
+
+### 1. Sürücüyü kur
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ubuntu-drivers-common pciutils linux-headers-$(uname -r)
+
+lspci -nnk | grep -A3 -Ei 'VGA|3D|Display'   # GPU görünüyor mu
+ubuntu-drivers devices                        # uygun sürücüler
+sudo ubuntu-drivers install                   # önerileni kur
+sudo reboot
+```
+
+Secure Boot açıksa kurulum bir **MOK parolası** sorar; yeniden başlarken çıkan
+mavi ekranda anahtarı kaydetmeniz gerekir. Atlanırsa sürücü yüklenmez.
+
+### 2. Sürücüyü doğrula
+
+```bash
+nvidia-smi
+nvidia-smi -L
+```
+
+İkisi de GPU bilgisi göstermeli. Hâlâ şu hatayı alıyorsanız **sonraki adıma
+geçmeyin** — toolkit kurmak bu sorunu çözmez:
+
+```
+NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver
+```
+
+Teşhis için:
+
+```bash
+uname -r
+mokutil --sb-state
+cat /proc/driver/nvidia/version
+dkms status
+ubuntu-drivers devices
+journalctl -k -b | grep -Ei 'nvidia|nouveau|NVRM' | tail -100
+```
+
+### 3. Container Toolkit deposunu ekle
+
+```bash
+sudo apt-get install -y --no-install-recommends ca-certificates curl gnupg2
+sudo install -m 0755 -d /usr/share/keyrings
+
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+  | sudo gpg --dearmor --yes -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+
+curl -sL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+```
+
+### 4. Toolkit'i kur
+
+```bash
+sudo apt-get update
+sudo apt-get install -y nvidia-container-toolkit nvidia-container-toolkit-base \
+  libnvidia-container-tools libnvidia-container1
+
+nvidia-ctk --version
+nvidia-container-runtime --version
+```
+
+### 5. Runtime'ı Docker'a kaydet
+
+```bash
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+
+docker info --format '{{json .Runtimes}}'
+```
+
+Çıktıda hem `runc` hem `nvidia` bulunmalı:
+
+```json
+{"io.containerd.runc.v2":{"path":"runc"},"nvidia":{"path":"nvidia-container-runtime"},"runc":{"path":"runc"}}
+```
+
+`sudo cat /etc/docker/daemon.json` içinde de `nvidia-container-runtime` kaydı
+görünmeli.
+
+### 6. GPU'yu konteyner içinde dene
+
+```bash
+docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+```
+
+GPU tablosu geliyorsa Docker–NVIDIA bağlantısı hazır.
+
+### 7. `.env`'i doldur ve başlat
+
+```bash
+grep -E '^(CHANNELS_ENCODER|VIDEOS_ENCODER|CONTAINER_RUNTIME|NVIDIA_VISIBLE_DEVICES|NVIDIA_DRIVER_CAPABILITIES)=' .env
+```
+
+Şöyle olmalı:
+
+```bash
+CHANNELS_ENCODER=NVENC
+VIDEOS_ENCODER=NVENC
+CONTAINER_RUNTIME=nvidia
+NVIDIA_VISIBLE_DEVICES=all
+NVIDIA_DRIVER_CAPABILITIES=video,compute,utility
+```
+
+```bash
+docker compose down
+./baslat.sh
+```
+
+> **Sıra önemli.** `docker info` çıktısında `nvidia` görünmeden `./baslat.sh`
+> çalıştırırsanız `unknown or invalid runtime name: nvidia` hatası devam eder.
 
 ---
 
