@@ -4,6 +4,7 @@ import { channelsApi, recordingsApi } from '@/api/endpoints'
 import type { ActiveRecordingDto, ChannelDto } from '@/api/types'
 import { HlsPlayer, type CaptureHandle } from '@/components/HlsPlayer'
 import { TileActions } from './TileActions'
+import { SUBTITLE_LANGS, SubtitleOverlay } from './SubtitleOverlay'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -256,6 +257,14 @@ function Tile({
   /** Kare yakalama için oynatıcının video elementine erişim. */
   const captureRef = useRef<CaptureHandle | null>(null)
 
+  /**
+   * Altyazı dili. `kapali` = gösterme.
+   *
+   * Karo başına ayrı: mozaikte farklı kanallar farklı dilde izlenebilmeli ve
+   * tek bir genel ayar bunu imkânsız kılardı.
+   */
+  const [subtitleLang, setSubtitleLang] = useState<string>('kapali')
+
   /** Geri sarılan bölümün blob adresi; null ise canlı akış oynuyor. */
   const [rewindUrl, setRewindUrl] = useStateReact<string | null>(null)
 
@@ -306,6 +315,16 @@ function Tile({
       />
       )}
 
+      {/* Altyazı bindirmesi. Geri sarılan bölümde gösterilmiyor: o düz bir
+          mp4 ve playingDate() canlı yayın anını veremez. */}
+      {subtitleLang !== 'kapali' && !rewindUrl && (
+        <SubtitleOverlay
+          channelId={channel.id}
+          capture={captureRef}
+          language={subtitleLang}
+        />
+      )}
+
       {/* Karoya tıklamak büyütür/küçültür. Kontroller açıkken üst şeritle
           sınırlı: tam kaplayan katman duraklatma düğmesini yutardı. */}
       <button
@@ -333,6 +352,22 @@ function Tile({
             recording={recording}
             onRecordingChanged={onRecordingChanged}
           />
+          {/* Altyazı dili karo başına: mozaikte farklı kanallar farklı dilde
+              izlenebilmeli. Tek bir genel ayar bunu imkânsız kılardı. */}
+          <select
+            aria-label="Altyazı"
+            title="Altyazı dili"
+            className="h-7 rounded-md border bg-secondary px-1.5 text-xs text-secondary-foreground"
+            value={subtitleLang}
+            onChange={(e) => setSubtitleLang(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {SUBTITLE_LANGS.map((l) => (
+              <option key={l.kod} value={l.kod}>
+                {l.ad}
+              </option>
+            ))}
+          </select>
           {qualities.length > 1 && (
             <div className="relative">
               <select

@@ -352,3 +352,23 @@ export interface StopRecordingResult {
   /** Klip açılamadıysa sebebi. Kayıt yine de durmuştur. */
   error: string | null
 }
+
+/**
+ * Bir konuşma bölütünün altyazısı.
+ *
+ * Zaman damgaları MUTLAK: oynatıcı kendi `playingDate()` değeriyle
+ * eşleştiriyor. Göreli süre gönderilseydi izleyicinin yayında nerede olduğu
+ * bilinmediği için eşleşme mümkün olmazdı.
+ */
+export interface SubtitleDto {
+  id: string
+  baslangic: string
+  bitis: string
+  /** Whisper'ın tespit ettiği kaynak dil, örn. 'tr'. */
+  kaynakDil: string | null
+  guven: number | null
+  /** Dil kodundan metne. `en` her zaman var — pivot dil. */
+  metinler: Record<string, string>
+  /** Bölüt üst sınır aşıldığı için kesildi mi — cümle ortasında olabilir. */
+  kesik: boolean
+}

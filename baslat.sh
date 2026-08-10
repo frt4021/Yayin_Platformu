@@ -127,14 +127,29 @@ baslat() {
   hazir_bekle "mediamtx"  "curl -sf http://localhost:9997/v3/config/global/get"
   # Backend 401 döner (kimlik ister) — yanıt vermesi yeterli.
   hazir_bekle "backend"   "curl -so /dev/null -w '%{http_code}' http://localhost:8090/api/channels | grep -qE '401|200'" 180
-  hazir_bekle "frontend"  "curl -sf http://localhost:3000/"
+  # Port .env'den: alan adiyla calisirken 80, aksi halde 3000.
+  local fport alan puny ip
+  fport="$(grep -m1 '^PORT_FRONTEND=' "$ENV_DOSYASI" | cut -d= -f2)"
+  fport="${fport:-3000}"
+  hazir_bekle "frontend"  "curl -sf http://localhost:$fport/"
 
-  local ip
-  ip="$(grep -oP 'MEDIAMTX_HLS_BASE_URL=http://\K[^:]+' "$ENV_DOSYASI" || echo localhost)"
+  ip="$(grep -m1 '^MINIO_PUBLIC_URL=' "$ENV_DOSYASI" | sed 's|.*//||;s|:.*||')"
+  alan="$(grep -m1 '^PUBLIC_HOST=' "$ENV_DOSYASI" | cut -d= -f2- || true)"
 
   baslik "Hazır"
-  echo "  Arayüz      : http://localhost:3000"
-  [ "$ip" != "localhost" ] && echo "  Ağdan       : http://$ip:3000"
+  if [ -n "$alan" ]; then
+    puny="$(python3 -c "import sys;print(sys.argv[1].encode('idna').decode())" "$alan" 2>/dev/null || echo "$alan")"
+    echo "  Arayüz      : http://$alan"
+    # hosts satiri yoksa alan adi cozulmez ve kullanici "acilmiyor" der.
+    # Sessiz kalmak yerine dogrudan cozumu gosteriyoruz.
+    if ! grep -q "[[:space:]]$puny\$" /etc/hosts 2>/dev/null; then
+      sari "  ! Bu makinenin /etc/hosts dosyasında $puny yok — adres açılmaz."
+      gri  "    Çözüm: ./alan-adi-kur.sh --yaz"
+    fi
+  else
+    echo "  Arayüz      : http://localhost:$fport"
+    [ -n "$ip" ] && echo "  Ağdan       : http://$ip:$fport"
+  fi
   echo "  API belgesi : http://localhost:8090/docs"
   echo "  Keycloak    : http://localhost:8080  (admin / admin)"
   echo "  MinIO       : http://localhost:9001"

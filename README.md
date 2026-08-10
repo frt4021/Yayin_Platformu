@@ -400,6 +400,173 @@ onu kendi makinesi sanar; yayın da indirme de çalışmaz.
 
 > IP değişirse bu üçü de değişmeli. En kolayı: `.env`'i silip `./baslat.sh`.
 
+### Arayüze nasıl erişilir
+
+Üç yol var; hangisinin çalıştığı `.env`'deki `PORT_FRONTEND` ve `PUBLIC_HOST`
+alanlarına bağlı.
+
+| Adres | Ne zaman çalışır |
+|---|---|
+| `http://localhost` | `PORT_FRONTEND=80` ise — **her zaman** |
+| `http://<sunucu-ip>` | Aynı ağdaki diğer cihazlardan |
+| `http://yayın.com` | `PUBLIC_HOST` dolu **ve** hosts satırı eklenmişse |
+
+`PORT_FRONTEND=3000` ise adreslerin sonuna `:3000` eklenir.
+
+```bash
+grep -E '^PORT_FRONTEND=|^PUBLIC_HOST=' .env    # hangi düzendesin
+./alan-adi-kur.sh                                # hosts satırını gösterir
+./alan-adi-kur.sh --yaz                          # kendi makinene ekler
+```
+
+> **`yayın.com` açılmıyorsa** neredeyse her zaman sebep hosts satırının
+> eksikliğidir. `./baslat.sh` bunu açılışta uyarıyor.
+
+---
+
+### HLS adresleri ve yollar
+
+Her kanalın MediaMTX'te bir **path**'i var (`kanal1` gibi) ve tüm adresler
+ondan türüyor.
+
+| Adres | Ne verir |
+|---|---|
+| `/hls/<path>/index.m3u8` | **Kaynak kalitesinde** yayın — arayüzün varsayılanı |
+| `/hls/<path>_720p/index.m3u8` | Rendition (tanımlıysa) |
+| `/hls/<path>_480p/index.m3u8` | Daha düşük rendition |
+
+Örnek — `trt` kanalı, path'i `kanal1`:
+
+```
+http://yayın.com/hls/kanal1/index.m3u8         kaynak
+http://yayın.com/hls/kanal1_720p/index.m3u8    720p rendition
+```
+
+**Vekil olmadan** (alan adı kullanılmıyorsa) aynı adresler MediaMTX'in kendi
+portundan:
+
+```
+http://<ip>:8888/kanal1/index.m3u8
+```
+
+Bu adres `MEDIAMTX_HLS_BASE_URL`'den geliyor ve backend `hlsUrl` alanını
+buna göre üretiyor — arayüz adresi kendisi kurmuyor.
+
+#### Diğer protokoller
+
+| Adres | Kim kullanır |
+|---|---|
+| `rtsp://mediamtx:8554/<path>` | VAD ses çıkarma (iç ağ) |
+| `http://mediamtx:9996/get?path=…` | Klip ve geriye sarma (iç ağ) |
+| `http://<ip>:9997/v3/paths/list` | Path durumu — teşhis |
+
+`:9996` ve `:8554` **dışarı açılmıyor**; yalnızca compose ağı içinden
+erişilebilir. `:9996` ayrıca `127.0.0.1`'e bağlı.
+
+#### Kayıt yolu
+
+Kayıt **kaynak path'ine** yazılıyor, rendition'a değil:
+
+```
+/recordings/<path>/<zaman-damgası>.mp4
+```
+
+Gerekçesi: rendition üretilmezse MediaMTX kaydı açıp klasörü oluşturuyor ama
+içine hiçbir şey yazmıyordu — kullanıcı dakikalarca kaydettiğini sanıp boş
+dönüyordu (`V17`).
+
+---
+
+### Kanal ve radyo listesi
+
+Liste **veritabanında**, bu belgede değil — kanallar arayüzden eklenip
+kaldırılıyor ve buraya yazılan her liste ertesi gün eskir.
+
+Anlık listeyi almanın üç yolu:
+
+```bash
+# 1) Veritabanından
+docker exec postgres psql -U app_user -d yayin_merkezi -c \
+  "select name, mediamtx_path, active, dvr_enabled from channels order by name"
+
+docker exec postgres psql -U app_user -d yayin_merkezi -c \
+  "select name, mediamtx_path, source_kind from radios order by name"
+
+# 2) MediaMTX'ten — hangileri GERÇEKTEN yayında
+curl -s 'http://localhost:9997/v3/paths/list?itemsPerPage=100' \
+  | python3 -c "import json,sys;[print(i['name'], i['ready']) for i in json.load(sys.stdin)['items']]"
+
+# 3) API'den (token gerekir)
+GET /api/channels
+GET /api/radios
+```
+
+İkisi arasındaki fark önemli: veritabanı **tanımlı** olanı, MediaMTX
+**akan** olanı gösteriyor. Kanal `active=true` olduğu hâlde kaynağı düşmüşse
+yalnızca ikincisinde görünür.
+
+---
+
+### Alan adıyla erişim (`yayın.com`)
+
+Varsayılan erişim `http://<ip>:3000`. Alan adıyla açmak için:
+
+```bash
+PUBLIC_HOST=yayın.com ./yapilandir.sh --zorla
+./alan-adi-kur.sh --yaz          # /etc/hosts satırını ekler (sudo ister)
+./baslat.sh
+```
+
+`PUBLIC_HOST` verildiğinde üç şey birden değişiyor:
+
+| | Alan adı yokken | Alan adıyla |
+|---|---|---|
+| `PORT_FRONTEND` | 3000 | **80** (alan adında port yazılmaz) |
+| `MEDIAMTX_HLS_BASE_URL` | `http://<ip>:8888` | `http://xn--yayn-nza.com/hls` |
+| `CORS_ALLOWED_ORIGINS` | `<ip>:3000` | `http://xn--yayn-nza.com` |
+
+> **Punycode.** `yayın.com` bir IDN alan adı; tarayıcı ağa çıkarken
+> `xn--yayn-nza.com`a çevirir. `nginx`'in `server_name`'i, `/etc/hosts`
+> satırı ve `.env`'deki adresler **punycode** olmalı — Unicode yazılan
+> hiçbir yerde eşleşmez. Script dönüşümü kendisi yapıyor.
+
+**Yayın artık vekil üzerinden geliyor.** `nginx` şunları aynı origin'e
+topluyor:
+
+```
+/          arayüz (statik)
+/api/      backend
+/ws/       WebSocket — canlı altyazı
+/hls/      MediaMTX yayını
+/docs      OpenAPI
+```
+
+Tek origin iki şey kazandırıyor: CORS devreye girmiyor ve izleyicinin ayrıca
+`8888` portuna erişebilmesi gerekmiyor.
+
+> **MinIO vekilden geçmiyor.** İmzalı adresler S3 v4 imzası kullanıyor ve imza
+> **Host başlığını ve yolu** kapsıyor; alt yol altında vekillemek imzayı
+> geçersiz kılar. MinIO kendi portundan (`9000`) erişilebilir kalmalı.
+
+#### Her makinede hosts satırı gerekiyor
+
+`hosts` dosyası yereldir — erişecek **her** makinede satır olmalı:
+
+```
+192.168.1.20    xn--yayn-nza.com
+```
+
+| İşletim sistemi | Dosya |
+|---|---|
+| Linux / macOS | `/etc/hosts` |
+| Windows | `C:\Windows\System32\drivers\etc\hosts` |
+
+`./alan-adi-kur.sh` (parametresiz) doğru satırı yazdırıyor; `--yaz` ile
+kendi makinesine ekliyor.
+
+**Kalıcı çözüm** ağdaki DNS sunucusuna bir `A` kaydı eklemek — o zaman hiçbir
+makinede hosts düzenlemesi gerekmez.
+
 ### Host portları
 
 Hepsi `.env`'den ayarlanabilir. Yalnızca **host tarafı** değişir; konteyner içi

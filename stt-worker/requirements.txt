@@ -1,0 +1,16 @@
+
+# HTTP arayuzu
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+
+# STT — CTranslate2 tabanli, CPU ve GPU ayni kod
+faster-whisper==1.1.1
+
+# Ceviri — Opus-MT (Marian)
+transformers==4.48.0
+sentencepiece==0.2.0
+# torch AYRI kuruluyor: CPU ve CUDA surumleri farkli indeksten geliyor,
+# Dockerfile'da secilior.
+
+numpy==2.2.1

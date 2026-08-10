@@ -1,5 +1,6 @@
 import { api } from './client'
 import type {
+  SubtitleDto,
   StopRecordingResult,
   ScheduledRecordingDto,
   CreateScheduledRecordingRequest,
@@ -237,4 +238,20 @@ export const scheduledRecordingsApi = {
   list: () => api.get<ScheduledRecordingDto[]>('/api/planli-kayitlar'),
 
   cancel: (id: string) => api.delete<void>(`/api/planli-kayitlar/${id}`),
+}
+
+/**
+ * Altyazılar.
+ *
+ * Oynatıcı kendi `playingDate()` değerinden bir pencere kurup soruyor;
+ * "şimdi"yi sormak yanlış olurdu çünkü canlı yayında izleyici 6-12 saniye
+ * geride.
+ */
+export const subtitlesApi = {
+  list: (channelId: string, from: Date, to: Date) =>
+    api.get<SubtitleDto[]>(
+      `/api/channels/${channelId}/altyazilar` +
+        `?from=${encodeURIComponent(from.toISOString())}` +
+        `&to=${encodeURIComponent(to.toISOString())}`,
+    ),
 }

@@ -22,7 +22,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  *                       kurulması tetikleyici olmalı.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record MediaMtxPathConfig(
+public record
+MediaMtxPathConfig(
     String source,
     Boolean sourceOnDemand,
     Boolean record,
