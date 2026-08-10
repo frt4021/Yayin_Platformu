@@ -78,10 +78,20 @@ env_uret() {
   local runtime="runc" nv_devices="" nv_caps="" media_dev="/dev/null:/dev/null"
   local worker_dev="/dev/null:/dev/null" videos_enc="YAZILIM"
 
+  # STT varsayilani CPU + small: GPU yoksa large-v3 hic calismaz, small ise
+  # mimariyi dogrulamaya yeter.
+  local stt_device="cpu" stt_runtime="runc" stt_model="small" stt_compute="int8"
+
   case "$kodlayici" in
     NVENC)
       runtime="nvidia"; nv_devices="all"; nv_caps="video,compute,utility"
       videos_enc="NVENC"
+      # STT de ayni karti kullanacak. Ayri birakilsaydi NVIDIA'li bir
+      # makinede video NVENC'e gecer ama STT sessizce CPU'da kalirdi --
+      # large-v3 CPU'da ~0,3-0,5x gercek zaman, yani tek kanali bile
+      # tasimaz ve sebebi hicbir yerde gorunmezdi.
+      stt_device="cuda"; stt_runtime="nvidia"; stt_model="large-v3"
+      stt_compute="int8_float16"
       ;;
     VAAPI)
       media_dev="/dev/dri:/dev/dri"
@@ -180,6 +190,66 @@ STORAGE_CLIP_RETENTION=0
 STORAGE_SCREENSHOT_RETENTION=0
 STORAGE_FAILED_CLIP_RETENTION=P7D
 STORAGE_SWEEP_INTERVAL=1h
+
+# --- VAD (ses etkinligi tespiti) — Faz 5.1 ---
+# Yarim hat uretimde kendiliginden calismasin diye varsayilan KAPALI.
+VAD_ENABLED=false
+
+# Model IMAJA GOMULU olmali; calisma aninda indirme kapali agda sessizce
+# basarisiz olur.
+VAD_MODEL_PATH=/models/silero_vad.onnx
+
+# DIKKAT: kozmetik bir alan DEGIL, modelin girdi bicimini belirliyor.
+#   v4 -> 1536 ornek kare, baglam YOK
+#   v5 ->  512 ornek kare, 64 ornek baglam
+# Kod su an v5e gore yazili. Yanlis surumde ya ONNX patlar (iyi senaryo)
+# ya da SESSIZCE bos altyazi uretir -- olculdu: v5 modeline baglamsiz
+# 512 ornek verilince konusma orani %97 yerine %0 cikiyor.
+VAD_MODEL_VERSION=v5
+
+# Ayni anda VAD calistirilacak kanal ust siniri. Olculen: kanal basina
+# ~%0,8 CPU, 20 kanal ~%20 CPU ve ~1 GB RAM.
+VAD_MAX_CHANNELS=20
+VAD_SEGMENT_DIR=/vad-bolutler
+
+# --- STT (konusma tanima) — ayri servis ---
+# Model varyasyonu: tiny|base|small|medium|large-v3
+# "Yayina basilabilir" kalite large-v3 istiyor; small ve alti Turkce ve
+# Rusca tarafinda ozel isim ve sayilarda belirgin hata veriyor.
+# Gelistirmede small yeterli: mimariyi dogrulamaya yarar.
+STT_MODEL=$stt_model
+
+# cpu | cuda — bu makinede GPU yok. large-v3 CPU'da ~0,3-0,5x gercek zaman,
+# yani tek kanali bile tasimaz.
+STT_DEVICE=$stt_device
+
+# float16 | int8_float16 | int8
+# int8_float16 bellegi yariya indirip ~%30 hiz veriyor ama KALITE ETKISI
+# OLCULMELI, varsayilmamali. Kart geldiginde ilk olcum bu olmali.
+STT_COMPUTE_TYPE=$stt_compute
+
+STT_BEAM_SIZE=5
+# Yigin cozumleme: pencereler tek tek gonderilirse GPU surekli bosta bekler.
+STT_BATCH_SIZE=8
+STT_MAX_CONCURRENCY=2
+
+# Hedef diller. Whisper pivotu sagladigi icin yalnizca EN->X modelleri
+# gerekiyor; kaynak dil kumesi genislese bile bu set SABIT kalir.
+STT_TARGET_LANGS=tr,de,ru
+
+STT_URL=http://stt-worker:8100
+VAD_STT_ENABLED=true
+PORT_STT=8100
+
+# GPU'ya gecerken IKISI BIRDEN degismeli:
+#   STT_DEVICE=cuda    -> taban imaj ve torch surumu bundan turuyor (build)
+#   STT_RUNTIME=nvidia -> GPU'yu konteynere acar (calisma zamani)
+# Yalnizca biri degistirilirse GPU ya gorunmez ya kullanilamaz.
+STT_RUNTIME=$stt_runtime
+
+
+# VAD ses cekme adresi (ic ag).
+MEDIAMTX_RTSP_URL=rtsp://mediamtx:8554
 
 # --- Yol ---
 # DVR kayıtları. Üretimde büyük diski gösterin:

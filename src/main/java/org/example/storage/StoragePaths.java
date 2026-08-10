@@ -57,10 +57,13 @@ public final class StoragePaths {
     /**
      * Bir metni klasör adı olarak güvenli hale getirir.
      *
+     * <p>Nesne depolama dışında da kullanılıyor: VAD bölütleri diske kanal
+     * adıyla yazılıyor ve orada da aynı sadeleştirme gerekiyor.
+     *
      * <p>Aksanlar ayrıştırılıp atılıyor; {@code ı} ve {@code ğ} bu yolla
      * çözülmediği için önce elle eşleniyor.
      */
-    static String slug(String raw) {
+    public static String slug(String raw) {
         if (raw == null) {
             return "";
         }

@@ -55,3 +55,6 @@ dist/
 
 # Ertelenen isler — kisisel calisma notu, depoya girmiyor.
 notlar.md
+
+# VAD dogrulama bolutleri — depoya girmiyor.
+vad-bolutler/
