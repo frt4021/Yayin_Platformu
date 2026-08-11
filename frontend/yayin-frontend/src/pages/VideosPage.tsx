@@ -89,7 +89,7 @@ export function VideosPage() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-semibold">Video kütüphanesi</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Video kütüphanesi</h1>
         <Badge variant="secondary">{videos.length} video</Badge>
 
         <div className="relative ml-auto">

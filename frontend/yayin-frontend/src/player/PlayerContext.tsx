@@ -1,10 +1,20 @@
-import { createContext, use, useCallback, useMemo, useState } from 'react'
+import { createContext, use, useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { channelsApi } from '@/api/endpoints'
+import type { ChannelDto } from '@/api/types'
 
 /** Aynı anda açılabilecek karo sayısı — backend'deki kanal kapasitesiyle aynı. */
 export const MAX_TILES = 16
 
 interface PlayerValue {
+  /**
+   * Kanal listesi — 30 saniyede bir tazeleniyor.
+   *
+   * <p><b>Neden burada:</b> hem karo ızgarası hem sağdaki yayın paneli aynı
+   * listeye ihtiyaç duyuyor. İkisi ayrı ayrı çekseydi aynı uç saniyede iki kez
+   * yoklanır ve ikisi kısa süreliğine farklı durum gösterebilirdi.
+   */
+  channels: ChannelDto[]
   /** Açık kanalların id'leri; oynatıcıları sayfa değişse de canlı kalır. */
   openIds: string[]
   /** Sesi açık olan tek kanal. Onlarca yayın aynı anda seslenirse hiçbiri duyulmaz. */
@@ -50,6 +60,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [quality, setQualityMap] = useState<Record<string, string>>({})
   const [radioId, setRadioId] = useState<string | null>(null)
   const [radioPaused, setRadioPaused] = useState(false)
+  const [channels, setChannels] = useState<ChannelDto[]>([])
+
+  useEffect(() => {
+    const yukle = async () => {
+      try {
+        setChannels(await channelsApi.list())
+      } catch {
+        // Liste alinamazsa acik oynaticilara dokunmuyoruz; yayin aksin.
+      }
+    }
+    void yukle()
+    const timer = setInterval(() => void yukle(), 30_000)
+    return () => clearInterval(timer)
+  }, [])
 
   const toggle = useCallback((channelId: string) => {
     setOpenIds((prev) => {
@@ -112,11 +136,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<PlayerValue>(
     () => ({
-      openIds, audioId, expandedId, quality, radioId, radioPaused,
+      channels, openIds, audioId, expandedId, quality, radioId, radioPaused,
       toggle, openMany, closeAll, setAudio, expand, setQuality,
       playRadio, toggleRadioPause, stopRadio,
     }),
-    [openIds, audioId, expandedId, quality, radioId, radioPaused,
+    [channels, openIds, audioId, expandedId, quality, radioId, radioPaused,
       toggle, openMany, closeAll, setAudio, expand, setQuality,
       playRadio, toggleRadioPause, stopRadio],
   )

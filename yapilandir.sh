@@ -338,6 +338,27 @@ gri "  kodlayıcı  : $(kodlayici_bul)"
 env_uret
 yesil "  .env üretildi: $ENV_DOSYASI"
 
+# nginx'in server_name'i IMAJA GOMULU. Alan adi degistiginde .env yetmiyor;
+# frontend imaji da yeniden kurulmali. Bunu sessizce birakmak, "alan adi
+# ayarladim ama calismiyor" ile sonuclanirdi.
+if [ -n "${PUBLIC_HOST:-}" ]; then
+  gomulu="$(grep -oP 'server_name \K[^;]+' "$KOK/frontend/yayin-frontend/nginx.conf" 2>/dev/null || true)"
+  istenen="$(punycode "$PUBLIC_HOST")"
+  case " $gomulu " in
+    *" $istenen "*) : ;;
+    *)
+      echo
+      sari "  ! nginx.conf içindeki server_name bu alan adını içermiyor."
+      gri  "    gömülü : $gomulu"
+      gri  "    istenen: $istenen"
+      gri  "    frontend/yayin-frontend/nginx.conf dosyasını düzenleyip"
+      gri  "    imajı yeniden kurun:  docker compose build frontend"
+      gri  "    (sondaki \"_\" hepsini yakaladığı için çalışır ama sanal sunucu"
+      gri  "     ayrımı yapılamaz.)"
+      ;;
+  esac
+fi
+
 baslik "Şimdi ne yapmalı"
 cat <<'EOF'
   1. .env dosyasını gözden geçirin — özellikle:

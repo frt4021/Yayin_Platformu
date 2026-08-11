@@ -10,18 +10,28 @@ import org.example.clip.entity.ScheduledRecording;
 import org.jboss.logging.Logger;
 
 /**
- * DVR'ı <b>kapalı</b> bir kanalda kayıt gerektiğinde MediaMTX'te kaydı açan ve
- * iş bitince geri kapatan kapı.
+ * DVR'ı <b>kapalı</b> bir kanalda kayıt gerektiğinde kaydın başlamasını
+ * sağlayan kapı.
  *
- * <p><b>Neden var:</b> hem manuel kayıt ({@link RecordingService}) hem planlı
- * kayıt ({@link ScheduledRecordingService}) aynı şeye ihtiyaç duyuyor ve ikisi
- * <b>aynı kanalda aynı anda</b> çalışabilir. Her biri kendi başına kapatsaydı,
- * biri bitince diğerinin aralığı ortasından kesilirdi.
+ * <h2>Artık nasıl çalışıyor</h2>
+ * Eskiden MediaMTX'in kaydını açıp kapıyordu ({@code applyPath(record=true)}).
+ * Kayıt MediaMTX'ten alınınca o düğme kalmadı; yerine <b>veritabanı sinyali</b>
+ * geçti: {@code ActiveRecording.dvrBizden} ve {@code ScheduledRecording}
+ * satırları. {@code DvrRecorder} her eşitlemede bu satırlara bakıp DVR'ı
+ * kapalı olsa bile o kanal için geçici bir kaydedici açıyor.
  *
- * <p>Kapatma kararı bu yüzden tek bir soruya bakıyor: <i>bu kanalda kaydı
- * kendisi açmış başka bir iş kaldı mı?</i> Çağıranlar kendi satırlarını
- * <b>önce</b> siler ya da durumunu değiştirir, sonra buraya gelir — böylece
- * sayım doğal olarak kendilerini dışarıda bırakır.
+ * <p><b>Bunun yan faydası:</b> eski yol {@code applyPath} çağırdığı için
+ * MediaMTX path'ini yeniden başlatıyordu ve <b>canlı yayın tüm izleyiciler
+ * için kısa süre kesiliyordu</b>. Yeni yol yalnızca fazladan bir ffmpeg
+ * okuyucusu açıyor; yayına hiç dokunmuyor.
+ *
+ * <p><b>Bedeli:</b> kayıt anında değil, kaydedicinin bir sonraki
+ * eşitlemesinde başlıyor ({@code dvr.sync-interval}). Aralık yine
+ * {@code clampToRecorded} ile gerçekten kaydedilene kırpılıyor.
+ *
+ * <p>Sayım mantığı korundu: hem manuel hem planlı kayıt aynı kanalda aynı
+ * anda çalışabiliyor ve biri bitince diğerininki kesilmemeli. Çağıranlar
+ * kendi satırlarını <b>önce</b> siler, sonra buraya gelir.
  */
 @ApplicationScoped
 public class ChannelRecordingGate {
@@ -43,8 +53,11 @@ public class ChannelRecordingGate {
         if (channel.dvrEnabled) {
             return false;
         }
-        apply(channel, true);
-        LOG.infof("Kayıt için geriye sarma geçici açıldı: %s", channel.name);
+        // Kaydediciye burada haber VERILMIYOR: onu tetikleyen sey, cagiranin
+        // birazdan yazacagi ActiveRecording/ScheduledRecording satiri. Ayrica
+        // kaydedici baska bir konteynerde (video-worker) calisiyor ve dogrudan
+        // cagrilamaz -- veritabani ikisi arasindaki tek ortak zemin.
+        LOG.infof("Kayıt için geçici DVR istendi: %s", channel.name);
         return true;
     }
 
@@ -76,15 +89,13 @@ public class ChannelRecordingGate {
         }
         if (ActiveRecording.anyTemporaryOn(channelId)
             || ScheduledRecording.anyTemporaryOn(channelId)) {
-            LOG.debugf("Kayıt açık bırakıldı, kanalda süren başka iş var: %s", channel.name);
+            LOG.debugf("Geçici DVR açık bırakıldı, kanalda süren başka iş var: %s", channel.name);
             return;
         }
-        try {
-            apply(channel, channel.dvrEnabled);
-            LOG.infof("Geçici geriye sarma kapatıldı: %s", channel.name);
-        } catch (RuntimeException e) {
-            LOG.errorf(e, "Geçici geriye sarma kapatılamadı: %s", channel.name);
-        }
+        // Kapatmak icin de bir sey YAPILMIYOR: cagiran kendi satirini zaten
+        // sildi, kaydedici bir sonraki esitlemede o kanali hedef listesinde
+        // bulamayip isciyi kendisi kapatiyor.
+        LOG.infof("Geçici DVR bırakıldı: %s", channel.name);
     }
 
     /**
@@ -111,8 +122,4 @@ public class ChannelRecordingGate {
         }
     }
 
-    private void apply(Channel channel, boolean record) {
-        mediaMtx.applyPath(channel.mediamtxPath, channel.effectiveSourceUrl(),
-            record, channel.renditions);
-    }
 }

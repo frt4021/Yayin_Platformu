@@ -70,7 +70,7 @@ On servis. Her birinin **neden ayrı olduğu** aşağıda.
 
 | Servis | İmaj | Port (host→kap) | Görev |
 |---|---|---|---|
-| `mediamtx` | `yayin/mediamtx:1.19.3` | 8554, 8888, 9997, 9996 | Medya sunucusu |
+| `mediamtx` | `yayin/mediamtx:1.19.3` | 8554, 8888, 9997 | Medya sunucusu |
 | `backend` | özel (Quarkus) | 8090→8081 | REST API, kontrol düzlemi |
 | `frontend` | özel (nginx) | 3000→80 | Arayüz + `/api` vekili |
 | `video-worker` | `yayin/video-worker` | — | ffmpeg işleri + VAD |
@@ -240,8 +240,20 @@ Kodlayıcı seçilebilir: `NVENC` (NVIDIA), `VAAPI` (Intel/AMD), `YAZILIM`
 
 ### 4.4 DVR ve kayıt
 
-MediaMTX path bazında diske yazıyor (`MTX_PATHDEFAULTS_RECORDDELETEAFTER`,
-varsayılan 168 saat = 7 gün).
+**Kayıt MediaMTX'te değil.** RTSP'den ffmpeg ile çekilip MPEG-TS segmentler
+hâlinde MinIO'ya akıtılıyor (`dvr` kovası, varsayılan 30 sn'lik parçalar).
+Host diskine ve docker volume'üne hiç dokunulmuyor.
+
+Gerekçe: MediaMTX yalnızca yerel dosya sistemine yazabiliyor (S3 desteği yok,
+ikilide izi bile çıkmadı) ve playback sunucusu da yalnızca o dizini okuyor.
+Kayıtların diskte durması, başka makineden erişimi ve saklama yönetimini
+yerel diske bağlıyordu.
+
+Saklama süresini **MinIO kendi uyguluyor**: kovaya yazılan yaşam döngüsü
+kuralı (`DVR_RETENTION_DAYS`, varsayılan 7 gün). Eskiden bu iş
+`MTX_PATHDEFAULTS_RECORDDELETEAFTER` ayarındaydı.
+
+Ayrıntı ve ölçümler: `teknik-referans-modul.md` §3.
 
 **Kayıt kaynak path'ine yazılıyor, rendition'a değil.** Önceden
 `dvrRendition` ile bir rendition seçiliyordu; iki bedeli vardı:
@@ -597,11 +609,30 @@ korunmuyor.
 | `small`, CPU, 2 eşzamanlı + çeviri | **1,81-2,3×** |
 | 25 sn bölüt | 6,5 sn işlem |
 | İmaj boyutu | **9,84 GB** |
+| Modeller (imaj içinde) | 1,9 GB — `small` 464 MB, Opus-MT × 3 = 1,5 GB |
+
+### 10.4 Altyazı gecikmesi — ölçülen
+
+| Yapılandırma | Pencere | STT | Toplam | Sonuç |
+|---|---|---|---|---|
+| 25 sn · 1 kanal | 14,6 sn | 7,9 sn | **22,5 sn** | üretiyor, yetişmiyor |
+| 6 sn · 2 kanal | 5,0 sn | 27,0 sn | **32,0 sn** | doydu, 161 bölüt düştü |
+
+İzleyici HLS yüzünden 6-12 sn geride; üretim bunun altına inmezse altyazı
+ekranda **hiç görünmüyor** — geç değil, hiç.
+
+**Pencereyi kısaltmak ters tepti:** Whisper her zaman 30 saniyelik girdi
+bekliyor, kısa ses sıfırla dolduruluyor. 6 sn'lik bölüt 25 sn'likle
+neredeyse aynı maliyette; pencereyi dörde bölmek iş yükünü dörde katladı.
+
+**CPU'nun sınırı 1-2 kanal.** Anlık altyazı tek kanalda sınırda mümkün, çok
+kanalda değil. Ayrıntılı çözümleme:
+[teknik-referans-modul.md §15](teknik-referans-modul.md#15-altyazı-gecikmesi-ve-kapasite).
 
 **20 kanal için 20× gerekiyor.** Ölçüm GPU zorunluluğunu doğruluyor:
 `large-v3` CPU'da ~0,3-0,5× (literatür), yani tek kanalı bile taşımaz.
 
-### 10.4 Depolama
+### 10.5 Depolama
 
 | | Hesap |
 |---|---|
@@ -619,15 +650,20 @@ Tek ikilik, sıfır bağımlılık, HLS/RTSP/RTMP/SRT/WebRTC hepsi yerleşik, RE
 API ile **çalışma anında path yönetimi**. Kanal ekleme yeniden başlatma
 gerektirmiyor — asıl belirleyici bu.
 
-**Neden klip üretiminde ffmpeg yok?**
-MediaMTX'in playback sunucusu istenen aralığı zaten MP4 olarak veriyor.
-Backend yalnızca baytları MinIO'ya aktarıyor — akış halinde, belleğe almadan.
-2 saatlik klip 6 Mbps'te ~5,4 GB eder; tamponlamak sunucuyu düşürürdü.
+**Neden klip üretiminde artık ffmpeg var?**
+Eskiden yoktu: MediaMTX'in playback sunucusu istenen aralığı hazır MP4 olarak
+veriyordu. Kayıt MinIO'ya taşınınca o sunucu devre dışı kaldı ve aralık artık
+segmentleri birleştirip `-c copy` ile kırparak üretiliyor. Yeniden kodlama
+yine yok. Baytlar akış hâlinde MinIO'ya gidiyor, belleğe alınmıyor — 2 saatlik
+klip 6 Mbps'te ~5,4 GB eder.
+
+Bedeli: **backend imajına ffmpeg girdi** (1,37 GB). Uzun süre bilerek
+kaçınılmıştı; DVR okuma yolu ona muhtaç olunca gerekçe kalmadı.
 
 **Neden altyazı veritabanında, doğrudan akıtılmıyor?**
 Arşiv gereksinimi: geriye sarmada, kliplerde ve düzeltme arayüzünde altyazı
 isteniyor. Ayrıca boyut önemsiz — 20 kanal için yılda ~27 GB, DVR'ın 7,3 TB'ı
-yanında ihmal edilebilir.
+yanında ihmal edilebilir (o da artık MinIO'da).
 
 **Neden VAD Java'da, STT Python'da?**
 Silero ONNX'in resmî JVM bağlayıcısı var; `faster-whisper`'ın yok. VAD'ı
@@ -643,6 +679,17 @@ Silero yalnızca 16/8 kHz'de çalışıyor, Whisper girdiyi 16 kHz'e örnekliyor
 Eşleştirme `PROGRAM-DATE-TIME` üzerinden. Oynatıcının `playingDate()`
 değeri karenin **yayındaki gerçek anını** veriyor; altyazı o ana göre
 seçiliyor. "Şimdi geldi, şimdi göster" 6-12 saniye erken gösterirdi.
+
+**Altyazı neden ekranda görünmüyor?**
+Üretim gecikmesi izleyicinin geride kalma süresini aşıyorsa, izlenen anın
+altyazısı **henüz üretilmemiş** olur. Ölçüldü: CPU'da 22-32 sn üretim, 6-12
+sn HLS gecikmesi. Sonuç geç görünme değil, **hiç görünmeme**.
+
+**Pencereyi kısaltmak gecikmeyi düşürmez mi?**
+Whisper'da hayır. Model her zaman 30 saniyelik girdi bekliyor ve kısa ses
+sıfırla dolduruluyor — 6 sn'lik bölüt 25 sn'likle neredeyse aynı maliyette.
+Pencereyi dörde bölmek iş yükünü dörde katlıyor. Ölçüldü: toplam gecikme
+22,5 → 32 sn'ye **çıktı**.
 
 **Sistem kaç kanalı taşır?**
 Yayın dağıtımı için 16+ (ölçüldü, %13 CPU). Rendition merdiveniyle ~2-3.

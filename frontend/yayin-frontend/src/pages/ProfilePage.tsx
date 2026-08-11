@@ -54,7 +54,7 @@ export function ProfilePage() {
   return (
     <div className="flex max-w-2xl flex-col gap-5">
       <div>
-        <h1 className="text-xl font-semibold">Profilim</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Profilim</h1>
         <p className="text-sm text-muted-foreground">Hesap bilgileriniz ve şifre değişikliği.</p>
       </div>
 

@@ -47,7 +47,6 @@ authInternalUsers:
     permissions:
       - action: publish
       - action: read
-      - action: playback
 
   # Yönetim API'si yalnızca localhost ve Docker bridge ağlarından.
   #
@@ -66,30 +65,25 @@ authInternalUsers:
 # Kayit (DVR) ve geri sarma
 ###############################################
 
-# Kayitlarin geriye dogru okunmasini saglayan sunucu. Zaman cizelgesi ve
-# klip cikarma bunun uzerinden calisir.
+# Playback sunucusu KAPALI.
 #
-# DISARI ACILMAZ. Backend proxy'ler ve yetkiyi orada uygular; boylece
-# canli yayindaki "erisen herkes izleyebiliyor" durumu DVR tarafinda
-# olusmaz. Compose'da yalnizca 127.0.0.1'e baglanir.
-playback: yes
-playbackAddress: :9996
+# Eskiden zaman cizelgesi ve klip cikarma bunun uzerinden calisiyordu. DVR
+# kaydi MediaMTX'ten alininca (ffmpeg RTSP'den cekip MinIO'ya akitiyor --
+# org.example.dvr.DvrRecorder) bu sunucunun okuyacagi dizin kalmadi; acik
+# birakilsaydi bos bir dizini dinleyen olu bir port olurdu.
+playback: no
 
-# Tum path'ler icin varsayilan. record BILEREK kapali; kanal bazinda
-# channels.dvr_enabled uzerinden uygulama tarafindan acilir.
+# Tum path'ler icin varsayilan.
 #
-# DISK: 6 Mbps'lik bir kanal 7 gunde ~454 GB yazar. 16 kanal -> ~7.3 TB.
-# recordDeleteAfter her zaman diskin gercek kapasitesiyle tutarli olmali;
-# disk dolarsa MediaMTX kayit yazamaz ve canli yayin da etkilenebilir.
+# KAYIT ARTIK BURADA DEGIL. MediaMTX yalnizca yerel dosya sistemine
+# yazabiliyor (S3 destegi yok) ve bu, kayitlari host diskine bagliyordu.
+# Kayit RTSP'den ffmpeg ile cekilip MinIO'ya akitiliyor; saklama suresini de
+# MinIO'nun yasam dongusu kurali uyguluyor (DVR_RETENTION_DAYS).
+#
+# record acik birakilsaydi ayni icerik hem diske hem MinIO'ya yazilir, disk
+# yeniden dolardi.
 pathDefaults:
   record: no
-  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
-  recordFormat: fmp4
-  # 1 saatlik segment: 7 gunde kanal basina 168 dosya. 1 dakika olsaydi
-  # 10.080 dosya olurdu ve dizin listeleme yavaslardi. fmp4 artimli
-  # yazildigi icin yarim kalan segment de okunabilir kalir.
-  recordSegmentDuration: 1h
-  recordDeleteAfter: 168h
 
 ###############################################
 # Path'ler

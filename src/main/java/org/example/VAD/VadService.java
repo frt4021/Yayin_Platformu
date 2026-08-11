@@ -66,6 +66,9 @@ public class VadService {
     org.example.subtitle.SubtitleBroadcaster broadcaster;
 
     @Inject
+    org.example.subtitle.SubtitleLagMetrics lag;
+
+    @Inject
     com.fasterxml.jackson.databind.ObjectMapper json;
 
     @ConfigProperty(name = "vad.enabled")
@@ -227,6 +230,13 @@ public class VadService {
             broadcaster.publish(new org.example.subtitle.SubtitleEvent(
                 segment.channelId(), segment.startedAt(), segment.endedAt(),
                 kaynakDil, metinler, segment.forceCut()));
+
+            // Olcum YAYINDAN HEMEN SONRA: arayuz altyaziyi zaman damgasina
+            // gore esledigi icin gec kalan bolut gec gosterilmez, HIC
+            // gosterilmez. Kac bolutun yetisemedigi baska hicbir yerde
+            // gorunmuyordu.
+            lag.kaydet(segment.channelId(), segment.channelName(),
+                segment.endedAt(), segment.durationMs());
 
             LOG.infof("ALTYAZI %s [%s] %s → %s",
                 segment.channelName(), segment.startedAt(),

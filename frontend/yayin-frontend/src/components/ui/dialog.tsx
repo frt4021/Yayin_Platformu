@@ -18,7 +18,7 @@ export function DialogContent({
       <DialogPrimitive.Content
         className={cn(
           'fixed left-1/2 top-1/2 z-50 flex w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-4',
-          'border bg-card p-6 shadow-lg rounded-xl',
+          'border bg-card p-6 shadow-lg rounded-2xl',
           // Ekrana sigmayan icerik: dialog sabit konumlu oldugu icin sayfa
           // kaydirilamaz — sinir konmazsa formun ustu ve alti (Kaydet dahil)
           // erisilemez hale gelir. Govde kaydirmasi icin DialogBody kullanin;

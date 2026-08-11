@@ -3,7 +3,9 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
 const badgeVariants = cva(
-  'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap',
+  // Tam yuvarlak: tasarımda rozetler hap biçiminde ("1/16" sayacı, rol
+  // etiketi). Köşeli rozet düğmelerle karışıyordu.
+  'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium w-fit whitespace-nowrap',
   {
     variants: {
       variant: {
@@ -20,8 +22,14 @@ const badgeVariants = cva(
         warning: 'border-transparent bg-status-warning-bg text-status-warning',
         error: 'border-transparent bg-status-error-bg text-status-error',
 
-        /** Özel roller / VIP yayıncılar — paletteki mor vurgu. */
-        role: 'border-accent-purple/30 bg-accent-purple/15 text-accent-purple',
+        /**
+         * Kullanıcı rolü — tasarımda üst çubuğun sağ ucundaki nane hap.
+         *
+         * Diğer rozetlerin aksine DOLU renk: bu, arayüzdeki tek doygun
+         * vurgu ve bilerek göze çarpıyor. Saydam zeminli olsaydı yanındaki
+         * kullanıcı adıyla aynı ağırlıkta okunurdu.
+         */
+        role: 'border-transparent bg-primary text-primary-foreground',
       },
     },
     defaultVariants: { variant: 'default' },

@@ -132,7 +132,7 @@ export function ChannelsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold">Kanallar</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">Kanallar</h1>
             {capacity && (
               <Badge
                 // Kapasite dolduğunda yeni aktif kanal reddedilecek; göstergeyi

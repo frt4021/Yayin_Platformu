@@ -263,9 +263,9 @@ Dokuz konteyner. `./baslat.sh` hepsini birlikte ayağa kaldırır.
 | `postgres` | postgres:16 | 5433→5432 | Uygulama verisi |
 | `keycloak-postgres` | postgres:16 | — | Keycloak'ın kendi veritabanı |
 | `keycloak` | keycloak:25 | 8080 | Kimlik ve roller |
-| `minio` | minio:latest | 9000, 9001 | Klip, video, küçük resim |
+| `minio` | minio:latest | 9000, 9001 | Klip, video, küçük resim, **DVR kaydı** |
 | `redis` | redis:7 | 6379 | İş kuyruğu bildirimi |
-| `mediamtx` | özel | 8554, 8888, 9997, 9996 | Yayın sunucusu |
+| `mediamtx` | özel | 8554, 8888, 9997 | Yayın sunucusu |
 | `backend` | özel | 8090→8081 | REST API, kontrol düzlemi |
 | `video-worker` | özel | — | ffmpeg işleri |
 | `frontend` | özel | 3000 | Arayüz (nginx) |
@@ -326,7 +326,9 @@ ayrıca kendi VAAPI sürücüsünü (iHD) taşıyor.
 | 8554 | RTSP |
 | 8888 | HLS (tarayıcı buradan izliyor) |
 | 9997 | REST API (backend path'leri buradan yönetiyor) |
-| 9996 | Geriye sarma — **yalnızca 127.0.0.1**, yetkilendirme backend'de |
+
+> `:9996` (playback) **kapatıldı**. DVR kaydı MediaMTX'te değil artık;
+> geriye sarma MinIO'daki segmentlerden üretiliyor.
 
 ### backend
 
@@ -456,23 +458,25 @@ buna göre üretiyor — arayüz adresi kendisi kurmuyor.
 
 | Adres | Kim kullanır |
 |---|---|
-| `rtsp://mediamtx:8554/<path>` | VAD ses çıkarma (iç ağ) |
-| `http://mediamtx:9996/get?path=…` | Klip ve geriye sarma (iç ağ) |
+| `rtsp://mediamtx:8554/<path>` | VAD ses çıkarma **ve DVR kaydı** (iç ağ) |
 | `http://<ip>:9997/v3/paths/list` | Path durumu — teşhis |
 
-`:9996` ve `:8554` **dışarı açılmıyor**; yalnızca compose ağı içinden
-erişilebilir. `:9996` ayrıca `127.0.0.1`'e bağlı.
+`:8554` **dışarı açılmıyor**; yalnızca compose ağı içinden erişilebilir.
 
 #### Kayıt yolu
 
-Kayıt **kaynak path'ine** yazılıyor, rendition'a değil:
+Kayıt **diske değil MinIO'ya** yazılıyor:
 
 ```
-/recordings/<path>/<zaman-damgası>.mp4
+dvr/<kanal>/<YYYY>/<AA>/<GG>/<SS>/<zaman-damgası>.ts
 ```
 
-Gerekçesi: rendition üretilmezse MediaMTX kaydı açıp klasörü oluşturuyor ama
-içine hiçbir şey yazmıyordu — kullanıcı dakikalarca kaydettiğini sanıp boş
+Kullanıcı öneki **yok** — klip, ekran görüntüsü ve videonun aksine DVR'ın
+sahibi yok; kanalın sürekli sistem kaydı, kimse "üretmiyor".
+
+Kayıt **kaynak kalitesinde**, rendition'a düşürülmeden alınıyor (`-c copy`).
+Gerekçesi: rendition üretilmezse eski düzende kayıt klasörü açılıyor ama
+içine hiçbir şey yazılmıyordu — kullanıcı dakikalarca kaydettiğini sanıp boş
 dönüyordu (`V17`).
 
 ---
@@ -567,6 +571,129 @@ kendi makinesine ekliyor.
 **Kalıcı çözüm** ağdaki DNS sunucusuna bir `A` kaydı eklemek — o zaman hiçbir
 makinede hosts düzenlemesi gerekmez.
 
+### Mevcut bir kurulumu yükseltirken — DVR MinIO'ya taşındı
+
+Bu sürümde DVR kaydı **MediaMTX'ten alınıp MinIO'ya taşındı**. Var olan bir
+kurulumda üç şey yapılmalı:
+
+**1. `.env`'i güncelleyin.** `DVR_PATH` artık okunmuyor; yerine:
+
+```bash
+DVR_BUCKET=dvr
+DVR_RETENTION_DAYS=7
+DVR_SEGMENT_SECONDS=30
+```
+
+**2. İmajları yeniden kurun.** Backend'in tabanı değişti (UBI9 →
+`eclipse-temurin`) ve içine ffmpeg girdi:
+
+```bash
+./mvnw package
+docker compose build backend video-worker
+```
+
+**3. Eski kayıtları silin.** Yeni düzen onları okuyamıyor; `V20` göçü boş bir
+zaman çizelgesiyle başlıyor. Dosyalar konteyner içinden root olarak yazıldığı
+için normal `rm` yetmez:
+
+```bash
+docker run --rm -v ./src/main/docker/mediamtx-data:/data alpine \
+  rm -rf /data/recordings
+docker volume rm yayin-merkezi_mediamtx_recordings 2>/dev/null
+```
+
+> **Eski kayıtlar taşınamıyor.** MediaMTX fMP4 yazıyordu, yeni düzen MPEG-TS
+> segment bekliyor ve zaman çizelgesi veritabanından geliyor. Dönüştürmek
+> mümkün ama tek seferlik bir iş için yazılmadı — arşiv gerekiyorsa
+> yükseltmeden önce klip alın.
+
+---
+
+### Başka bir makineye taşırken
+
+Üç şey `.env`'den **gelmiyor**; taşımada gözden kaçan yerler bunlar.
+
+#### 1. `nginx.conf`'taki `server_name` imaja gömülü
+
+```nginx
+server_name xn--yayn-nza.com www.xn--yayn-nza.com localhost _;
+```
+
+Alan adı değişirse `.env` yetmez — dosyayı düzenleyip **frontend imajını
+yeniden kurmak** gerekiyor:
+
+```bash
+docker compose build frontend
+```
+
+`./yapilandir.sh` uyuşmazlığı fark edip uyarıyor.
+
+> Sondaki `_` hepsini yakaladığı için yanlış `server_name` ile de çalışır;
+> yalnızca sanal sunucu ayrımı yapılamaz.
+
+#### 2. `/hls/` vekilliği iki ayarı birlikte gerektiriyor
+
+```nginx
+location /hls/ {
+    proxy_pass http://mediamtx:8888/;          # sondaki slash: /hls kırpılır
+    proxy_redirect ~^https?://[^/]+/(.*)$ /hls/$1;
+    proxy_redirect ~^/(.*)$ /hls/$1;           # Location'a önek geri eklenir
+}
+```
+
+İkisi de şart, ikisi de ölçülerek bulundu:
+
+| Eksik olan | Belirti |
+|---|---|
+| Sondaki slash | `path 'hls/kanal1' is not configured` |
+| `proxy_redirect` | Oynatıcı playlist yerine **HTML** alıyor — "yayında ama bağlanmıyor" |
+
+Sebebi: MediaMTX oturum çerezi için `?cookieCheck=1` ile kendine yönlendiriyor
+ve `Location`'ı **kendi gördüğü yola** göre üretiyor. Önek kırpıldığı için
+yönlendirme `/hls` olmadan çıkıyor, nginx SPA kuralına düşüp `index.html`
+dönüyor.
+
+#### 3. Modeller imaja gömülü
+
+`stt-worker` imajında **1,9 GB model** var (`small` 464 MB + Opus-MT × 3).
+Model ya da cihaz değişirse imaj yeniden kurulmalı:
+
+```bash
+STT_MODEL=large-v3 STT_DEVICE=cuda docker compose build stt-worker
+```
+
+`.env`'de değiştirip yeniden başlatmak **yetmez** — o model imajda yok.
+
+---
+
+### `stt-worker` sürekli yeniden başlıyorsa
+
+Neredeyse her zaman **model belleğe sığmıyor** demek.
+
+```bash
+docker inspect -f '{{.State.Status}}' stt-worker     # "restarting" mi
+docker logs stt-worker --tail 20
+```
+
+Süreç çekirdek tarafından öldürüldüğü için logda net bir hata görünmeyebilir.
+
+| Ortam | Sebep | Çözüm |
+|---|---|---|
+| GPU | **VRAM yetmiyor** | `STT_MODEL=medium` ya da `STT_COMPUTE_TYPE=int8` |
+| CPU | RAM yetmiyor | Aynı — `large-v3` int8 ile ~2 GB, float16 ile ~3 GB ister |
+
+Her iki durumda da **imaj yeniden kurulmalı**:
+
+```bash
+docker compose build stt-worker
+```
+
+`./baslat.sh` bu döngüyü fark edip aynı öneriyi yazdırıyor.
+
+> **Kapasite ayrı bir konu.** Konteyner ayakta ama altyazı geride kalıyorsa
+> bellek değil **işlem gücü** yetmiyordur — bkz.
+> [teknik-referans-modul.md §15](docs/teknik-referans-modul.md).
+
 ### Host portları
 
 Hepsi `.env`'den ayarlanabilir. Yalnızca **host tarafı** değişir; konteyner içi
@@ -583,7 +710,6 @@ portlar sabit ve compose ağında adresler hep aynı kalır (`backend:8081`,
 | `PORT_HLS` | `8888` | HLS yayını — tarayıcı buradan çalar |
 | `PORT_RTSP` | `8554` | RTSP |
 | `PORT_MEDIAMTX_API` | `9997` | MediaMTX REST API'si |
-| `PORT_PLAYBACK` | `9996` | Geriye sarma; yalnızca `127.0.0.1`'e bağlanır |
 | `PORT_POSTGRES` | `5433` | Makinede kurulu PostgreSQL 5432'yi tutabildiği için 5433 |
 | `PORT_REDIS` | `6379` | Kuyruk bildirimi |
 
@@ -628,11 +754,19 @@ politikayı logluyor.
 > kullanıcının verisini habersiz yok etmek olurdu; ne silineceğine kullanıcı
 > karar vermeli.
 
-### Yol
+### DVR (geriye sarma kaydı)
+
+Kayıt **host diskine ve docker volume'üne yazılmıyor**; doğrudan MinIO'ya
+akıtılıyor. `DVR_PATH` kaldırıldı.
 
 | Alan | Varsayılan | Açıklama |
 |---|---|---|
-| `DVR_PATH` | `./src/main/docker/mediamtx-data/recordings` | DVR kayıtları. **Üretimde büyük diski gösterin**: 16 kanal × 7 gün × 6 Mbps ≈ 7,3 TB |
+| `DVR_BUCKET` | `dvr` | Ayrı kova. MinIO'nun silme kuralları kova bazlı; kliplerle aynı kovada olsaydı onlar da silinirdi |
+| `DVR_RETENTION_DAYS` | `7` | Saklama süresi. Uygulama bunu kovaya kural olarak yazıyor, **silmeyi MinIO yapıyor** |
+| `DVR_SEGMENT_SECONDS` | `30` | Parça süresi. Kısa → çok nesne; uzun → çökmede çok kayıp |
+| `DVR_SYNC_INTERVAL` | `10s` | Yayın durumunun yoklanma sıklığı. Manuel kayıt en fazla bu kadar gecikmeyle başlar |
+
+**Yer ihtiyacı MinIO'da:** 16 kanal × 7 gün × 3 Mbps ≈ **3,6 TB**.
 
 ### İsteğe bağlı ince ayar
 
@@ -728,17 +862,20 @@ sahibine özel; yönetici tümüne dokunabilir.
         │                        │  ② HLS paketleme           │
         │                        ├───────────────────────────►│  izleme
         │                        │                            │
-        │                        │  ③ kayıt → disk            │
         │                        │                            │
-        │                   :9996 geri sarma                  │
-        │                        ▲                            │
-        │                        │                            │
-                          Backend :8081  ◄────────────────────┤  yönetim
-                                 │                            │
-                    ┌────────────┼────────────┐               │
-                    ▼            ▼            ▼               │
+        │                        │  ③ RTSP                    │
+        │                        ├──────────┐                 │
+        │                        │          ▼                 │
+        │                        │    video-worker            │
+        │                        │    ffmpeg -c copy          │
+        │                        │          │ 30 sn'lik TS    │
+                          Backend :8081     │                 │  yönetim
+                                 │  ◄───────┼─────────────────┤
+                    ┌────────────┼──────────┼──┐              │
+                    ▼            ▼          ▼  ▼              │
               PostgreSQL     Keycloak       MinIO ◄────────────┘
-             kanal/klip      kimlik        klipler      imzalı indirme
+             kanal/klip      kimlik    klip + DVR    imzalı indirme
+             + segment                  segmentleri
 ```
 
 **Kritik nokta: video backend'den geçmez.** Backend yalnızca MediaMTX'e
@@ -756,10 +893,9 @@ başlatılması yayını kesmez.
 | MediaMTX RTSP | 8554 | Yayın alma |
 | MediaMTX HLS | 8888 | İzleyiciye dağıtım |
 | MediaMTX API | 9997 | Path yönetimi (IP kısıtlı) |
-| MediaMTX playback | 9996 | Geri sarma — **yalnızca 127.0.0.1** |
 | Keycloak | 8080 | Kimlik |
 | PostgreSQL | 5433 | Uygulama verisi |
-| MinIO | 9000 / 9001 | Klip dosyaları |
+| MinIO | 9000 / 9001 | Klip, video ve **DVR segmentleri** |
 | Redis | 6379 | Klip/video iş bildirimi (`BLMOVE`) |
 
 ---
@@ -796,8 +932,8 @@ MINIO_PUBLIC_URL=http://localhost:9000
 MEDIAMTX_HLS_BASE_URL=http://localhost:8888
 CORS_ALLOWED_ORIGINS=http://localhost:3000
 
-# 7 günlük DVR için büyük disk — bkz. Depolama hesabı
-DVR_PATH=/mnt/dvr
+# 7 günlük DVR MinIO'da tutuluyor — bkz. Depolama hesabı
+DVR_RETENTION_DAYS=7
 ```
 
 > `.env` compose dosyasının bulunduğu dizinde aranır. Kökte tutmak
@@ -864,8 +1000,10 @@ client, roller, service account yetkileri ve `admin1` kullanıcısı hazır geli
 4. İlk izleyici geldiğinde HLS segmentleri üretilir
    → http://localhost:8888/<path>/index.m3u8
 
-5. dvrEnabled ise MediaMTX aynı anda diske kayıt yazar
-   → /recordings/<path>/2026-07-31_12-00-00.mp4  (1 saatlik segmentler)
+5. dvrEnabled ise video-worker RTSP'den kayıt almaya başlar
+   → ffmpeg -c copy -f mpegts → 30 sn'lik segmentler → MinIO
+   → dvr/<kanal>/<YYYY>/<AA>/<GG>/<SS>/<zaman>.ts
+   (en fazla DVR_SYNC_INTERVAL kadar gecikmeyle)
 ```
 
 **Sıra bilinçli: önce veritabanı, sonra MediaMTX.** MediaMTX çağrısı
@@ -896,7 +1034,8 @@ Kanallar sayfasındaki "MediaMTX'e yeniden yaz" düğmesiyle elle tetiklenir.
 
 3. Arka plandaki işçi (5 sn'de bir yoklar):
    ├─ BEKLIYOR → ISLENIYOR   (FOR UPDATE SKIP LOCKED)
-   ├─ MediaMTX :9996/get'ten akışı çeker
+   ├─ Aralığı kapsayan DVR segmentlerini MinIO'dan çeker
+   ├─ ffmpeg ile birleştirip kırpar (-c copy, yeniden kodlama yok)
    ├─ MinIO'ya AKIŞ HALİNDE yazar (belleğe almadan)
    └─ HAZIR + object_key + size_bytes
 
@@ -1043,11 +1182,18 @@ aradaki fark fMP4 kapsayıcı yükü).
 | 8 Mbps | 605 GB | 2,42 TB | 4,84 TB | 9,68 TB |
 
 %20 boş alan payıyla 16 kanal / 7 gün için: 2 Mbps'te **2,9 TB**,
-6 Mbps'te **8,7 TB** disk gerekir. Diski `DVR_PATH` ile gösterin.
+6 Mbps'te **8,7 TB** gerekir. Bu alan artık **MinIO'nun deposunda** gerekiyor
+— host diskine hiçbir şey yazılmıyor.
 
-> **Disk dolarsa MediaMTX kayıt yazamaz ve kötü senaryoda canlı yayın da
-> etkilenir.** `recordDeleteAfter` (varsayılan 168 saat) her zaman diskin
-> gerçek kapasitesiyle tutarlı olmalı.
+> **Depo dolarsa kayıt yazılamaz ve kötü senaryoda canlı yayın da etkilenir.**
+> Yükleme yavaşlarsa ffmpeg borusu dolar ve RTSP tamponu taşabilir; bu durum
+> loglanıyor:
+> ```
+> WARN  DVR yüklemesi geride kalıyor (<kanal>): segment 47000 ms sürdü,
+>       hedef 30000 ms. MinIO yavaşsa canlı yayın etkilenebilir.
+> ```
+> `DVR_RETENTION_DAYS` her zaman deponun gerçek kapasitesiyle tutarlı olmalı.
+> Silmeyi MinIO'nun yaşam döngüsü kuralı yapıyor.
 
 Kayıt kanal bazında açılır (`dvr_enabled`); tüm kanallarda açık değildir.
 
@@ -1162,8 +1308,15 @@ curl -s localhost:9997/v3/paths/list | python3 -m json.tool
 # Bir kanalın gömülü oynatıcısı
 xdg-open http://localhost:8888/<path>/
 
-# Kayıt aralıkları
-curl -s "localhost:9996/list?path=<path>" | python3 -m json.tool
+# Kayıt aralıkları (kimlik gerektirir)
+curl -s -H "Authorization: Bearer <token>" \
+  "localhost:8090/api/channels/<id>/dvr/timeline?from=<iso>&to=<iso>" \
+  | python3 -m json.tool
+
+# DVR segmentleri MinIO'da birikiyor mu
+docker run --rm --network yayin-merkezi_yayin-merkezi --entrypoint sh minio/mc -c \
+  'mc alias set t http://minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD >/dev/null &&
+   mc ls --recursive t/dvr | tail -5'
 ```
 
 ### Ayrıntılı belgeler

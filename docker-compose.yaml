@@ -17,7 +17,6 @@ volumes:
   postgres_data:
   keycloak_postgres_data:
   minio_data:
-  mediamtx_recordings:
 
 services:
 
@@ -152,30 +151,15 @@ services:
       NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-}
       NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-}
 
-      # DVR saklama suresi. MediaMTX MTX_ onekli degiskenlerle mediamtx.yml'i
-      # eziyor, boylece dosyayi degistirmeden ayarlanabiliyor.
-      #
-      # DIKKAT: disk hesabi buna bagli. 6 Mbps'lik bir kanal saatte ~2,7 GB
-      # yaziyor; 16 kanal x 7 gun ~= 7,3 TB. Sureyi uzatmadan once diski
-      # kontrol edin, yoksa disk dolunca TUM kayitlar durur.
-      MTX_PATHDEFAULTS_RECORDDELETEAFTER: ${DVR_RETENTION:-168h}
     volumes:
       - ./src/main/docker/mediamtx.yml:/mediamtx.yml
       # Adlandirilmis volume yerine host dizinleri: uretilen manifest,
       # segment ve kayit dosyalari dosya yoneticisinden dogrudan gorulebilsin.
       - ./src/main/docker/mediamtx-data/hls:/hls
-      # DVR kayitlari. Uretimde buyuk diski DVR_PATH ile gosterin:
-      #   DVR_PATH=/mnt/dvr docker compose up -d
-      # 16 kanal x 7 gun x 6 Mbps ~= 7.3 TB; %20 payla 8.7 TB disk gerekir.
-      - ${DVR_PATH:-./src/main/docker/mediamtx-data/recordings}:/recordings
     ports:
       - "${PORT_RTSP:-8554}:8554"             # RTSP
       - "${PORT_HLS:-8888}:8888"              # HLS/HTTP
       - "${PORT_MEDIAMTX_API:-9997}:9997"     # REST API (dinamik path yönetimi)
-      # Geri sarma sunucusu. Yalnizca 127.0.0.1'e baglanir: gelistirmede
-      # host'taki backend erisebilsin diye acik, ama agdan erisilemez.
-      # Uretimde backend compose aginda oldugu icin bu satir kaldirilabilir.
-      - "127.0.0.1:${PORT_PLAYBACK:-9996}:9996"
     networks:
       - yayin-merkezi
 
@@ -198,7 +182,6 @@ services:
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-change_me}
 
       MEDIAMTX_API_URL: http://mediamtx:9997
-      MEDIAMTX_PLAYBACK_URL: http://mediamtx:9996
       # TARAYICI'nin cozecegi adres. "mediamtx" ismi ag ici; disaridan
       # erisilen adres yazilmali yoksa oynatici yayini bulamaz.
       MEDIAMTX_HLS_BASE_URL: ${MEDIAMTX_HLS_BASE_URL:-http://localhost:8888}
@@ -232,11 +215,17 @@ services:
       SCREENSHOTS_URL_TTL_HOURS: ${SCREENSHOTS_URL_TTL_HOURS:-6}
       SCREENSHOTS_MAX_BYTES: ${SCREENSHOTS_MAX_BYTES:-10485760}
 
-      # VAD burada DEGIL: bu imajda ffmpeg yok. Bkz. video-worker.
+      # VAD ve DVR kaydi burada DEGIL: bu imajda ffmpeg yok. Bkz. video-worker.
       # Video isleri ayri konteynerde (ffmpeg burada yok). Klipler burada
       # kaliyor: onlarin isi MediaMTX'ten akis cekmek, ffmpeg gerektirmiyor.
       VIDEOS_WORKER_ENABLED: "false"
       CLIPS_WORKER_ENABLED: "true"
+      DVR_RECORDER_ENABLED: "false"
+
+      # Okuma tarafi backend'de: kova adi ve saklama suresi burada da gerekli
+      # (kovayi ve ILM kuralini acilista hazirlayan taraf).
+      DVR_BUCKET: ${DVR_BUCKET:-dvr}
+      DVR_RETENTION_DAYS: ${DVR_RETENTION_DAYS:-7}
     depends_on:
       - postgres
       - keycloak
@@ -316,7 +305,6 @@ services:
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-change_me}
 
       MEDIAMTX_API_URL: http://mediamtx:9997
-      MEDIAMTX_PLAYBACK_URL: http://mediamtx:9996
 
       MINIO_ENDPOINT: http://minio:9000
       # Isci ffmpeg'e IC agdaki imzali adresi veriyor (VideoStorage
@@ -350,6 +338,14 @@ services:
       STT_URL: ${STT_URL:-http://stt-worker:8100}
       VAD_STT_ENABLED: ${VAD_STT_ENABLED:-true}
       MEDIAMTX_RTSP_URL: ${MEDIAMTX_RTSP_URL:-rtsp://mediamtx:8554}
+
+      # DVR kaydi BURADA: ffmpeg gerektiriyor ve backend imajinda ffmpeg yok.
+      # Ayni jar iki konteynerde calistigi icin bayrak sart -- backend de
+      # acik olsaydi her segment iki kez yazilirdi.
+      DVR_RECORDER_ENABLED: "true"
+      DVR_SEGMENT_SECONDS: ${DVR_SEGMENT_SECONDS:-30}
+      DVR_BUCKET: ${DVR_BUCKET:-dvr}
+      DVR_RETENTION_DAYS: ${DVR_RETENTION_DAYS:-7}
 
       # Sorumluluk ayrimi: video isleri BURADA, klipler backend'de.
       VIDEOS_WORKER_ENABLED: "true"

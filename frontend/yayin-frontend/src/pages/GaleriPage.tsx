@@ -92,7 +92,7 @@ export function GaleriPage() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-semibold">Ekran görüntüleri</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Ekran görüntüleri</h1>
         <Badge variant="secondary">{shots.length} kare</Badge>
 
         <select

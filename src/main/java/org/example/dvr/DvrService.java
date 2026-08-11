@@ -2,55 +2,59 @@ package org.example.dvr;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.example.channel.entity.Channel;
-import org.example.dvr.dto.RecordingSpan;
 import org.example.dvr.dto.TimelineSpan;
 import org.example.exception.AppException;
-import org.jboss.logging.Logger;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Geriye sarma. MediaMTX'in playback sunucusunu sarar, yetkiyi uygular ve
- * dışarıya iç adres sızdırmadan sunar.
+ * Geriye sarma.
+ *
+ * <h2>Kaynak değişti</h2>
+ * Eskiden MediaMTX'in playback sunucusunu ({@code :9996}) sarıyordu. Kayıt
+ * nesne depolamaya taşınınca o sunucunun okuyacağı yerel dizin kalmadı; hem
+ * çizelge hem aralık artık {@link DvrArchive} üzerinden MinIO'dan geliyor.
+ *
+ * <p>Dışarıya bakan sözleşme <b>değişmedi</b>: aynı uçlar, aynı DTO'lar.
+ * Değişen tek şey verinin nereden geldiği.
  */
 @ApplicationScoped
 public class DvrService {
 
-    private static final Logger LOG = Logger.getLogger(DvrService.class);
-
     /** Tek seferde çekilebilecek en uzun aralık. Bkz. {@link #requireSaneRange}. */
     public static final Duration MAX_CLIP = Duration.ofHours(2);
 
+    /**
+     * Çizelge sorgularının geriye bakabileceği en uzun süre.
+     *
+     * <p>{@link #recordedSpans} bir pencere almıyor ama sorgu bir pencereye
+     * ihtiyaç duyuyor. Saklama süresinden geniş tutuluyor: daha eskisi zaten
+     * ILM tarafından silinmiş oluyor.
+     */
+    private static final Duration LOOKBACK = Duration.ofDays(30);
+
     @Inject
-    @RestClient
-    MediaMtxPlaybackClient playback;
+    DvrArchive archive;
 
     /**
      * Kanalın verilen aralıkta kaydı olan bölümleri.
-     *
-     * <p>MediaMTX tüm kayıt geçmişini döndürüyor; istenen pencereye kırpma
-     * burada yapılıyor ki arayüz 7 günlük veriyi süzmek zorunda kalmasın.
      */
     public List<TimelineSpan> timeline(UUID channelId, Instant from, Instant to) {
         if (!to.isAfter(from)) {
             throw AppException.badRequest("Bitiş zamanı başlangıçtan sonra olmalı.");
         }
-        Channel channel = requireDvrChannel(channelId);
+        requireDvrChannel(channelId);
 
-        return fetchSpans(channel).stream()
-            .map(span -> toTimelineSpan(span))
-            .filter(span -> span != null)
-            // Pencereyle kesişmeyenleri at, kesişenleri pencereye kırp.
-            .filter(span -> span.end().isAfter(from) && span.start().isBefore(to))
+        // Pencereye kirpma: kesisen bolumler tam dondugu icin uclar disari
+        // tasabiliyor ve arayuz istemedigi araligi cizerdi.
+        return archive.spans(channelId, from, to).stream()
             .map(span -> new TimelineSpan(
                 span.start().isBefore(from) ? from : span.start(),
                 span.end().isAfter(to) ? to : span.end()))
@@ -60,58 +64,43 @@ public class DvrService {
     /**
      * Kaydın belirtilen bölümünü akış olarak döndürür.
      *
-     * <p>Yanıt gövdesi belleğe alınmadan doğrudan aktarılır — saatlik bir
-     * bölüm 6 Mbps'te ~2.7 GB eder, tamponlamak sunucuyu düşürürdü.
-     *
-     * @param format {@code mp4} indirme, {@code fmp4} tarayıcıda oynatma için
+     * <p>DVR ŞARTI YOK. Kanalın geriye sarması kapalı olsa bile kayıt
+     * <b>bulunabilir</b>: manuel ve planlı kayıt, iş süresince kaydı açıyor
+     * ({@code ChannelRecordingGate}). Klip işçisi içeriği tam da buradan
+     * çekiyor; şartı korumak, kaydın durdurulup hiçbir klip üretilmemesine
+     * yol açıyordu.
      */
-    public Response stream(UUID channelId, Instant start, Duration duration, String format) {
-        // DVR SARTI YOK. Kanalin geriye sarmasi kapali olsa bile diskte kayit
-        // BULUNABILIR: manuel ve planli kayit, is suresince kaydi aciyor
-        // (ChannelRecordingGate). Klip iscisi icerigi tam da buradan cekiyor;
-        // sarti korumak, kaydin durdurulup hicbir klip uretilmemesine yol
-        // aciyordu. Aralik gercekten yoksa MediaMTX 404 doner ve asagida
-        // anlasilir bir hataya cevriliyor.
-        return streamPath(requireChannel(channelId).recordingPath(), start, duration, format);
+    public Response stream(UUID channelId, Instant start, Duration duration) {
+        requireChannel(channelId);
+        return streamChannel(channelId, start, duration);
     }
 
     /**
-     * Aynı iş, ama kanal <b>kimlikle değil path'le</b> veriliyor.
+     * Aynı iş, kanal doğrulaması yapılmadan.
      *
-     * <p>Klip işçisi için: aktarım bilerek transaction DIŞINDA yapılıyor
-     * (saatlik bir bölüm ~2,7 GB, tutmak sunucuyu düşürürdü) ve orada
-     * veritabanına dokunmak {@code ContextNotActiveException} veriyor. Yaşandı:
-     * ilk deneme bu yüzden düşüyordu. Path zaten işi yüklerken — transaction
-     * içindeyken — biliniyor; oraya kadar taşımak tek doğru çözüm.
+     * <p>Klip işçisi için: aktarım bilerek transaction <b>dışında</b> yapılıyor
+     * (2 saatlik bir bölüm GB'larca eder, tutmak sunucuyu düşürürdü) ve orada
+     * veritabanına dokunmak {@code ContextNotActiveException} veriyor. Segment
+     * listesi bu yüzden önce -- transaction içinde -- çıkarılıyor, aktarım
+     * yalnızca elindeki listeyle çalışıyor.
      */
-    public Response streamPath(String recordingPath, Instant start,
-                               Duration duration, String format) {
+    public Response streamChannel(UUID channelId, Instant start, Duration duration) {
         requireSaneRange(duration);
+        Instant end = start.plus(duration);
 
-        try {
-            // Kayit KAYNAK path'inde: rendition'a yazmak hem kaliteyi
-            // dusuruyor hem de merdiven coktugunde sessizce bos kaliyordu.
-            return playback.get(recordingPath, start.toString(),
-                duration.toMillis() / 1000.0, format);
-        } catch (WebApplicationException e) {
-            int status = e.getResponse().getStatus();
-            if (status == 404) {
-                throw AppException.notFound(
-                    "Bu aralıkta kayıt bulunamadı. Kayıt silinmiş veya o sırada yayın olmamış olabilir.");
-            }
-            throw AppException.upstreamError(
-                "Kayıt okunamadı (HTTP " + status + ").", e);
-        }
+        var plan = archive.plan(channelId, start, end);
+        return Response.ok(archive.extract(plan, start, duration))
+            .type(new MediaType("video", "mp4"))
+            .build();
     }
 
     /** Kanalın kayıt bulunan aralıkları — klip isteğinin doğrulanmasında da kullanılır. */
     public List<TimelineSpan> recordedSpans(UUID channelId) {
         // stream() ile ayni gerekce: DVR kapali kanalda da manuel/planli
-        // kayit yuzunden diskte bolum olabilir.
-        return fetchSpans(requireChannel(channelId)).stream()
-            .map(this::toTimelineSpan)
-            .filter(span -> span != null)
-            .toList();
+        // kayit yuzunden kayit olabilir.
+        requireChannel(channelId);
+        Instant now = Instant.now();
+        return archive.spans(channelId, now.minus(LOOKBACK), now.plus(Duration.ofMinutes(1)));
     }
 
     /**
@@ -126,16 +115,14 @@ public class DvrService {
     }
 
     /**
-     * İstenen aralığı <b>diskte gerçekten olan</b> bölüme kırpar.
+     * İstenen aralığı <b>gerçekten kaydedilmiş</b> bölüme kırpar.
      *
      * <h2>Neden gerekli</h2>
-     * Kullanıcı "kaydı başlat"a bastığı an ile MediaMTX'in yazmaya başladığı
-     * an aynı değil: kaydı açmak path'i yeniden başlatıyor, kaynak yeniden
-     * bağlanıyor ve arada saniyeler geçiyor. Klip {@code [basılan, durdurulan]}
-     * aralığı için isteniyordu; başlangıçta veri olmadığı için MediaMTX 404
-     * dönüyor ve kullanıcı <i>"Bu aralıkta kayıt bulunamadı"</i> alıyordu.
-     * Ölçüldü: düğmeye basıldıktan sonra ilk bölüm 6-14 saniye gecikmeyle
-     * başlıyor.
+     * Kullanıcı "kaydı başlat"a bastığı an ile kaydın gerçekten başladığı an
+     * aynı değil: kaydedici yayın durumunu yoklayarak çalışıyor ve arada
+     * saniyeler geçiyor. Klip {@code [basılan, durdurulan]} aralığı için
+     * isteniyordu; başlangıçta veri olmadığı için kullanıcı
+     * <i>"Bu aralıkta kayıt bulunamadı"</i> alıyordu.
      *
      * <p>Kırpmak, sessizce eksik vermek değil — kaydedilen <b>tam olarak</b>
      * budur. Alternatif olan 404, kullanıcının elinde hiçbir şey bırakmıyordu.
@@ -143,10 +130,10 @@ public class DvrService {
      * @return kırpılmış aralık; hiç örtüşme yoksa {@link Optional#empty()}
      */
     public Optional<TimelineSpan> clampToRecorded(UUID channelId, Instant start, Instant end) {
-        // En cok ortusen bolum seciliyor. Aralik birden fazla bolume yayilmis
-        // olabilir (kayit sirasinda kaynak koptu); MediaMTX bosluklu araligi
-        // sorunsuz veriyor, o yuzden ucları genisletmek yerine EN GENIS
-        // ortusmeyi almak dogru sonucu veriyor.
+        // En genis ortusme aliniyor. Aralik birden fazla bolume yayilmis
+        // olabilir (kayit sirasinda kaynak koptu); bosluklu aralik da
+        // cikarilabildigi icin uclari daraltmak yerine en genis ortusme
+        // dogru sonucu veriyor.
         Instant en = null, boy = null;
         for (TimelineSpan span : recordedSpans(channelId)) {
             Instant s = span.start().isAfter(start) ? span.start() : start;
@@ -162,30 +149,6 @@ public class DvrService {
 
     // ------------------------------------------------------------------
 
-    private List<RecordingSpan> fetchSpans(Channel channel) {
-        try {
-            List<RecordingSpan> spans = playback.list(channel.recordingPath());
-            return spans == null ? List.of() : spans;
-        } catch (WebApplicationException e) {
-            if (e.getResponse().getStatus() == 404) {
-                // Hiç kayıt yoksa MediaMTX 404 dönüyor; bu bir hata değil.
-                return List.of();
-            }
-            throw AppException.upstreamError(
-                "Kayıt listesi alınamadı (HTTP " + e.getResponse().getStatus() + ").", e);
-        }
-    }
-
-    private TimelineSpan toTimelineSpan(RecordingSpan span) {
-        try {
-            Instant start = Instant.parse(span.start());
-            return new TimelineSpan(start, start.plusMillis((long) (span.duration() * 1000)));
-        } catch (DateTimeParseException e) {
-            LOG.warnf("MediaMTX'ten çözülemeyen kayıt zamanı atlandı: %s", span.start());
-            return null;
-        }
-    }
-
     private Channel requireChannel(UUID channelId) {
         Channel channel = Channel.findById(channelId);
         if (channel == null) {
@@ -199,7 +162,7 @@ public class DvrService {
      *
      * <p>Yalnızca <b>çizelge</b> uçlarında kullanılıyor. Kayıt okuma
      * ({@link #stream}) bu şarttan muaf: geriye sarması kapalı bir kanalda da
-     * manuel/planlı kayıt yüzünden diskte içerik olabilir.
+     * manuel/planlı kayıt yüzünden içerik olabilir.
      */
     private Channel requireDvrChannel(UUID channelId) {
         Channel channel = requireChannel(channelId);

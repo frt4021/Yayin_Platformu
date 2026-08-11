@@ -6,7 +6,11 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --radius: 0.625rem;
+  /* Yarıçap 10px'ten 12px'e çıktı: yeni tasarımda kart ve panel köşeleri
+     belirgin biçimde yumuşak ve bu değer tüm türevlerin (sm/md/lg/xl)
+     tabanı. Tek yerden büyütmek, her bileşende ayrı sınıf yazmaktan
+     tutarlı sonuç veriyor. */
+  --radius: 0.75rem;
 
   /* Saf beyaz zemin de yorucu; hafif gri ve aynı mavi tonda. */
   --background: oklch(0.985 0.002 262);
@@ -42,11 +46,18 @@
  */
 .dark {
   /* --- Temel katmanlar ---
-     Üç kademe: zemin → yüzey → yükseltilmiş yüzey. Düz tek renk bir arayüz
-     "siyah boşluk" gibi okunuyor; katman farkı gölgeye ihtiyaç duymadan
-     yapıyı görünür kılıyor. */
-  --background: #111114;        /* bg-main */
+     Dört kademe: zemin → panel → yüzey → yükseltilmiş yüzey. Zemin eskisinden
+     (#111114) daha koyuya indi ve araya "panel" katmanı girdi.
+     Sebebi tasarımdaki temel hamle: içerik, zeminden ayrışan büyük ve yuvarlak
+     bir panelin içinde duruyor. Zemin ile panel arasında görünür bir fark
+     olmasaydı o panelin kenarları kaybolur ve düzen yine "siyah boşluk" gibi
+     okunurdu. */
+  --background: #0B0B0D;        /* bg-main: en dış zemin */
   --foreground: #FFFFFF;        /* text-primary */
+
+  /* İçeriği taşıyan büyük yuvarlak panel. Zeminden yalnızca birkaç ton
+     açık: fark hissedilmeli ama "kutu içinde kutu" gibi durmamalı. */
+  --panel: #131316;
 
   --card: #1A1B1F;              /* bg-surface: kartlar, tablo satırları */
   --card-foreground: #FFFFFF;
@@ -64,6 +75,12 @@
   --border: #2B2D35;            /* border-color */
   --input: #2B2D35;             /* input çerçevesi */
 
+  /* Çerçeveli düğmeler için bir ton açık kenarlık. Varsayılan --border
+     ayırıcı çizgiler için doğru ama düğme çerçevesi olarak zeminde
+     kayboluyor ve düğme tıklanabilir görünmüyordu. */
+  --border-strong: #33343B;
+  --border-strong-hover: #4A4B54;
+
   --muted: #24262C;
   --muted-foreground: #9CA3AF;  /* text-secondary */
   --text-disabled: #4B5563;     /* pasifleşmiş metin */
@@ -73,15 +90,23 @@
   --secondary: #2B2D35;
   --secondary-foreground: #FFFFFF;
 
-  /* --- Vurgu --- */
-  --primary: #4285F4;           /* accent-primary */
-  --primary-hover: #3367D6;     /* accent-primary-hover */
-  --primary-foreground: #FFFFFF;
-  --primary-light: #60A5FA;     /* aktif sekme alt çizgisi, odak halkası */
-  --accent-purple: #8B5CF6;     /* özel roller / VIP yayıncılar */
+  /* --- Vurgu ---
+   * Tasarımın karakteri: arayüzün tamamı nötr gri, TEK doygun renk var.
+   * O yüzden vurgu maviden soluk nane yeşiline geçti.
+   *
+   * Renk AÇIK olduğu için üzerine gelen yazı koyu (--primary-foreground).
+   * Eski mavi koyuydu ve beyaz yazı taşıyordu; bu ikisi birlikte
+   * değiştirilmeli, yoksa açık zemin üzerine beyaz yazı okunmaz hale gelir.
+   * Mevcut kullanımların tamamı (ilerleme çubukları, seçim kenarlıkları,
+   * DVR küçük resim etiketi) bu çiftle uyumlu -- tek tek denetlendi. */
+  --primary: #A7E0C4;           /* accent-primary: nane */
+  --primary-hover: #93D5B4;
+  --primary-foreground: #0B0B0D;  /* açık zemin üzerine koyu yazı */
+  --primary-light: #C9EEDC;      /* daha soluk nane: etiket ve ipuçları */
+  --accent-purple: #8B5CF6;     /* grafiklerde kalan mor */
   --accent-cyan: #06B6D4;       /* ikincil ikonlar, bilgi ipuçları */
 
-  --ring: rgba(96, 165, 250, 0.55);
+  --ring: rgba(167, 224, 196, 0.5);
 
   /* --- Durum ve sinyal ---
      Her durumun bir metin rengi ve %15 opaklıkta bir zemini var: dolu renkli
@@ -114,6 +139,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-panel: var(--panel);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
@@ -131,6 +157,8 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-border-strong-hover: var(--border-strong-hover);
   --color-input: var(--input);
   --color-ring: var(--ring);
 
@@ -163,6 +191,9 @@
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
+  /* Panel ve oynatıcı kartı için: tasarımdaki en yumuşak köşe. */
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
 }
 
 @layer base {

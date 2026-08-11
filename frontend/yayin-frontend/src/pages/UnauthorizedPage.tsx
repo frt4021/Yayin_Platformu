@@ -7,7 +7,7 @@ export function UnauthorizedPage() {
   return (
     <div className="grid min-h-dvh place-items-center p-6 text-center">
       <div className="flex flex-col items-center gap-3">
-        <h1 className="text-xl font-semibold">Bu sayfaya erişiminiz yok</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Bu sayfaya erişiminiz yok</h1>
         <p className="text-sm text-muted-foreground">
           Rolünüz: <strong>{session?.role ?? 'atanmamış'}</strong>. Erişim için yöneticinizden
           rol değişikliği isteyin.

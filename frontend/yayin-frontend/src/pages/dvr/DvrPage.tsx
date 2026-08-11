@@ -294,7 +294,7 @@ export function DvrPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Geriye sarma</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Geriye sarma</h1>
         <p className="text-sm text-muted-foreground">
           Kayıtlı bir noktaya tıklayıp izleyin, sürükleyerek aralık seçip klip çıkarın.
         </p>

@@ -107,23 +107,6 @@ public class Channel extends PanacheEntityBase {
      * gereksiz yere büyürdü.
      */
 
-    /**
-     * Kaydın gerçekte yazıldığı MediaMTX path'i.
-     *
-     * <p>Geriye sarma ve klip çıkarma bu path üzerinden yapılmalı; kaynak
-     * path'ine bakılırsa kayıt bulunamaz.
-     */
-    /**
-     * Kaydın okunacağı path — <b>kaynak</b>.
-     *
-     * <p>Eskiden bir rendition'a yazılıyordu; kalite kaybı ve rendition
-     * düştüğünde sessizce boş kalan kayıtlar yüzünden vazgeçildi. Bkz.
-     * {@link org.example.channel.MediaMtxService#applyPath}.
-     */
-    public String recordingPath() {
-        return mediamtxPath;
-    }
-
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "created_by", nullable = false)
     public AppUser createdBy;

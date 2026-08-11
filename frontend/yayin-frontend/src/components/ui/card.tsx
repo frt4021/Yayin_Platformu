@@ -4,7 +4,9 @@ import { cn } from '@/lib/utils'
 export function Card({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
-      className={cn('rounded-xl border bg-card text-card-foreground shadow', className)}
+      // Gölge kaldırıldı: koyu zeminde gölge görünmüyor, yalnızca kenarları
+      // bulanıklaştırıyordu. Katman farkını zemin rengi ve kenarlık anlatıyor.
+      className={cn('rounded-2xl border bg-card text-card-foreground', className)}
       {...props}
     />
   )

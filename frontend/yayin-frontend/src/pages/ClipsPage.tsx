@@ -132,7 +132,7 @@ export function ClipsPage() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Klipler ve kayıtlar</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">Klipler ve kayıtlar</h1>
           <p className="text-sm text-muted-foreground">
             Arka planda üretilir; hazır olunca burada izlenip indirilebilir.
           </p>

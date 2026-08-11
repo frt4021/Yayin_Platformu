@@ -80,21 +80,53 @@
 # You can find more information about the UBI base runtime images and their configuration here:
 # https://rh-openjdk.github.io/redhat-openjdk-containers/
 ###
-FROM registry.access.redhat.com/ubi9/openjdk-21-runtime:1.24
+# TABAN DEGISTI: UBI9 openjdk-runtime -> eclipse-temurin.
+#
+# Sebep ffmpeg. Backend'e ffmpeg GEREKTI: DVR kaydi MinIO'ya tasininca
+# MediaMTX'in playback sunucusu devre disi kaldi ve geriye sarma araligi artik
+# segmentleri birlestirip ffmpeg ile kirparak uretiliyor. Bunun iki tuketicisi
+# de bu konteynerde: /dvr/stream ucu ve klip iscisi (CLIPS_WORKER_ENABLED).
+#
+# UBI9'da kalinamadi: microdnf URL'den paket kuramiyor ve ffmpeg RHEL
+# depolarinda yok (denendi -- "No package matches 'ffmpeg-free'"). EPEL'i
+# rpm ile eklemek mumkun ama UBI uzerinde desteklenmiyor ve kirilgan.
+#
+# Ubuntu tabani bu repoda ZATEN kanitli: video-worker ayni tabani kullaniyor
+# (bkz. Dockerfile.worker). Ikisinin ayni tabanda olmasi, ffmpeg surumu
+# farkindan dogacak "iscide calisiyor backend'de calismiyor" turu sorunlari
+# da kapatiyor.
+#
+# Alternatifler elendi: klip isini video-worker'a tasimak ve /dvr/stream ucunu
+# oraya vekillemek daha cok hareketli parca demekti.
+FROM eclipse-temurin:21-jre-noble
 
 ENV LANGUAGE='en_US:en'
 
+# Yalnizca ffmpeg + ffprobe. Backend KODLAMA yapmiyor (-c copy ile remux),
+# bu yuzden worker'daki VAAPI calisma zamani kutuphaneleri burada gereksiz.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
 
-# We make four distinct layers so if there are application changes the library layers can be re-used
-COPY --chown=185 target/quarkus-app/lib/ /deployments/lib/
-COPY --chown=185 target/quarkus-app/*.jar /deployments/
-COPY --chown=185 target/quarkus-app/app/ /deployments/app/
-COPY --chown=185 target/quarkus-app/quarkus/ /deployments/quarkus/
+# Quarkus'un bekledigi duzen. UBI imajindaki run-java.sh burada olmadigi icin
+# bellek ayarlari asagida elle veriliyor -- worker ile ayni yaklasim.
+WORKDIR /deployments
+COPY --chown=1000 target/quarkus-app/lib/ /deployments/lib/
+COPY --chown=1000 target/quarkus-app/*.jar /deployments/
+COPY --chown=1000 target/quarkus-app/app/ /deployments/app/
+COPY --chown=1000 target/quarkus-app/quarkus/ /deployments/quarkus/
+
+RUN useradd -u 1000 -m -s /usr/sbin/nologin backend || true
+USER 1000
 
 EXPOSE 8081
-USER 185
-ENV JAVA_OPTS_APPEND="-Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager"
-ENV JAVA_APP_JAR="/deployments/quarkus-run.jar"
 
-ENTRYPOINT [ "/opt/jboss/container/java/run/run-java.sh" ]
+# MaxRAMPercentage: UBI'nin run-java.sh betigi bunu kendisi hesapliyordu.
+ENTRYPOINT ["java", \
+  "-XX:MaxRAMPercentage=80.0", \
+  "-XX:+ExitOnOutOfMemoryError", \
+  "-Dquarkus.http.host=0.0.0.0", \
+  "-Dquarkus.http.port=8081", \
+  "-Djava.util.logging.manager=org.jboss.logmanager.LogManager", \
+  "-jar", "/deployments/quarkus-run.jar"]
 

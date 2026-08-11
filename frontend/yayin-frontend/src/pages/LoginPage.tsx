@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader2Icon } from 'lucide-react'
+import { Loader2Icon, RadioTowerIcon } from 'lucide-react'
 
 interface LocationState {
   from?: { pathname: string }
@@ -46,7 +46,13 @@ export function LoginPage() {
     <div className="grid min-h-dvh place-items-center p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Yayın Merkezi</CardTitle>
+          {/* Marka işareti üst çubuktakiyle aynı: giriş, uygulamanın ilk
+              görülen ekranı ve burada işaret yoksa oturum açıldığında
+              tanınmayan bir arayüze geçilmiş gibi oluyor. */}
+          <span className="mb-1 grid size-11 place-items-center rounded-xl bg-accent text-primary">
+            <RadioTowerIcon className="size-6" />
+          </span>
+          <CardTitle className="text-xl">Yayın Merkezi</CardTitle>
           <CardDescription>Devam etmek için giriş yapın.</CardDescription>
         </CardHeader>
         <CardContent>

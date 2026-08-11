@@ -22,8 +22,8 @@ import java.util.UUID;
  * Geriye sarma uçları.
  *
  * <p>Okuma giriş yapmış herkese açık — izleyici de geçmişe gidebilmeli.
- * MediaMTX'in playback sunucusu dışarı kapalı; buradan geçmek zorunlu ve
- * yetki kontrolü burada yapılıyor.
+ * Kayıt segmentleri MinIO'da ve o kova dışarı kapalı; buradan geçmek zorunlu
+ * ve yetki kontrolü burada yapılıyor.
  */
 @Path("/api/channels/{channelId}/dvr")
 @Authenticated
@@ -54,14 +54,10 @@ public class DvrResource {
         @QueryParam("start") String start,
         @QueryParam("duration") long durationSeconds) {
 
-        Response upstream = dvrService.stream(
-            channelId, Instant.parse(start), Duration.ofSeconds(durationSeconds), "fmp4");
-
-        // Gövde akış halinde aktarılıyor; belleğe toplanmıyor.
-        return Response.ok(upstream.getEntity())
-            .type(upstream.getMediaType() == null
-                ? MediaType.APPLICATION_OCTET_STREAM_TYPE
-                : upstream.getMediaType())
-            .build();
+        // Gövde akış halinde aktarılıyor; belleğe toplanmıyor. Biçim
+        // parçalı mp4: çıkış bir boru ve normal mp4 sonunda başa dönüp moov
+        // kutusunu yazmak ister -- boruda bu imkânsız.
+        return dvrService.stream(
+            channelId, Instant.parse(start), Duration.ofSeconds(durationSeconds));
     }
 }

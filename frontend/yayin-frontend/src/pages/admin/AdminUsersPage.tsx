@@ -114,7 +114,7 @@ export function AdminUsersPage() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Kullanıcılar</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">Kullanıcılar</h1>
           <p className="text-sm text-muted-foreground">
             Kullanıcı ekleyin, rol atayın, şifre sıfırlayın.
           </p>

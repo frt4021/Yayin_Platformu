@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { channelsApi, recordingsApi } from '@/api/endpoints'
+import { recordingsApi } from '@/api/endpoints'
 import type { ActiveRecordingDto, ChannelDto } from '@/api/types'
 import { HlsPlayer, type CaptureHandle } from '@/components/HlsPlayer'
 import { TileActions } from './TileActions'
@@ -11,8 +11,9 @@ import { cn } from '@/lib/utils'
 import { MAX_TILES, usePlayers } from './PlayerContext'
 import { qualitiesOf } from '@/lib/renditions'
 import { LiveRewind } from './LiveRewind'
+import { PlayerControls } from './PlayerControls'
 import { useEffect as useEffectReact, useState as useStateReact } from 'react'
-import { MinimizeIcon, SettingsIcon, Volume2Icon, VolumeXIcon, XIcon } from 'lucide-react'
+import { MinimizeIcon, SearchIcon, SettingsIcon, Volume2Icon, VolumeXIcon, XIcon } from 'lucide-react'
 
 /** İzleme sayfasının yolu; katman bu yolda içerik alanını kaplar, diğerlerinde mini olur. */
 export const WATCH_PATH = '/izle'
@@ -44,11 +45,22 @@ export function PersistentPlayers() {
   const location = useLocation()
   const onWatchPage = location.pathname === WATCH_PATH
 
-  const { openIds, audioId, expandedId, quality, radioId, toggle, openMany, closeAll, setAudio, expand, setQuality } =
+  // Kanal listesi context'ten: sagdaki yayin paneli de ayni listeyi okuyor ve
+  // iki ayri yoklama, ikisinin kisa sureligine farkli durum gostermesine yol
+  // aciyordu.
+  const { channels, openIds, audioId, expandedId, quality, radioId, toggle, openMany, closeAll, setAudio, expand, setQuality } =
     usePlayers()
 
-  const [channels, setChannels] = useState<ChannelDto[]>([])
   const [recordings, setRecordings] = useState<ActiveRecordingDto[]>([])
+
+  /**
+   * Kanal çiplerini süzen arama.
+   *
+   * <p><b>Yalnızca istemcide.</b> Sunucuda kanal araması diye bir uç yok ve
+   * eklemek de gereksiz: liste zaten tamamen belleğe alınmış durumda ve en
+   * fazla birkaç düzine satır.
+   */
+  const [arama, setArama] = useState('')
 
   const loadRecordings = useCallback(async () => {
     try {
@@ -63,26 +75,17 @@ export function PersistentPlayers() {
     void loadRecordings()
   }, [loadRecordings])
 
-  const load = useCallback(async () => {
-    try {
-      setChannels(await channelsApi.list())
-    } catch {
-      // Liste alınamazsa açık oynatıcılara dokunmuyoruz; yayın akmaya devam etsin.
-    }
-  }, [])
-
-  useEffect(() => {
-    void load()
-    const timer = setInterval(() => void load(), 30000)
-    return () => clearInterval(timer)
-  }, [load])
-
   // openIds sırası korunuyor; kanal listesi tazelenince karolar yer değiştirmesin.
   const open = openIds
     .map((id) => channels.find((c) => c.id === id))
     .filter((c): c is ChannelDto => Boolean(c))
 
-  const playable = channels.filter((c) => c.active)
+  const q = arama.trim().toLocaleLowerCase('tr')
+  const playable = channels
+    .filter((c) => c.active)
+    // Acik olan kanal ARAMAYA RAGMEN listede kaliyor: aksi halde kullanici
+    // arama yazdiginda acik kanalin kapatma dugmesi kayboluyordu.
+    .filter((c) => !q || openIds.includes(c.id) || c.name.toLocaleLowerCase('tr').includes(q))
   const expanded = open.find((c) => c.id === expandedId) ?? null
   // Mini görünümde tek karo gösterilir: sesi olan, yoksa ilk açık kanal.
   const miniChannel = expanded ?? open.find((c) => c.id === audioId) ?? open[0] ?? null
@@ -103,24 +106,50 @@ export function PersistentPlayers() {
     <div
       className={cn(
         onWatchPage
-          ? 'fixed inset-x-0 bottom-0 top-14 z-10 flex flex-col gap-3 bg-background p-4'
-          : 'fixed right-4 z-50 w-80 overflow-hidden rounded-xl border bg-card shadow-lg',
+          // Sol yan cubuk (w-60) ve sag yayin paneli (w-80) sabit konumlu;
+          // katman onlarin ARASINA oturmali yoksa altlarina kayar.
+          // Bu degerler AppLayout'takilerle birlikte degismek zorunda.
+          ? 'fixed bottom-0 left-60 right-80 top-0 z-10 flex flex-col gap-5 bg-background px-6 pb-6 pt-5'
+          : 'fixed right-4 z-50 w-80 overflow-hidden rounded-2xl border bg-card shadow-lg',
         // Radyo çubuğu (h-16) sayfanın altını kaplıyor; mini oynatıcı onun
         // üstüne çıkmalı yoksa ikisi üst üste biner.
         !onWatchPage && (radioId ? 'bottom-20' : 'bottom-4'),
       )}
     >
+      {/* Arama — mini görünümde gizli. */}
+      <div className={cn('relative', !onWatchPage && 'hidden')}>
+        <SearchIcon className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="search"
+          value={arama}
+          onChange={(e) => setArama(e.target.value)}
+          placeholder="Kanal ara…"
+          aria-label="Kanal ara"
+          className="h-12 w-full rounded-full border bg-card pl-11 pr-4 text-sm
+                     placeholder:text-muted-foreground focus:outline-none
+                     focus:ring-2 focus:ring-[var(--ring)]"
+        />
+      </div>
+
       {/* Kanal seçim şeridi — mini görünümde gizli, ama DOM'da kalıyor ki
           kardeş sıralaması değişmesin ve karolar remount olmasın. */}
-      <div className={cn('flex flex-wrap items-center gap-2', !onWatchPage && 'hidden')}>
-        <span className="text-sm font-medium">İzleme</span>
-        <Badge variant="secondary">
-          {open.length} / {MAX_TILES}
-        </Badge>
+      {/* Başlık solda, denetimler sağda. Eskiden hepsi tek sıra hâlinde
+          soldan diziliyordu ve sayfa başlığı kanal çipleriyle aynı ağırlıkta
+          okunuyordu; "burası neresi" ile "ne açayım" ayrı iki soru. */}
+      <div
+        className={cn(
+          'flex flex-wrap items-center justify-between gap-x-6 gap-y-3',
+          !onWatchPage && 'hidden',
+        )}
+      >
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-semibold tracking-tight">İzleme</h1>
+          <Badge variant="secondary" className="text-[13px]">
+            {open.length} / {MAX_TILES}
+          </Badge>
+        </div>
 
-        <div className="mx-2 h-5 w-px bg-border" />
-
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap items-center gap-2">
           {playable.length === 0 && (
             <span className="text-sm text-muted-foreground">Yayında kanal yok.</span>
           )}
@@ -130,7 +159,10 @@ export function PersistentPlayers() {
               <Button
                 key={channel.id}
                 size="sm"
-                variant={isOpen ? 'default' : 'outline'}
+                // Açık kanal nane, kapalı kanal koyu gri dolgu. Kapalı olan
+                // eskiden yalnızca çerçeveliydi ve zeminde kayboluyordu --
+                // "kanal yok" ile "kanal kapalı" ayırt edilemiyordu.
+                variant={isOpen ? 'default' : 'secondary'}
                 disabled={!isOpen && openIds.length >= MAX_TILES}
                 onClick={() => toggle(channel.id)}
                 title={
@@ -141,18 +173,19 @@ export function PersistentPlayers() {
               </Button>
             )
           })}
-        </div>
 
-        <div className="ml-auto flex gap-2">
+          {/* Kanal çipleriyle toplu eylemler arasında nefes: bitişik
+              dururken "Tümünü aç" bir kanal adı gibi okunuyordu. */}
+          <span className="mx-1 h-6 w-px bg-border" />
+
           <Button
-            size="sm"
             variant="outline"
             onClick={() => openMany(playable.map((c) => c.id))}
             disabled={playable.length === 0}
           >
             Tümünü aç
           </Button>
-          <Button size="sm" variant="outline" onClick={closeAll} disabled={open.length === 0}>
+          <Button variant="outline" onClick={closeAll} disabled={open.length === 0}>
             Tümünü kapat
           </Button>
         </div>
@@ -180,10 +213,19 @@ export function PersistentPlayers() {
         </div>
       </div>
 
-      {/* Karolar. Kapsayıcı hep aynı; yalnızca sütun sayısı ve karo görünürlüğü değişiyor. */}
-      <div className={onWatchPage ? 'min-h-0 flex-1' : 'aspect-video bg-black'}>
+      {/* Karolar. Kapsayıcı hep aynı; yalnızca sütun sayısı ve karo görünürlüğü değişiyor.
+          İzleme sayfasında karolar zeminden ayrışan yuvarlak bir panelin
+          içinde duruyor: yayın görüntüsü doğrudan sayfa zeminine oturunca
+          nerede bittiği belirsizleşiyor ve arayüz "kenarsız" görünüyordu. */}
+      <div
+        className={
+          onWatchPage
+            ? 'min-h-0 flex-1 rounded-2xl border bg-panel p-3'
+            : 'aspect-video bg-black'
+        }
+      >
         <div
-          className="grid size-full gap-2"
+          className="grid size-full gap-3"
           style={{
             gridTemplateColumns: `repeat(${singleTile ? 1 : columnsFor(open.length)}, minmax(0, 1fr))`,
           }}
@@ -210,7 +252,7 @@ export function PersistentPlayers() {
       </div>
 
       {open.length === 0 && onWatchPage && (
-        <div className="pointer-events-none absolute inset-x-4 bottom-4 top-20 grid place-items-center rounded-xl border border-dashed text-sm text-muted-foreground">
+        <div className="pointer-events-none absolute inset-x-6 bottom-6 top-24 grid place-items-center rounded-2xl border border-dashed text-sm text-muted-foreground">
           Yukarıdan kanal seçin.
         </div>
       )}
@@ -268,6 +310,19 @@ function Tile({
   /** Geri sarılan bölümün blob adresi; null ise canlı akış oynuyor. */
   const [rewindUrl, setRewindUrl] = useStateReact<string | null>(null)
 
+  /**
+   * Denetim çubuğunun bağlanacağı video elementi.
+   *
+   * <p>Ref değil <b>state</b>: elementin gelmesi yeniden render tetiklemeli,
+   * yoksa çubuk ilk karede "video yok" görüp bir daha güncellenmezdi. Canlı
+   * akış ve geri sarılmış mp4 aynı yere yazıyor -- ikisi de aynı çubuğu
+   * kullanıyor.
+   */
+  const [videoEl, setVideoEl] = useStateReact<HTMLVideoElement | null>(null)
+
+  /** Karonun kökü — tam ekran bunu alıyor (denetimler ve altyazı dahil). */
+  const [tileEl, setTileEl] = useStateReact<HTMLDivElement | null>(null)
+
   // Blob'lar serbest bırakılmazsa her geri sarmada bellekte bir kopya birikir.
   useEffectReact(() => {
     return () => {
@@ -282,9 +337,10 @@ function Tile({
 
   return (
     <div
+      ref={setTileEl}
       className={cn(
         'group relative min-h-0 overflow-hidden bg-black',
-        !compact && 'rounded-lg border',
+        !compact && 'rounded-xl border',
         // Gizli karonun oynatıcısı DOM'da kalıyor ve çalmaya devam ediyor;
         // kaldırılsaydı geri dönüldüğünde yayın baştan bağlanırdı.
         !visible && 'hidden',
@@ -296,8 +352,8 @@ function Tile({
         // Geri sarılan bölüm düz bir mp4; HLS oynatıcıya gerek yok.
         <video
           key={rewindUrl}
+          ref={setVideoEl}
           src={rewindUrl}
-          controls
           autoPlay
           muted={!hasAudio}
           className="size-full bg-black object-contain"
@@ -306,13 +362,29 @@ function Tile({
       <HlsPlayer
         key={selected.hlsUrl}
         captureRef={captureRef}
+        onVideo={setVideoEl}
         src={selected.hlsUrl}
         muted={!hasAudio}
-        // Kontroller yalnızca tek karo görünürken: 4x4 mozaikte 16 kontrol
-        // çubuğu görüntüyü boğar ve karo zaten tıklanacak kadar küçük.
-        controls={showControls}
+        // Yerleşik denetimler hiçbir zaman açılmıyor; tek karoda özel çubuk
+        // deniyor, mozaikte hiç denetim olmuyor (16 çubuk görüntüyü boğar).
+        controls={false}
+        // Geride kalma rozeti yalnızca çubuk yokken: çubuktaki CANLI hapı
+        // aynı işi yapıyor ve ikisi birlikte görününce hangisinin ne yaptığı
+        // belirsizleşiyor.
+        showLiveBadge={!showControls}
         className="size-full"
       />
+      )}
+
+      {/* Özel denetim çubuğu. Canlı akışta CANLI göstergesi ve canlıya dönüş
+          var; geri sarılmış mp4'te canlı kenar yok, o yüzden geçilmiyor. */}
+      {showControls && !compact && (
+        <PlayerControls
+          video={videoEl}
+          container={tileEl}
+          liveEdge={rewindUrl ? undefined : () => captureRef.current?.liveEdge() ?? null}
+          onGoLive={() => captureRef.current?.goLive()}
+        />
       )}
 
       {/* Altyazı bindirmesi. Geri sarılan bölümde gösterilmiyor: o düz bir
@@ -322,14 +394,19 @@ function Tile({
           channelId={channel.id}
           capture={captureRef}
           language={subtitleLang}
+          // Denetim çubuğu açıkken altyazı yukarı kalkıyor; aksi halde çubuğun
+          // arkasında kalıp okunmuyordu.
+          className={showControls && !compact ? 'pb-20' : undefined}
         />
       )}
 
-      {/* Karoya tıklamak büyütür/küçültür. Kontroller açıkken üst şeritle
-          sınırlı: tam kaplayan katman duraklatma düğmesini yutardı. */}
+      {/* Karoya tıklamak büyütür/küçültür. Tam kaplıyor: denetim katmanı
+          pointer-events-none olduğu için ortadaki boş alana yapılan tıklama
+          buraya iniyor, düğmelerin üstüne yapılan inmiyor. Eskiden yalnızca
+          üst şeritti çünkü yerleşik denetimler tıklamayı yutuyordu. */}
       <button
         type="button"
-        className={cn('absolute cursor-pointer', showControls ? 'inset-x-0 top-0 h-12' : 'inset-0')}
+        className="absolute inset-0 cursor-pointer"
         onClick={onToggleExpand}
         aria-label={expanded ? 'Küçült' : 'Büyük ekranda aç'}
       />
@@ -340,7 +417,16 @@ function Tile({
           compact && 'hidden',
         )}
       >
-        <span className="truncate text-xs font-medium text-white">{channel.name}</span>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-xs font-medium text-white">{channel.name}</span>
+          {/* CANLI rozeti yalnızca canlı akışta: geri sarılmış bölüm canlı
+              değil ve orada göstermek doğrudan yanlış bilgi olurdu. */}
+          {!rewindUrl && (
+            <span className="flex shrink-0 items-center gap-1 rounded bg-status-live px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+              Canlı
+            </span>
+          )}
+        </div>
         {/* Dugmeler HER ZAMAN gorunur. Onceden yalnizca fare uzerine gelince
             beliriyordu: kayit ve kare yakalama, varligi kesfedilmesi gereken
             gizli ozellikler degil -- kullanici karsisinda durani kullanir.
@@ -418,8 +504,12 @@ function Tile({
         </div>
       </div>
 
+      {/* Uzun geri sarma (30 sn / 1 dk / 5 dk) DVR'dan geliyor ve denetim
+          çubuğundaki ±10 sn'den ayrı bir şey: çubuk yalnızca atlanabilir
+          aralıkta gezinir, bu ise kaynağı DVR kaydına çevirir. Çubuğun
+          ÜSTÜNDE duruyor, yoksa üst üste binerdi. */}
       {showControls && !compact && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-12 flex justify-center">
+        <div className="pointer-events-none absolute inset-x-0 bottom-24 flex justify-center">
           <div className="rounded-full bg-black/70 px-2 py-1">
             <LiveRewind
               channel={channel}
@@ -431,7 +521,9 @@ function Tile({
         </div>
       )}
 
-      {hasAudio && !compact && (
+      {/* Ses göstergesi. Denetim çubuğu varken gizli: çubukta zaten sessize
+          alma düğmesi var ve rozet onun arkasında kalıyordu. */}
+      {hasAudio && !compact && !showControls && (
         <div className="pointer-events-none absolute bottom-2 left-2">
           <Badge variant="secondary" className="gap-1">
             <Volume2Icon className="size-3" />

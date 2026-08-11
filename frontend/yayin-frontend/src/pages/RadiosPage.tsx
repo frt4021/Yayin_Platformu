@@ -96,7 +96,7 @@ export function RadiosPage() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-semibold">Radyolar</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Radyolar</h1>
         {capacity && (
           <Badge variant="secondary">
             {capacity.active} / {capacity.max} yayında

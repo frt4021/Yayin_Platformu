@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Hls from 'hls.js'
 import { cn } from '@/lib/utils'
 
@@ -31,6 +31,16 @@ type Status = 'loading' | 'playing' | 'error'
 export interface CaptureHandle {
   video: HTMLVideoElement | null
   playingDate: () => Date
+  /**
+   * Canlı kenarın oynatma zaman çizgisindeki konumu, bilinmiyorsa {@code null}.
+   *
+   * <p>Denetimler bunu iki şey için okuyor: "canlı mı geride mi" göstergesi ve
+   * ilerleme çubuğunun sağ ucu. {@code video.duration} canlı yayında
+   * {@code Infinity} döndüğü için oradan hesaplanamıyor.
+   */
+  liveEdge: () => number | null
+  /** Canlı kenara atlar. Geride kalındığında tek dönüş yolu. */
+  goLive: () => void
 }
 
 export function HlsPlayer({
@@ -40,6 +50,8 @@ export function HlsPlayer({
   className,
   onStatusChange,
   captureRef,
+  onVideo,
+  showLiveBadge = true,
 }: {
   src: string
   muted?: boolean
@@ -48,6 +60,23 @@ export function HlsPlayer({
   /** Duraklatma, ses, tam ekran, ileri/geri sarma. Mozaikte kapalı: 16 karoda
    *  16 kontrol çubuğu görüntüyü boğar, karo zaten çok küçük. */
   controls?: boolean
+  /**
+   * Video elementi hazır olduğunda haber verir.
+   *
+   * <p>{@code captureRef} yerine ayrı bir geri çağırım: ref'e yazmak yeniden
+   * render tetiklemiyor ve özel denetimlerin elementi <b>görebilmek için</b>
+   * render'a ihtiyacı var. Ref ile yapılsaydı denetimler ilk karede boş
+   * element görüp bir daha güncellenmezdi.
+   */
+  onVideo?: (video: HTMLVideoElement | null) => void
+  /**
+   * Geride kalındığında "Canlıya dön" rozetini göster.
+   *
+   * <p>Özel denetim çubuğu kullanılan karolarda kapatılıyor: aynı işi yapan
+   * CANLI hapı orada zaten var ve iki düğme aynı anda görününce hangisinin
+   * ne yaptığı belirsizleşiyor. Mozaikte denetim çubuğu yok, rozet tek yol.
+   */
+  showLiveBadge?: boolean
   className?: string
   onStatusChange?: (status: Status) => void
 }) {
@@ -61,11 +90,33 @@ export function HlsPlayer({
     onStatusChange?.(status)
   }, [status, onStatusChange])
 
+  /**
+   * Video elementini hem içeri hem dışarı bağlar.
+   *
+   * <p><b>Effect ile yapılamaz.</b> Bağımlılıksız bir effect her render'da
+   * önce {@code onVideo(null)} sonra {@code onVideo(element)} çağırır; bunlar
+   * durum güncellemesi tetiklediği için render → effect → render döngüsüne
+   * girer. Ref geri çağırımı yalnızca element gerçekten değiştiğinde çalışıyor.
+   *
+   * <p>{@code onVideo} <b>kararlı olmalı</b> (örn. doğrudan bir setState).
+   * Her render'da yeni bir ok fonksiyonu geçilirse ref her seferinde sökülüp
+   * takılır ve aynı döngü geri gelir.
+   */
+  const bindVideo = useCallback(
+    (el: HTMLVideoElement | null) => {
+      videoRef.current = el
+      onVideo?.(el)
+    },
+    [onVideo],
+  )
+
   // Tutamağı her render'da tazele: video elementi ve hls örneği değişebiliyor.
   useEffect(() => {
     if (!captureRef) return
     captureRef.current = {
       video: videoRef.current,
+      liveEdge: () => hlsRef.current?.liveSyncPosition ?? null,
+      goLive,
       playingDate: () => {
         // hls.js, playlist'te EXT-X-PROGRAM-DATE-TIME varsa karenin gerçek
         // saatini veriyor (MediaMTX bunu üretiyor). Yoksa gecikmeyi canlı uç
@@ -173,14 +224,14 @@ export function HlsPlayer({
   return (
     <div className={cn('relative overflow-hidden bg-black', className)}>
       <video
-        ref={videoRef}
+        ref={bindVideo}
         muted={muted}
         playsInline
         controls={controls}
         className="size-full object-contain"
       />
 
-      {behindLive && status === 'playing' && (
+      {showLiveBadge && behindLive && status === 'playing' && (
         <button
           type="button"
           onClick={(e) => {

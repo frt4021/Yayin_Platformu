@@ -4,25 +4,32 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        // Hover'da opaklık düşürmek yerine palette tanımlı koyu maviye
+        // Hover'da opaklık düşürmek yerine palette tanımlı koyu tona
         // geçiliyor: opaklık düşürmek düğmeyi zemine karıştırıp "sönüyor"
         // gibi gösteriyordu, oysa hover geri bildirimi belirginleşmeli.
         default: 'bg-primary text-primary-foreground hover:bg-primary-hover',
         destructive: 'bg-destructive text-destructive-foreground hover:opacity-90',
-        outline: 'border bg-transparent hover:bg-accent hover:text-accent-foreground',
+        // Tasarımın baskın düğme biçimi ("Tümünü aç" / "Tümünü kapat"):
+        // saydam zemin, belirgin kenarlık. Kenarlık varsayılan --border'dan
+        // bir ton açık; aksi halde koyu zeminde çerçeve kayboluyor ve düğme
+        // tıklanabilir görünmüyordu.
+        outline:
+          'border border-border-strong bg-transparent text-foreground hover:border-border-strong-hover hover:bg-accent',
         secondary: 'bg-secondary text-secondary-foreground hover:bg-accent',
-        ghost: 'hover:bg-accent hover:text-accent-foreground',
+        ghost: 'text-muted-foreground hover:bg-accent hover:text-foreground',
         link: 'text-foreground underline-offset-4 hover:underline',
       },
+      // Yükseklikler bir kademe arttı: tasarımdaki düğmeler eskisinden
+      // belirgin biçimde daha ferah ve yatay boşlukları geniş.
       size: {
-        default: 'h-9 px-4 py-2',
-        sm: 'h-8 rounded-md px-3 text-xs',
-        lg: 'h-10 rounded-md px-6',
-        icon: 'size-9',
+        default: 'h-10 px-5 py-2',
+        sm: 'h-8 px-3.5 text-xs',
+        lg: 'h-11 px-7 text-[15px]',
+        icon: 'size-9 rounded-lg',
       },
     },
     defaultVariants: { variant: 'default', size: 'default' },

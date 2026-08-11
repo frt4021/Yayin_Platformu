@@ -99,7 +99,7 @@ public class ChannelService {
 
         if (channel.active) {
             mediaMtx.applyPath(channel.mediamtxPath, channel.effectiveSourceUrl(),
-                channel.dvrEnabled, channel.renditions);
+                channel.renditions);
         }
         LOG.infof("Kanal oluşturuldu: %s (path=%s, aktif=%s)",
             channel.name, channel.mediamtxPath, channel.active);
@@ -141,7 +141,7 @@ public class ChannelService {
 
         if (channel.active) {
             mediaMtx.applyPath(channel.mediamtxPath, channel.effectiveSourceUrl(),
-                channel.dvrEnabled, channel.renditions);
+                channel.renditions);
         } else if (wasActive) {
             mediaMtx.removePath(channel.mediamtxPath, channel.renditions);
         }
@@ -184,7 +184,7 @@ public class ChannelService {
         for (Channel channel : active) {
             try {
                 mediaMtx.applyPath(channel.mediamtxPath, channel.effectiveSourceUrl(),
-                    channel.dvrEnabled, channel.renditions);
+                    channel.renditions);
                 restored++;
             } catch (RuntimeException e) {
                 LOG.errorf(e, "Kanal MediaMTX'e yazılamadı: %s (path=%s)",

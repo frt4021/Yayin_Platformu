@@ -136,6 +136,29 @@ baslat() {
   ip="$(grep -m1 '^MINIO_PUBLIC_URL=' "$ENV_DOSYASI" | sed 's|.*//||;s|:.*||')"
   alan="$(grep -m1 '^PUBLIC_HOST=' "$ENV_DOSYASI" | cut -d= -f2- || true)"
 
+  # --- stt-worker saglik denetimi ---
+  #
+  # En sik ariza: model bellege sigmiyor ve konteyner yeniden baslama
+  # dongusune giriyor. Belirtisi "restarting" durumu; sebebi log'un
+  # icinde OOM olarak gorunmeyebiliyor cunku surec cekirdek tarafindan
+  # oldurulyor. Sessiz kalmak yerine dogrudan cozumu gosteriyoruz.
+  local stt_durum
+  stt_durum="$(docker inspect -f '{{.State.Status}}' stt-worker 2>/dev/null || echo yok)"
+  if [ "$stt_durum" = "restarting" ]; then
+    echo
+    sari "  ! stt-worker yeniden başlama döngüsünde."
+    gri  "    En olası sebep: model belleğe sığmıyor."
+    gri  "    GPU'da  -> VRAM yetmiyor. Daha küçük model ya da daha düşük hassasiyet:"
+    gri  "               STT_MODEL=medium   ya da   STT_COMPUTE_TYPE=int8"
+    gri  "    CPU'da  -> RAM yetmiyor. large-v3 int8 ile ~2 GB, float16 ile ~3 GB ister."
+    gri  "    Değişiklik sonrası imaj YENİDEN KURULMALI (model imaja gömülü):"
+    gri  "               docker compose build stt-worker"
+    echo
+    gri  "    Son loglar:"
+    docker logs stt-worker --tail 5 2>&1 | sed 's/^/      /'
+    echo
+  fi
+
   baslik "Hazır"
   if [ -n "$alan" ]; then
     puny="$(python3 -c "import sys;print(sys.argv[1].encode('idna').decode())" "$alan" 2>/dev/null || echo "$alan")"

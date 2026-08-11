@@ -62,8 +62,7 @@ public class MediaMtxService {
      * <p>Kaynak path'i her koşulda yayında; rendition'lar ondan türüyor.
      * Kayıt oraya yazılınca merdivenin sağlığından bağımsız hale geliyor.
      */
-    public void applyPath(String path, String sourceUrl, boolean record,
-                          String renditionSpec) {
+    public void applyPath(String path, String sourceUrl, String renditionSpec) {
         List<Rendition> renditions = Rendition.parse(renditionSpec);
 
         // Transcode cikti path'leri ONCE olusturulmali: MediaMTX tanimsiz bir
@@ -73,8 +72,12 @@ public class MediaMtxService {
             ensurePath(r.pathFor(path), MediaMtxPathConfig.publisherFed(false));
         }
 
+        // record HER ZAMAN false: DVR kaydi artik MediaMTX'ten alinmiyor.
+        // Kayit, RTSP'den ffmpeg ile cekilip MinIO'ya akitiliyor
+        // (bkz. org.example.dvr.DvrRecorder). MediaMTX'in kendi kaydi acik
+        // birakilsaydi ayni icerik hem diske hem MinIO'ya yazilirdi.
         MediaMtxPathConfig config = MediaMtxPathConfig.alwaysOn(
-            sourceUrl, record, transcodeCommand.build(renditions));
+            sourceUrl, false, transcodeCommand.build(renditions));
         try {
             client.addPath(path, config);
         } catch (WebApplicationException e) {
