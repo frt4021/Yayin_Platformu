@@ -40,9 +40,27 @@ public class Clip extends PanacheEntityBase {
     @GeneratedValue
     public UUID id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "channel_id", nullable = false)
+    /**
+     * Kaynak kanal — <b>kanal silinmişse {@code null}</b>.
+     *
+     * <p>Kanal silinirken kullanıcı içeriğin korunmasını seçerse bağ
+     * koparılıyor (V21, {@code ON DELETE SET NULL}). Dosya MinIO'da duruyor
+     * ve izlenebiliyor; yalnızca hangi kanaldan geldiği bilgisi
+     * {@link #channelName}'e düşüyor.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "channel_id")
     public Channel channel;
+
+    /**
+     * Kanal adının kopyası.
+     *
+     * <p>Bağ koptuktan sonra "hangi kanaldı" sorusunun başka cevabı yok.
+     * Kanal <b>dururken de</b> yazılıyor: yalnızca silme anında doldurulsaydı
+     * o yolun dışında oluşan satırlar boş kalırdı.
+     */
+    @Column(name = "channel_name", length = 200)
+    public String channelName;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "requested_by", nullable = false)

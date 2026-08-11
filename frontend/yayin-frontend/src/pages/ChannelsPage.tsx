@@ -23,6 +23,7 @@ import {
   Trash2Icon,
 } from 'lucide-react'
 import { ChannelFormDialog } from './channels/ChannelFormDialog'
+import { DeleteChannelDialog } from './channels/DeleteChannelDialog'
 
 /** Durum bilgisi MediaMTX'ten anlık okunuyor; tazelenmezse gösterge gerçeklikle ilgisini kaybeder. */
 const REFRESH_MS = 15000
@@ -52,7 +53,9 @@ export function ChannelsPage() {
   const [error, setError] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<ChannelDto | null>(null)
-  const [pending, setPending] = useState<Set<string>>(new Set())
+  const [pending] = useState<Set<string>>(new Set())
+  /** Silme onayı bekleyen kanal; null ise iletişim kutusu kapalı. */
+  const [silinecek, setSilinecek] = useState<ChannelDto | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -83,28 +86,18 @@ export function ChannelsPage() {
     setFormOpen(true)
   }
 
-  async function remove(channel: ChannelDto) {
-    if (
-      !confirm(
-        `"${channel.name}" silinecek ve MediaMTX'teki yayın durdurulacak. Emin misiniz?`,
-      )
-    ) {
-      return
-    }
-    setPending((prev) => new Set(prev).add(channel.id))
-    try {
-      await channelsApi.remove(channel.id)
-      setChannels((prev) => prev.filter((c) => c.id !== channel.id))
-      toast.success(`${channel.name} silindi.`)
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : 'Kanal silinemedi.')
-    } finally {
-      setPending((prev) => {
-        const next = new Set(prev)
-        next.delete(channel.id)
-        return next
-      })
-    }
+  /**
+   * Silme artık iletişim kutusundan geçiyor.
+   *
+   * <p>Tarayıcının {@code confirm()}'i neyin gideceğini gösteremiyordu ve
+   * ne içerik seçimi ne şifre alanı taşıyabiliyordu.
+   */
+  function remove(channel: ChannelDto) {
+    setSilinecek(channel)
+  }
+
+  function silindi(channelId: string) {
+    setChannels((prev) => prev.filter((c) => c.id !== channelId))
   }
 
   async function restore() {
@@ -298,6 +291,12 @@ export function ChannelsPage() {
         open={formOpen}
         onOpenChange={setFormOpen}
         onSaved={() => void load()}
+      />
+
+      <DeleteChannelDialog
+        channel={silinecek}
+        onClose={() => setSilinecek(null)}
+        onDeleted={silindi}
       />
     </div>
   )

@@ -117,7 +117,7 @@ export function PersistentPlayers() {
       )}
     >
       {/* Arama — mini görünümde gizli. */}
-      <div className={cn('relative', !onWatchPage && 'hidden')}>
+      <div data-tour="arama" className={cn('relative', !onWatchPage && 'hidden')}>
         <SearchIcon className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <input
           type="search"
@@ -149,7 +149,7 @@ export function PersistentPlayers() {
           </Badge>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div data-tour="kanal-cipleri" className="flex flex-wrap items-center gap-2">
           {playable.length === 0 && (
             <span className="text-sm text-muted-foreground">Yayında kanal yok.</span>
           )}
@@ -178,6 +178,7 @@ export function PersistentPlayers() {
               dururken "Tümünü aç" bir kanal adı gibi okunuyordu. */}
           <span className="mx-1 h-6 w-px bg-border" />
 
+          <span data-tour="toplu-eylemler" className="flex gap-2">
           <Button
             variant="outline"
             onClick={() => openMany(playable.map((c) => c.id))}
@@ -188,6 +189,7 @@ export function PersistentPlayers() {
           <Button variant="outline" onClick={closeAll} disabled={open.length === 0}>
             Tümünü kapat
           </Button>
+          </span>
         </div>
       </div>
 
@@ -218,6 +220,7 @@ export function PersistentPlayers() {
           içinde duruyor: yayın görüntüsü doğrudan sayfa zeminine oturunca
           nerede bittiği belirsizleşiyor ve arayüz "kenarsız" görünüyordu. */}
       <div
+        data-tour="karo-alani"
         className={
           onWatchPage
             ? 'min-h-0 flex-1 rounded-2xl border bg-panel p-3'
@@ -431,7 +434,7 @@ function Tile({
             beliriyordu: kayit ve kare yakalama, varligi kesfedilmesi gereken
             gizli ozellikler degil -- kullanici karsisinda durani kullanir.
             Ustteki gradyan okunurlugu zaten sagliyor. */}
-        <div className="pointer-events-auto flex gap-1">
+        <div data-tour="karo-eylemleri" className="pointer-events-auto flex gap-1">
           <TileActions
             channel={channel}
             capture={captureRef}

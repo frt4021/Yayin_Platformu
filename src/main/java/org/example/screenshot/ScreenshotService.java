@@ -82,6 +82,10 @@ public class ScreenshotService {
 
         Screenshot shot = new Screenshot();
         shot.channel = channel;
+        // Kanal adinin kopyasi. Kanal silinip bag koparilinca (V21) geriye
+        // kalan tek ipucu bu; silme aninda degil OLUSTURMA aninda yaziliyor
+        // ki bu yolun disinda olusan satirlar bos kalmasin.
+        shot.channelName = channel.name;
         shot.capturedBy = requireLocalUser(keycloakId);
         // Istemci gelecege ait bir an bildirmesin; gecmis serbest (geriye
         // sarmadan yakalanabiliyor).
@@ -167,13 +171,19 @@ public class ScreenshotService {
     }
 
     private ScreenshotDto toDto(Screenshot shot) {
-        String fileName = shot.channel.mediamtxPath + "_"
-            + shot.capturedAt.toString().replace(":", "-") + "."
-            + shot.objectKey.substring(shot.objectKey.lastIndexOf('.') + 1);
+        // Kanal silinmis olabilir (V21): bag koparilmis ama goruntu duruyor.
+        String kanal = shot.channel != null
+            ? shot.channel.mediamtxPath
+            : org.example.storage.StoragePaths.slug(shot.channelName);
+        String uzanti = shot.objectKey.substring(shot.objectKey.lastIndexOf('.') + 1);
+        String zaman = shot.capturedAt.toString().replace(":", "-");
+        String fileName = kanal == null || kanal.isEmpty()
+            ? zaman + "." + uzanti
+            : kanal + "_" + zaman + "." + uzanti;
         return new ScreenshotDto(
             shot.id,
-            shot.channel.id,
-            shot.channel.name,
+            shot.channel != null ? shot.channel.id : null,
+            shot.channel != null ? shot.channel.name : shot.channelName,
             shot.capturedAt,
             shot.width,
             shot.height,

@@ -9,9 +9,12 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader2Icon } from 'lucide-react'
+import { CompassIcon, Loader2Icon } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { TOUR_SEEN_KEY } from '@/components/tour/steps'
 
 export function ProfilePage() {
+  const navigate = useNavigate()
   const [profile, setProfile] = useState<UserDto | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -57,6 +60,34 @@ export function ProfilePage() {
         <h1 className="text-3xl font-semibold tracking-tight">Profilim</h1>
         <p className="text-sm text-muted-foreground">Hesap bilgileriniz ve şifre değişikliği.</p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Rehberli tur</CardTitle>
+          <CardDescription>
+            Arayüzün nasıl çalıştığını adım adım gösterir. İlk girişte bir kez
+            kendiliğinden açılır.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant="outline"
+            onClick={() => {
+              // Once "gorundu" isareti siliniyor: yalnizca olay yayilsaydi
+              // tur acilirdi ama isaret durdugu icin bir dahaki girise
+              // yine kendiliginden acilmazdi -- kullanici "yeniden baslat"
+              // dedigine gore o davranisi da geri istiyor.
+              localStorage.removeItem(TOUR_SEEN_KEY)
+              // Hedeflerin cogu Izleme sayfasinda; once oraya gidiliyor.
+              navigate('/izle')
+              window.dispatchEvent(new Event('yayin-merkezi:tur'))
+            }}
+          >
+            <CompassIcon />
+            Turu yeniden başlat
+          </Button>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/auth/AuthContext'
 import { Badge } from '@/components/ui/badge'
@@ -21,6 +22,8 @@ import { PlayerProvider, usePlayers } from '@/player/PlayerContext'
 import { PersistentPlayers, WATCH_PATH } from '@/player/PersistentPlayers'
 import { PersistentRadio } from '@/player/PersistentRadio'
 import { ActiveStreamPanel } from '@/player/ActiveStreamPanel'
+import { GuidedTour } from '@/components/tour/GuidedTour'
+import { TOUR_SEEN_KEY } from '@/components/tour/steps'
 
 interface NavItem {
   to: string
@@ -93,6 +96,33 @@ function Shell({
   // hicbir seye karsilik gelmeyen bos bir sutun olarak dururdu.
   const izlemede = location.pathname === WATCH_PATH
 
+  /**
+   * Rehberli tur.
+   *
+   * <p>İlk girişte <b>bir kez</b> açılıyor. Hedeflerin çoğu İzleme
+   * sayfasında olduğu için yalnızca orada başlatılıyor — başka bir sayfada
+   * açılsaydı adımların yarısı hedefsiz kalıp atlanırdı.
+   *
+   * <p>Gecikme, hedeflerin DOM'a girmesini bekliyor: kanal listesi bir
+   * istekten geliyor ve tur ondan önce ölçüm yaparsa çipleri bulamıyor.
+   */
+  const [turAcik, setTurAcik] = useState(false)
+
+  useEffect(() => {
+    if (!izlemede || localStorage.getItem(TOUR_SEEN_KEY)) return
+    const timer = setTimeout(() => setTurAcik(true), 900)
+    return () => clearTimeout(timer)
+  }, [izlemede])
+
+  useEffect(() => {
+    const ac = () => setTurAcik(true)
+    // Profil sayfasindaki "turu yeniden baslat" dugmesi bu olayi yayiyor.
+    // Context yerine olay: tur tek bir yerden aciliyor ve araya bir saglayici
+    // koymak, yalnizca bunun icin tum agaci sarmalamak olurdu.
+    window.addEventListener('yayin-merkezi:tur', ac)
+    return () => window.removeEventListener('yayin-merkezi:tur', ac)
+  }, [])
+
   return (
     <div className="min-h-dvh">
       {/* --- Sol yan çubuk ---
@@ -107,7 +137,7 @@ function Shell({
           <span className="text-lg font-semibold tracking-tight">Yayın Merkezi</span>
         </NavLink>
 
-        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-2">
+        <nav data-tour="nav" className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-2">
           {NAV.filter((item) => !item.roles || hasRole(...item.roles)).map((item) => (
             <NavLink
               key={item.to}
@@ -131,7 +161,7 @@ function Shell({
         </nav>
 
         {/* Hesap bloğu en altta: gezinme öğesi değil, oturum bilgisi. */}
-        <div className="border-t px-3 py-4">
+        <div data-tour="hesap" className="border-t px-3 py-4">
           <div className="flex items-center gap-2.5 px-2">
             <NavLink
               to="/profil"
@@ -160,6 +190,14 @@ function Shell({
       </main>
 
       {izlemede && <ActiveStreamPanel />}
+
+      <GuidedTour
+        open={turAcik}
+        onClose={() => {
+          setTurAcik(false)
+          localStorage.setItem(TOUR_SEEN_KEY, '1')
+        }}
+      />
 
       <PersistentPlayers />
       <PersistentRadio

@@ -24,7 +24,7 @@ export function ActiveStreamPanel() {
   const sesli = channels.find((c) => c.id === audioId) ?? null
 
   return (
-    <aside className="fixed inset-y-0 right-0 z-20 flex w-80 flex-col border-l bg-panel">
+    <aside data-tour="yayin-paneli" className="fixed inset-y-0 right-0 z-20 flex w-80 flex-col border-l bg-panel">
       <div className="border-b px-5 py-4 text-center">
         <p className="text-sm font-medium text-muted-foreground">Etkin yayın</p>
         <p className="mt-0.5 truncate text-base font-semibold">

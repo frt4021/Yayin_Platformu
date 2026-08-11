@@ -112,6 +112,10 @@ ClipService {
 
         Clip clip = new Clip();
         clip.channel = channel;
+        // Kanal adinin kopyasi. Kanal silinip bag koparilinca (V21) geriye
+        // kalan tek ipucu bu; silme aninda degil OLUSTURMA aninda yaziliyor
+        // ki bu yolun disinda olusan satirlar bos kalmasin.
+        clip.channelName = channel.name;
         clip.requestedBy = requireLocalUser(keycloakId);
         clip.startAt = req.start();
         clip.endAt = req.end();
@@ -232,8 +236,19 @@ ClipService {
         return user;
     }
 
+    /**
+     * İndirme dosya adı.
+     *
+     * <p>Kanal silinmiş olabilir (V21 sonrası {@code channel} null olabiliyor);
+     * o durumda kaydedilen kanal adına düşülüyor. İkisi de yoksa yalnızca
+     * zaman kalıyor — dosyanın adsız kalmasından iyi.
+     */
     static String fileNameOf(Clip clip) {
-        return clip.channel.mediamtxPath + "_" + clip.startAt.toString().replace(":", "-") + ".mp4";
+        String kanal = clip.channel != null
+            ? clip.channel.mediamtxPath
+            : org.example.storage.StoragePaths.slug(clip.channelName);
+        String zaman = clip.startAt.toString().replace(":", "-");
+        return kanal == null || kanal.isEmpty() ? zaman + ".mp4" : kanal + "_" + zaman + ".mp4";
     }
 
     public static boolean isAdmin(java.util.Set<String> roles) {
@@ -243,8 +258,10 @@ ClipService {
     ClipDto toDto(Clip clip) {
         return new ClipDto(
             clip.id,
-            clip.channel.id,
-            clip.channel.name,
+            // Kanal silinmis olabilir: bag koparilmis ama klip duruyor.
+            // Arayuz kimlik yoksa adi "(silinmis)" diye gosteriyor.
+            clip.channel != null ? clip.channel.id : null,
+            clip.channel != null ? clip.channel.name : clip.channelName,
             clip.startAt,
             clip.endAt,
             clip.duration().toSeconds(),

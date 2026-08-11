@@ -46,6 +46,9 @@ public class ChannelResource {
     @Inject
     JsonWebToken jwt;
 
+    @jakarta.inject.Inject
+    org.example.channel.ChannelDeletionService deletionService;
+
     @Inject
     ChannelService channelService;
 
@@ -91,13 +94,40 @@ public class ChannelResource {
         return channelService.update(id, request);
     }
 
-    @DELETE
-    @jakarta.ws.rs.Path("/{id}")
+    @GET
+    @jakarta.ws.rs.Path("/{id}/silme-ozeti")
+    @RolesAllowed({Roles.YONETICI, Roles.MODERATOR})
+    @Operation(summary = "Silinecek içeriğin dökümü",
+        description = "Onay ekranı için: kaç klip, kaç ekran görüntüsü ve ne kadar "
+            + "DVR kaydı etkilenecek. Hiçbir şeyi değiştirmez.")
+    public org.example.channel.dto.ChannelDeletionSummary deletionSummary(
+        @PathParam("id") UUID id) {
+        return deletionService.summary(id);
+    }
+
+    /**
+     * Kanalı siler.
+     *
+     * <p><b>Neden {@code DELETE} değil {@code POST}:</b> istek şifre taşıyor ve
+     * şifre sorgu parametresinde gidemez — erişim günlüklerine, tarayıcı
+     * geçmişine ve vekil kayıtlarına düz metin olarak düşer. Gövdeli
+     * {@code DELETE} teknik olarak mümkün ama araçlar ve vekiller arasında
+     * tutarsız destekleniyor.
+     */
+    @POST
+    @jakarta.ws.rs.Path("/{id}/silme")
     @RolesAllowed({Roles.YONETICI, Roles.MODERATOR})
     @Operation(summary = "Kanalı sil",
-        description = "Kayıt silinir ve MediaMTX'teki path kaldırılır.")
-    public Response delete(@PathParam("id") UUID id) {
-        channelService.delete(id);
+        description = "Şifre doğrulaması ister. DVR kaydı her koşulda silinir; "
+            + "klip ve ekran görüntüleri deleteContent'e göre silinir ya da "
+            + "kanal bağı koparılarak korunur.")
+    public Response delete(@PathParam("id") UUID id,
+                           @Valid org.example.channel.dto.DeleteChannelRequest request) {
+        // Kullanici adi TOKEN'DAN aliniyor, istekten degil: istemcinin
+        // gonderdigi bir ada guvenmek, baskasinin sifresiyle dogrulama
+        // yapmaya calismanin onunu acardi.
+        deletionService.delete(id, jwt.getClaim("preferred_username"),
+            request.password(), request.deleteContent());
         return Response.noContent().build();
     }
 

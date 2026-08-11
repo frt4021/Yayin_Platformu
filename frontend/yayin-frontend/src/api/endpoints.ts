@@ -5,6 +5,7 @@ import type {
   ScheduledRecordingDto,
   CreateScheduledRecordingRequest,
   Capacity,
+  ChannelDeletionSummary,
   ChannelDto,
   ChannelRequest,
   ActiveRecordingDto,
@@ -78,7 +79,18 @@ export const channelsApi = {
   update: (id: string, request: ChannelRequest) =>
     api.put<ChannelDto>(`/api/channels/${id}`, request),
 
-  remove: (id: string) => api.delete<void>(`/api/channels/${id}`),
+  /** Silinecek içeriğin dökümü — onay ekranı için. Hiçbir şeyi değiştirmez. */
+  deletionSummary: (id: string) =>
+    api.get<ChannelDeletionSummary>(`/api/channels/${id}/silme-ozeti`),
+
+  /**
+   * Kanalı siler.
+   *
+   * POST, DELETE değil: istek şifre taşıyor ve şifre sorgu parametresinde
+   * gidemez — erişim günlüklerine ve tarayıcı geçmişine düz metin düşer.
+   */
+  remove: (id: string, password: string, deleteContent: boolean) =>
+    api.post<void>(`/api/channels/${id}/silme`, { password, deleteContent }),
 
   capacity: () => api.get<Capacity>('/api/channels/capacity'),
 

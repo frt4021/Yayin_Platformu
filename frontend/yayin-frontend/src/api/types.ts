@@ -153,7 +153,8 @@ export type ClipStatus = (typeof CLIP_STATUS)[number]
 
 export interface ClipDto {
   id: string
-  channelId: string
+  /** Kanal silinip bağ koparıldıysa null — klip yine de izlenebilir. */
+  channelId: string | null
   channelName: string
   start: string
   end: string
@@ -269,7 +270,8 @@ export interface ActiveRecordingDto {
 
 export interface ScreenshotDto {
   id: string
-  channelId: string
+  /** Kanal silinip bağ koparıldıysa null — görüntü yine de görüntülenebilir. */
+  channelId: string | null
   channelName: string
   /** Karenin ait olduğu YAYIN anı — createdAt kaydın oluşturulduğu an. */
   capturedAt: string
@@ -371,4 +373,18 @@ export interface SubtitleDto {
   metinler: Record<string, string>
   /** Bölüt üst sınır aşıldığı için kesildi mi — cümle ortasında olabilir. */
   kesik: boolean
+}
+
+/** Kanal silinmeden önce neyin gideceğinin dökümü. */
+export interface ChannelDeletionSummary {
+  channelName: string
+  clipCount: number
+  screenshotCount: number
+  dvrSegmentCount: number
+  /** DVR kaydının toplam süresi. Segment sayısı kullanıcıya bir şey ifade etmiyor, süre ediyor. */
+  dvrHours: number
+  dvrBytes: number
+  clipBytes: number
+  /** Yayındaki bir kanalı silmek büyük ihtimalle kazadır; ayrıca uyarılıyor. */
+  streaming: boolean
 }
