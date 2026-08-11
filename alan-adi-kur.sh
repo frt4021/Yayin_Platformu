@@ -3,8 +3,8 @@
 # Yayın Merkezi — alan adıyla erişim kurulumu.
 #
 #   ./alan-adi-kur.sh            .env'deki PUBLIC_HOST için hosts satırı üretir
-#   ./alan-adi-kur.sh --yaz      satırı /etc/hosts'a ekler (sudo ister)
-#
+#   ./alan-adi-kur.sh --yaz      satırı /etc/hosts'a ekler (sudo i
+
 # Neden ayrı script: /etc/hosts'a yazmak sudo istiyor ve bunu yapılandırma
 # adımına gömmek, ./yapilandir.sh'ı gereksiz yere ayrıcalık isteyen bir
 # script hâline getirirdi.

@@ -7,6 +7,10 @@ import java.util.UUID;
  * Kanalın dışarıya açılan gösterimi.
  *
  * @param hlsUrl    tarayıcının doğrudan oynatabileceği manifest adresi.
+ *                  Varsayılan olarak <b>göreli</b> ({@code /hls/kanal1/index.m3u8}):
+ *                  ana bilgisayar adını tarayıcı kendi bulunduğu adresten
+ *                  alıyor. Mutlak yazılsaydı arayüze hangi adresten
+ *                  girildiği ile yayının geldiği adres ayrışabilirdi.
  *                  Sunucuda üretiliyor ki frontend MediaMTX'in adres şemasını
  *                  bilmek zorunda kalmasın.
  * @param streaming MediaMTX'ten okunan anlık durum — yayın gerçekten akıyor mu.

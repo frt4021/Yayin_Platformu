@@ -120,12 +120,14 @@ env_uret() {
   # HLS ve CORS: alan adi varsa VEKIL uzerinden (tek origin), yoksa dogrudan
   # mediamtx portundan. Tek origin CORS'u tamamen ortadan kaldiriyor ve
   # izleyicinin 8888'e erisebilmesini gereksiz kiliyor.
-  local hls_base cors_origins
+  local cors_origins
+  # HLS adresi GORELI: ana bilgisayar adini tarayici kendi bulundugu
+  # adresten aliyor. Boylece localhost, LAN IP ve alan adi -- ucu de
+  # kendiliginden dogru calisiyor ve hangi adresten girildigi onemsiz.
+  local hls_base="/hls"
   if [ -n "$alan" ]; then
-    hls_base="http://$alan/hls"
     cors_origins="http://$alan,http://localhost"
   else
-    hls_base="http://$ip:$p_hls"
     cors_origins="http://localhost:$p_frontend,http://$ip:$p_frontend"
   fi
 
