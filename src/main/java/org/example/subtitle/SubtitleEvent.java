@@ -25,8 +25,17 @@ public record SubtitleEvent(
     boolean kesik
 ) {
 
-    /** Redis kanal adı — kanal başına ayrı, gereksiz yayın olmasın. */
+    /** Redis kanal adı — yayınlayan taraf kanal başına ayrı kanala yazıyor. */
     public static String kanalAdi(UUID channelId) {
         return "altyazi:" + channelId;
     }
+
+    /**
+     * Dinleyen tarafın kullandığı desen: <b>hepsi tek abonelikte</b>.
+     *
+     * <p>Yayınlama kanal başına ayrı kalıyor (bir gün başka bir tüketici tek
+     * kanalı dinlemek isterse diye), ama abone olan taraf hepsini tek
+     * abonelikle alıp süzüyor. Gerekçe {@code SubtitleBroadcaster} içinde.
+     */
+    public static final String KANAL_DESENI = "altyazi:*";
 }

@@ -25,9 +25,11 @@ import org.jboss.logging.Logger;
  * için kısa süre kesiliyordu</b>. Yeni yol yalnızca fazladan bir ffmpeg
  * okuyucusu açıyor; yayına hiç dokunmuyor.
  *
- * <p><b>Bedeli:</b> kayıt anında değil, kaydedicinin bir sonraki
- * eşitlemesinde başlıyor ({@code dvr.sync-interval}). Aralık yine
- * {@code clampToRecorded} ile gerçekten kaydedilene kırpılıyor.
+ * <p><b>Bedeli neydi:</b> kayıt anında değil, kaydedicinin bir sonraki
+ * eşitlemesinde başlıyordu ({@code dvr.sync-interval}, 10 sn) ve kısa
+ * kayıtlar tamamen ıskalanıyordu. Artık satırın yanına bir de
+ * {@code DvrSignalEvent.BASLAT} emri gidiyor; veritabanı yine doğruluk
+ * kaynağı, sinyal yalnızca beklemeyi kaldırıyor.
  *
  * <p>Sayım mantığı korundu: hem manuel hem planlı kayıt aynı kanalda aynı
  * anda çalışabiliyor ve biri bitince diğerininki kesilmemeli. Çağıranlar
@@ -42,6 +44,13 @@ public class ChannelRecordingGate {
     MediaMtxService mediaMtx;
 
     /**
+     * Kaydediciye "şimdi başla" emri. Dinleyici {@code AFTER_SUCCESS} ile
+     * bağlı: emir, sebebini yazan satır commit edilmeden gitmiyor.
+     */
+    @Inject
+    jakarta.enterprise.event.Event<org.example.dvr.DvrSignalEvent> sinyal;
+
+    /**
      * Kanalın kaydettiğinden emin olur.
      *
      * @return kayıt <b>bu çağrı için</b> açıldıysa {@code true}. Çağıran bunu
@@ -53,10 +62,13 @@ public class ChannelRecordingGate {
         if (channel.dvrEnabled) {
             return false;
         }
-        // Kaydediciye burada haber VERILMIYOR: onu tetikleyen sey, cagiranin
-        // birazdan yazacagi ActiveRecording/ScheduledRecording satiri. Ayrica
-        // kaydedici baska bir konteynerde (video-worker) calisiyor ve dogrudan
-        // cagrilamaz -- veritabani ikisi arasindaki tek ortak zemin.
+        // Kaydediciye haber gonderiliyor. DOGRULUK KAYNAGI YINE VERITABANI:
+        // kaydediciyi tetikleyen sey cagiranin birazdan yazacagi
+        // ActiveRecording/ScheduledRecording satiri ve sinyal kaybolsa bile
+        // yoklama onu buluyor. Sinyalin tek isi BEKLEMEYI KALDIRMAK --
+        // yoklama araligi 10 saniye ve 6 saniyelik bir kayit tamamen
+        // iskalaniyordu.
+        sinyal.fire(org.example.dvr.DvrSignalEvent.baslat(channel.id));
         LOG.infof("Kayıt için geçici DVR istendi: %s", channel.name);
         return true;
     }

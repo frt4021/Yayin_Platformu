@@ -55,8 +55,9 @@ public class ScheduledRecordingService {
     @Inject
     ChannelRecordingGate gate;
 
+    /** Kaydediciye "süren segmenti şimdi kapat" emri; bkz. {@code finish}. */
     @Inject
-    org.example.dvr.DvrService dvrService;
+    jakarta.enterprise.event.Event<org.example.dvr.DvrSignalEvent> sinyal;
 
     @ConfigProperty(name = "clips.max-duration-minutes")
     int maxDurationMinutes;
@@ -181,27 +182,18 @@ public class ScheduledRecordingService {
     /** Klip işini açar ve gerekiyorsa kaydı geri kapatır. */
     private void finish(ScheduledRecording plan) {
         try {
-            // İstenen aralık ile diskteki aralık aynı değil: kaydı açmak path'i
-            // yeniden başlatıyor ve kaynak yeniden bağlanana kadar saniyeler
-            // geçiyor. Kırpmadan istenirse MediaMTX 404 döner.
-            //
-            // Kırpma kaydı KAPATMADAN yapılıyor: MediaMTX süren bölümü de
-            // güncel süresiyle listeliyor. Önce kapatmak daha doğru görünürdü
-            // ama kapı bu emri hâlâ KAYITTA gördüğü için kaydı zaten
-            // kapatmazdı — durum aşağıda değişiyor.
-            var kirpilmis = dvrService.clampToRecorded(
-                plan.channel.id, plan.baslangic, plan.bitis);
-            if (kirpilmis.isEmpty()) {
-                plan.durum = ScheduledStatus.BASARISIZ;
-                plan.hata = "Bu aralıkta diske yazılmış kayıt yok. "
-                    + "Kanal o sırada yayında olmamış olabilir.";
-                LOG.warnf("Planlı kayıt aralığında hiç kayıt yok: %s", plan.id);
-                return;
-            }
+            // Suren segmenti hemen kapattiriyoruz: kapanmadan cizelgeye satir
+            // yazilmiyor ve emrin son saniyeleri kliple birlikte gitmezdi.
+            sinyal.fire(org.example.dvr.DvrSignalEvent.kes(plan.channel.id));
 
+            // KIRPMA BURADA YAPILMIYOR, isciye birakildi. Eskiden burada
+            // clampToRecorded cagriliyor ve bos donunce emir BASARISIZ
+            // isaretleniyordu; oysa cogu zaman kayit YOK degil HENUZ YAZILMAMIS
+            // oluyordu. Isci kirpmayi kaydin cizelgeye dusmesini bekleyerek
+            // yapiyor (ClipWorker.dvrBekle).
             ClipDto clip = clipService.create(
                 plan.channel.id,
-                new CreateClipRequest(kirpilmis.get().start(), kirpilmis.get().end()),
+                new CreateClipRequest(plan.baslangic, plan.bitis),
                 plan.user.keycloakId,
                 ClipOrigin.MANUEL_KAYIT);
             plan.clip = org.example.clip.entity.Clip.findById(clip.id());

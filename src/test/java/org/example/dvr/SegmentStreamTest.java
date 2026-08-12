@@ -128,6 +128,60 @@ class SegmentStreamTest {
         assertEquals(kaynak.length, toplam, "hiçbir bayt kaybolmamalı");
     }
 
+    // --- kesme emri (DvrSignalEvent.KES) --------------------------------
+
+    @Test
+    void kesEmriSegmentiPaketSinirindaBitiriyor() throws IOException {
+        // Sure UZUN: normalde segment kapanmazdi, kapatan sey emrin kendisi.
+        byte[] kaynak = tsVerisi(100 * PACKET);
+        var stream = new SegmentStream(new ByteArrayInputStream(kaynak), 60_000);
+
+        // Emir okuma basladiktan SONRA geliyor -- gercekte de oyle.
+        byte[] tampon = new byte[PACKET / 2];
+        long okunan = stream.read(tampon, 0, tampon.length);
+        stream.kes();
+        okunan += tumunuOku(stream);
+
+        assertEquals(0, okunan % PACKET,
+            "kesme emri de yarım paket bırakamaz");
+        assertTrue(okunan > 0 && okunan < kaynak.length,
+            "emir segmenti erken bitirmeli, tümünü okumamalı");
+        assertFalse(stream.sourceEnded(),
+            "kaynak bitmedi; kaydedici yeniden başlatmamalı");
+    }
+
+    @Test
+    void kesEmriVeriGelmedenGelirseSegmentBos() throws IOException {
+        byte[] kaynak = tsVerisi(10 * PACKET);
+        var stream = new SegmentStream(new ByteArrayInputStream(kaynak), 60_000);
+        stream.kes();
+
+        assertEquals(0, tumunuOku(stream),
+            "hiç bayt okunmadan gelen emir sıfır baytlık segment üretir");
+        assertFalse(stream.sourceEnded(),
+            "sıfır bayt AKIŞ BİTTİ demek değil -- ChannelDvrRecorder ikisini "
+                + "ayırt edip birinde kaydı yeniden başlatıyor, diğerinde sürdürüyor");
+    }
+
+    @Test
+    void kesEmrindenSonrakiSegmentTamSureCalisiyor() throws IOException {
+        // Emir YALNIZCA o segmenti bitiriyor; bayrak sonrakine sizarsa kayit
+        // sonsuz sayida bos segmente bolunurdu.
+        byte[] kaynak = tsVerisi(20 * PACKET);
+        InputStream boru = new ByteArrayInputStream(kaynak);
+
+        var ilk = new SegmentStream(boru, 60_000);
+        ilk.read(new byte[PACKET], 0, PACKET);
+        ilk.kes();
+        long ilkBoyut = PACKET + tumunuOku(ilk);
+
+        var ikinci = new SegmentStream(boru, 60_000);
+        long ikinciBoyut = tumunuOku(ikinci);
+
+        assertEquals(kaynak.length, ilkBoyut + ikinciBoyut, "hiçbir bayt kaybolmamalı");
+        assertTrue(ikinciBoyut > 0, "ikinci segment emirden etkilenmemeli");
+    }
+
     // ------------------------------------------------------------------
 
     /** Her paketi {@code 0x47} ile başlatan sahte TS verisi. */

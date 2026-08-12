@@ -63,6 +63,14 @@ final class SegmentStream extends InputStream {
      */
     private boolean sourceEnded;
 
+    /**
+     * Dışarıdan "şimdi kapat" emri geldi.
+     *
+     * <p>{@code volatile}: emri veren, akışı okuyandan <b>başka bir iş
+     * parçacığı</b> (Redis abonesi). Bkz. {@link DvrSignalEvent.Tur#KES}.
+     */
+    private volatile boolean kesIstendi;
+
     SegmentStream(InputStream source, long limitMillis) {
         this.source = source;
         this.limitMillis = limitMillis;
@@ -89,14 +97,19 @@ final class SegmentStream extends InputStream {
         // bulunduğumuz paketi tamamlıyoruz -- yarım paket bırakmak, hem bu
         // segmentin sonunu hem sonrakinin başını bozardı.
         int kalanPakette = (int) (TS_PACKET - (read % TS_PACKET));
-        boolean sureDoldu = System.currentTimeMillis() - startedAt >= limitMillis;
-        if (sureDoldu && kalanPakette == TS_PACKET) {
-            // Tam paket sınırındayız ve süre dolmuş: segment burada biter.
+        // Kesme emri süre dolmuş gibi işleniyor: ikisi de "içinde bulunduğun
+        // paketi tamamla ve bitir" demek. Emir geldiğinde hiç bayt okunmamış
+        // olabilir; o zaman segment sıfır baytla kapanıyor ve çağıran onu
+        // çizelgeye yazmadan atlıyor.
+        boolean bitmeli = kesIstendi
+            || System.currentTimeMillis() - startedAt >= limitMillis;
+        if (bitmeli && kalanPakette == TS_PACKET) {
+            // Tam paket sınırındayız: segment burada biter.
             finished = true;
             return -1;
         }
 
-        int istenen = sureDoldu ? Math.min(len, kalanPakette) : len;
+        int istenen = bitmeli ? Math.min(len, kalanPakette) : len;
         int n = source.read(b, off, istenen);
         if (n < 0) {
             // Kaynak bitti (ffmpeg öldü). Segment eldeki kadarıyla kapanıyor;
@@ -119,6 +132,17 @@ final class SegmentStream extends InputStream {
     @Override
     public void close() {
         finished = true;
+    }
+
+    /**
+     * Segmenti ilk paket sınırında kapatır.
+     *
+     * <p>Beklemiyor: canlı akışta bir sonraki paket milisaniyeler içinde
+     * geliyor, dolayısıyla okuyan iş parçacığı zaten oradadır. Süreyi
+     * kısaltmıyor — <b>bu</b> segmenti bitiriyor, sonraki yine tam süre.
+     */
+    void kes() {
+        kesIstendi = true;
     }
 
     /** Bu segmentte okunan bayt sayısı. */

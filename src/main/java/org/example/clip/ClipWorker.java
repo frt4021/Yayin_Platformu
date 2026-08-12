@@ -45,6 +45,15 @@ ClipWorker {
     int concurrency;
 
     /**
+     * Kaydın zaman çizelgesine düşmesi için beklenecek üst süre.
+     *
+     * <p>Bkz. {@link #dvrBekle}. Normalde saniyenin altında dönüyor; bu sınır
+     * yalnızca kesme sinyali ulaşmadığında devreye giriyor.
+     */
+    @ConfigProperty(name = "clips.dvr-bekleme")
+    Duration dvrBekleme;
+
+    /**
      * Tek bir işi talep eder: Redis'ten gelen bildirimin karşılığı.
      *
      * @return iş bu çağrı tarafından alındıysa {@code true}; başkası almışsa,
@@ -110,13 +119,32 @@ ClipWorker {
             return;
         }
         try {
-            Duration duration = Duration.between(job.start(), job.end());
+            Instant bas = job.start();
+            Instant bit = job.end();
+
+            // ARALIK secimi disindaki kliplerde (manuel ve planli kayit)
+            // istenen aralik ile diske yazilmis aralik ayni degil: kayit
+            // basladiginda kaydedicinin baglanmasi, bittiginde suren segmentin
+            // kapanmasi zaman aliyor. Bekleme ve kirpma BURADA -- durdurma
+            // isteginde degil; kullanici klibin uretilmesini beklemiyor.
+            if (job.origin() != ClipOrigin.ARALIK) {
+                var kirpilmis = dvrBekle(clipId, job);
+                bas = kirpilmis.start();
+                bit = kirpilmis.end();
+                if (!bas.equals(job.start()) || !bit.equals(job.end())) {
+                    araligiGuncelle(clipId, bas, bit);
+                    LOG.infof("Klip aralığı kayda göre kırpıldı: %s → %s (istenen %s → %s)",
+                        bas, bit, job.start(), job.end());
+                }
+            }
+
+            Duration duration = Duration.between(bas, bit);
             // Akis DOGRUDAN aliniyor. readEntity() burada CALISMIYOR: o
             // istemci yanitlari icin, sunucuda kurulmus bir Response'ta
             // entity zaten nesnenin kendisi. Yasandi -- klipler
             // "Request could not be mapped to type InputStream" ile dusuyordu.
             try (InputStream body = dvrService.extractStream(
-                    job.channelId(), job.start(), duration)) {
+                    job.channelId(), bas, duration)) {
 
                 long size = storage.put(job.objectKey(), body, "video/mp4");
                 markReady(clipId, job.objectKey(), size);
@@ -127,10 +155,78 @@ ClipWorker {
         }
     }
 
+    /**
+     * İstenen aralığın zaman çizelgesine düşmesini bekler ve kaydedilene
+     * kırpar.
+     *
+     * <h2>Neden beklemek gerekiyor</h2>
+     * Segment <b>kapanmadan</b> çizelgeye satır yazılmıyor. Kaydı durduran
+     * kullanıcı, kaydettiği anı içeren segment henüz açıkken soruyor:
+     * çizelgede o aralık yok. Kesme sinyali ({@code DvrSignalEvent.KES})
+     * segmenti hemen kapattırıyor, ama sinyal başka bir konteynere gidiyor ve
+     * ulaşmayabilir — bekleme o durumun ağı.
+     *
+     * <h2>Neden her turda yeni transaction</h2>
+     * Aynı oturumla sorulsaydı Hibernate ilk sonucu önbelleğe alır ve
+     * <b>yeni yazılan segment hiç görünmezdi</b>; döngü boşuna dönerdi.
+     *
+     * <p><b>Bedeli:</b> bekleyen iş bir işçi yuvası tutuyor
+     * ({@code clips.concurrency}, varsayılan 2). Sinyal çalıştığında bu süre
+     * saniyenin altında; çalışmadığında segment süresi kadar. Sınırın
+     * varsayılanı bu yüzden segment süresinin biraz üstünde.
+     *
+     * @throws org.example.exception.AppException hiç örtüşen kayıt yoksa —
+     *         {@code NOT_FOUND} olduğu için yeniden denenmiyor
+     */
+    private org.example.dvr.dto.TimelineSpan dvrBekle(UUID clipId, ClipJob job) {
+        long bitisAni = System.currentTimeMillis() + dvrBekleme.toMillis();
+        java.util.Optional<org.example.dvr.dto.TimelineSpan> son;
+        boolean beklendi = false;
+
+        while (true) {
+            son = io.quarkus.narayana.jta.QuarkusTransaction.requiringNew()
+                .call(() -> dvrService.clampToRecorded(
+                    job.channelId(), job.start(), job.end()));
+
+            // Istenen sonun tamami yazilmis: beklemeye gerek yok.
+            if (son.isPresent() && !son.get().end().isBefore(job.end())) {
+                break;
+            }
+            if (System.currentTimeMillis() >= bitisAni) {
+                // Sure doldu. Elde bir sey varsa ONUNLA devam ediliyor:
+                // eksik bir klip, hic klip olmamasindan iyi.
+                break;
+            }
+            beklendi = true;
+            uyu();
+        }
+
+        if (son.isEmpty()) {
+            throw AppException.notFound(
+                "Bu aralıkta kayıt bulunamadı. Kanal o sırada yayında olmamış "
+                    + "ya da kaydedici hiç başlamamış olabilir.");
+        }
+        if (beklendi) {
+            LOG.debugf("Klip %s: kayıt çizelgeye düşene kadar beklendi.", clipId);
+        }
+        return son.get();
+    }
+
+    /** Yoklama aralığı: kesme sinyaliyle segment saniyeler içinde düşüyor. */
+    private void uyu() {
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Klip beklerken kesildi", e);
+        }
+    }
+
     // ------------------------------------------------------------------
 
     /** İşin transaction dışında kullanılacak alanları — lazy proxy taşımamak için. */
-    private record ClipJob(UUID channelId, Instant start, Instant end, String objectKey) {
+    private record ClipJob(UUID channelId, Instant start, Instant end, String objectKey,
+                           ClipOrigin origin) {
     }
 
     @Transactional
@@ -147,7 +243,22 @@ ClipWorker {
         // Kanal kimligi BURADA cozuluyor: process() transaction disinda
         // calisiyor ve orada lazy kanal proxy'sine erismek
         // ContextNotActiveException veriyor.
-        return new ClipJob(clip.channel.id, clip.startAt, clip.endAt, key);
+        return new ClipJob(clip.channel.id, clip.startAt, clip.endAt, key, clip.origin);
+    }
+
+    /**
+     * Kırpılmış aralığı klibe yazar.
+     *
+     * <p>Kullanıcı listede <b>gerçekten elde ettiği</b> aralığı görmeli;
+     * istenen aralık orada kalsaydı süre dosyayla uyuşmazdı.
+     */
+    @Transactional
+    void araligiGuncelle(UUID clipId, Instant bas, Instant bit) {
+        Clip clip = Clip.findById(clipId);
+        if (clip != null) {
+            clip.startAt = bas;
+            clip.endAt = bit;
+        }
     }
 
     @Transactional

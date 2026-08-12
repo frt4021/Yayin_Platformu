@@ -57,6 +57,9 @@ public class DvrRecorder {
     @Inject
     DvrStorage storage;
 
+    @Inject
+    DvrSignal signal;
+
     @ConfigProperty(name = "dvr.recorder-enabled")
     boolean enabled;
 
@@ -67,7 +70,73 @@ public class DvrRecorder {
     String rtspBase;
 
     private final Map<UUID, ChannelDvrRecorder> workers = new ConcurrentHashMap<>();
-    private ExecutorService pool;
+
+    /**
+     * Kaydedici iş parçacıkları ve sinyal işleri.
+     *
+     * <p>Doğrudan alanda kuruluyor: {@code newCachedThreadPool} iş verilene
+     * kadar iş parçacığı açmıyor, dolayısıyla tembel kurulumun kazancı yok.
+     * Tembel olsaydı sinyal ile eşitleme aynı kilidi paylaşırdı ve sinyal
+     * kanalı eşitleme boyunca bloke kalırdı.
+     */
+    private final ExecutorService pool = Executors.newCachedThreadPool(r -> {
+        Thread t = new Thread(r);
+        t.setDaemon(true);
+        return t;
+    });
+
+    /** Sinyalle gelen emirleri işleyen abonelik; kapanışta bırakılıyor. */
+    private io.quarkus.redis.datasource.pubsub.PubSubCommands.RedisSubscriber abonelik;
+
+    /**
+     * Sinyal dinlemeye başlar — yalnızca kaydedicinin açık olduğu süreçte.
+     *
+     * <p>Backend'de de açılsaydı emirler orada da alınır ve {@link #workers}
+     * boş olduğu için sessizce yutulurdu; {@link DvrSignalEvent.Tur#BASLAT}
+     * ise gereksiz bir MediaMTX sorgusu doğururdu.
+     */
+    void baslangic(@Observes io.quarkus.runtime.StartupEvent event) {
+        if (!enabled) {
+            return;
+        }
+        abonelik = signal.dinle(this::sinyalGeldi);
+        LOG.info("DVR sinyal aboneliği açıldı.");
+    }
+
+    /**
+     * Gelen emri uygular.
+     *
+     * <p><b>İş Redis abonesinin iş parçacığında yapılmıyor.</b> Eşitleme
+     * MediaMTX'e HTTP çağrısı yapıyor; orada bloke olmak tüm sinyal kanalını
+     * durdururdu. Havuza atılıyor.
+     */
+    private void sinyalGeldi(DvrSignalEvent emir) {
+        switch (emir.tur()) {
+            case BASLAT -> pool.submit(() -> {
+                LOG.debugf("DVR sinyali: kanal %s için eşitleme istendi", emir.channelId());
+                try {
+                    // requiringNew SART: bu is parcaciginda islem baglami yok
+                    // ve senkronize() Panache sorgulari yapiyor. sync()
+                    // uzerinden cagirmak da CALISMAZ -- kendi uzerinden cagri
+                    // CDI kesicisini atlar ve @Transactional uygulanmaz.
+                    QuarkusTransaction.requiringNew().run(this::senkronize);
+                } catch (RuntimeException e) {
+                    LOG.warnf("DVR sinyaliyle eşitleme başarısız: %s", e.getMessage());
+                }
+            });
+            case KES -> {
+                ChannelDvrRecorder worker = workers.get(emir.channelId());
+                if (worker != null) {
+                    worker.kesSegmenti();
+                } else {
+                    // Kaydedici yok: ya kanal hic kaydedilmiyor ya da BASLAT
+                    // sinyali henuz isini bitirmedi. Kayip bir sey yok --
+                    // kesilecek segment de yok.
+                    LOG.debugf("Kesme sinyali geldi ama kaydedici yok: %s", emir.channelId());
+                }
+            }
+        }
+    }
 
     /**
      * Yayında olan DVR kanallarıyla aktif işçileri eşitler.
@@ -79,6 +148,19 @@ public class DvrRecorder {
     @Scheduled(every = "{dvr.sync-interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     @Transactional
     public void sync() {
+        senkronize();
+    }
+
+    /**
+     * Eşitlemenin gövdesi.
+     *
+     * <p>Ayrı metot: zamanlanmış {@link #sync()} dışında sinyalle de
+     * çağrılıyor ve {@code SKIP} yalnızca zamanlanmış çağrıları serileştiriyor.
+     * <b>{@code synchronized}</b> bu yüzden burada: iki yolun aynı anda
+     * {@link #workers} üzerinde çalışması aynı kanal için iki kaydedici
+     * açabilirdi.
+     */
+    synchronized void senkronize() {
         if (!enabled) {
             return;
         }
@@ -147,14 +229,6 @@ public class DvrRecorder {
     }
 
     private void start(Channel channel) {
-        if (pool == null) {
-            pool = Executors.newCachedThreadPool(r -> {
-                Thread t = new Thread(r);
-                t.setDaemon(true);
-                return t;
-            });
-        }
-
         // Kanal adi yerine mediamtxPath: klip ve ekran goruntusu de anahtarda
         // bunu kullaniyor, kovaya bakan biri ayni adi gormeli.
         String slug = StoragePaths.slug(channel.mediamtxPath);
@@ -202,15 +276,21 @@ public class DvrRecorder {
     }
 
     void onShutdown(@Observes ShutdownEvent event) {
+        if (abonelik != null) {
+            try {
+                abonelik.unsubscribe();
+            } catch (RuntimeException e) {
+                LOG.debugf("DVR sinyal aboneliği kapatılamadı: %s", e.getMessage());
+            }
+            abonelik = null;
+        }
         workers.values().forEach(ChannelDvrRecorder::close);
         workers.clear();
-        if (pool != null) {
-            pool.shutdown();
-            try {
-                pool.awaitTermination(5, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+        pool.shutdown();
+        try {
+            pool.awaitTermination(5, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 

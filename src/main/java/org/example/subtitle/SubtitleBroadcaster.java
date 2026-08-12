@@ -24,14 +24,30 @@ import java.util.concurrent.ConcurrentHashMap;
  * Altyazıyı üreten süreç {@code video-worker}, tarayıcıya gönderen süreç
  * {@code backend} — <b>ayrı konteynerler</b>. Doğrudan çağrı yapılamaz.
  *
- * <h2>Neden kanal başına abonelik</h2>
- * Tek bir kanala abone olup mesajları süzmek de mümkündü ama 20 kanal
- * çalışırken tek izleyicinin açtığı bir karo yüzünden 20 kanalın tüm
- * altyazısı bu sürece akardı. Kanal başına abonelik, yalnızca izlenen
- * kanalların trafiğini getiriyor.
+ * <h2>Neden TEK abonelik</h2>
+ * Önce kanal başına abone olunuyor, son izleyici gidince bırakılıyordu.
+ * <b>Bozuktu.</b> Vert.x Redis istemcisi aynı bağlantı üzerinde arka arkaya
+ * gelen {@code subscribe}/{@code unsubscribe} çağrılarında handler'ı
+ * kaybediyor: Redis abonelik kaydını açıyor ({@code PUBSUB NUMSUB} > 0), ama
+ * gelen mesaj hiçbir yere ulaşmıyor. Tek belirtisi tek satırlık bir uyarı:
  *
- * <p>Abonelik <b>ilk izleyiciyle açılıyor, son izleyici gidince
- * kapanıyor</b>: kimse izlemiyorken Redis'ten veri çekmenin anlamı yok.
+ * <pre>
+ * WARN io.vertx.redis.client.impl.RedisStandaloneConnection
+ *      No handler waiting for message: [subscribe, altyazi:&lt;id&gt;, 1]
+ * </pre>
+ *
+ * <p>Ölçüldü: <b>ilk</b> abonelik çalışıyor, bırakılıp yeniden açılan
+ * abonelik çalışmıyor. Kullanıcı açısından altyazı bir kez çalışıp sonra
+ * sessizce kesiliyordu — üretim, çeviri ve Redis'in üçü de sapasağlam
+ * olduğu için hata hiçbir yerde görünmüyordu.
+ *
+ * <p>Artık <b>desenle tek abonelik</b> ({@code altyazi:*}) açılıyor, ilk
+ * izleyicide, ve süreç kapanana kadar duruyor. Kanal ayrımı bu süreçte
+ * yapılıyor.
+ *
+ * <p><b>Bedeli:</b> izlenmeyen kanalların altyazısı da bu sürece geliyor.
+ * Ölçek küçük: bölüt başına ~500 bayt, kanal başına birkaç saniyede bir —
+ * 300 kanalda bile ~50 KB/sn. Kaybedilen doğruluğun yanında önemsiz.
  */
 @ApplicationScoped
 public class SubtitleBroadcaster {
@@ -56,9 +72,13 @@ public class SubtitleBroadcaster {
     /** Kanal başına bağlı oturumlar. */
     private final Map<UUID, Set<Session>> sessions = new ConcurrentHashMap<>();
 
-    /** Kanal başına açık abonelik — kapatabilmek için tutuluyor. */
-    private final Map<UUID, PubSubCommands.RedisSubscriber> subscriptions =
-        new ConcurrentHashMap<>();
+    /**
+     * Süreçteki <b>tek</b> abonelik. Bir kez açılıyor, kapanışta bırakılıyor.
+     *
+     * <p>Kanal başına açıp kapatmanın neden bozuk olduğu sınıf açıklamasında.
+     */
+    private final java.util.concurrent.atomic.AtomicReference<PubSubCommands.RedisSubscriber>
+        abonelik = new java.util.concurrent.atomic.AtomicReference<>();
 
     @PostConstruct
     void init() {
@@ -93,12 +113,19 @@ public class SubtitleBroadcaster {
     /** Bir izleyici bağlandı. */
     public void join(UUID channelId, Session session) {
         sessions.computeIfAbsent(channelId, id -> ConcurrentHashMap.newKeySet()).add(session);
-        subscribe(channelId);
+        abonelikAc();
         LOG.debugf("Altyazı izleyicisi bağlandı: %s (toplam %d)",
             channelId, sessions.get(channelId).size());
     }
 
-    /** Bir izleyici ayrıldı. */
+    /**
+     * Bir izleyici ayrıldı.
+     *
+     * <p><b>Abonelik BIRAKILMIYOR.</b> Bırakıp yeniden açmak istemcide
+     * handler'ı kaybettiriyor ve altyazı bir daha hiç akmıyor; bkz. sınıf
+     * açıklaması. Boşta duran bir abonelik yalnızca birkaç KB/sn trafik
+     * demek — bozuk altyazının yanında bedeli yok.
+     */
     public void leave(UUID channelId, Session session) {
         Set<Session> set = sessions.get(channelId);
         if (set == null) {
@@ -107,26 +134,53 @@ public class SubtitleBroadcaster {
         set.remove(session);
         if (set.isEmpty()) {
             sessions.remove(channelId);
-            unsubscribe(channelId);
         }
     }
 
-    private void subscribe(UUID channelId) {
-        subscriptions.computeIfAbsent(channelId, id -> {
-            LOG.infof("Altyazı aboneliği açıldı: %s", id);
-            return pubsub.subscribe(SubtitleEvent.kanalAdi(id), mesaj -> yayinla(id, mesaj));
-        });
+    /**
+     * Tek aboneliği açar — ilk izleyicide, bir kez.
+     *
+     * <p>Açılış {@code @PostConstruct}'ta değil ilk izleyicide: aynı jar
+     * video işçisinde de çalışıyor ve orada hiç WebSocket oturumu olmuyor,
+     * abone olmasının anlamı yok.
+     */
+    private void abonelikAc() {
+        if (abonelik.get() != null) {
+            return;
+        }
+        synchronized (this) {
+            if (abonelik.get() != null) {
+                return;
+            }
+            abonelik.set(pubsub.subscribeToPattern(SubtitleEvent.KANAL_DESENI, this::dagit));
+            LOG.infof("Altyazı aboneliği açıldı: %s (tüm kanallar, tek abonelik)",
+                SubtitleEvent.KANAL_DESENI);
+        }
     }
 
-    private void unsubscribe(UUID channelId) {
-        PubSubCommands.RedisSubscriber sub = subscriptions.remove(channelId);
-        if (sub != null) {
-            try {
-                sub.unsubscribe();
-                LOG.infof("Altyazı aboneliği kapandı: %s", channelId);
-            } catch (RuntimeException e) {
-                LOG.debugf("Abonelik kapatılamadı: %s", e.getMessage());
-            }
+    /**
+     * Gelen mesajı ait olduğu kanalın izleyicilerine yönlendirir.
+     *
+     * <p>Kanal adı desen aboneliğinde taşınmadığı için kimlik <b>gövdeden</b>
+     * okunuyor. Zaten orada: {@link SubtitleEvent#channelId()}.
+     */
+    private void dagit(String mesaj) {
+        UUID channelId = kanalIdOku(mesaj);
+        if (channelId == null) {
+            return;
+        }
+        // Izlenmeyen kanallarin mesaji da geliyor; oturumu olmayan kanal
+        // sessizce dusuruluyor.
+        yayinla(channelId, mesaj);
+    }
+
+    private UUID kanalIdOku(String mesaj) {
+        try {
+            var alan = json.readTree(mesaj).get("channelId");
+            return alan == null ? null : UUID.fromString(alan.asText());
+        } catch (Exception e) {
+            LOG.debugf("Altyazı mesajının kanalı okunamadı: %s", e.getMessage());
+            return null;
         }
     }
 
@@ -156,7 +210,14 @@ public class SubtitleBroadcaster {
     }
 
     void onShutdown(@Observes ShutdownEvent event) {
-        subscriptions.keySet().forEach(this::unsubscribe);
+        PubSubCommands.RedisSubscriber sub = abonelik.getAndSet(null);
+        if (sub != null) {
+            try {
+                sub.unsubscribe();
+            } catch (RuntimeException e) {
+                LOG.debugf("Abonelik kapatılamadı: %s", e.getMessage());
+            }
+        }
         sessions.clear();
     }
 

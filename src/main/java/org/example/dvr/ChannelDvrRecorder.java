@@ -89,6 +89,16 @@ final class ChannelDvrRecorder implements Runnable, AutoCloseable {
     private volatile boolean running = true;
     private volatile Process process;
 
+    /**
+     * Şu an yazılmakta olan segment — {@link #kesSegmenti()} için.
+     *
+     * <p>İki segment arasındaki kısa boşlukta bir önceki segmenti gösteriyor
+     * ve emir kaybolmuş oluyor. <b>Zararsız:</b> o boşluk yalnızca yükleme
+     * bittikten sonra oluşuyor, yani kapanmış segment kesme emrini doğuran anı
+     * <i>zaten kapsıyor</i>.
+     */
+    private volatile SegmentStream aktifSegment;
+
     ChannelDvrRecorder(UUID channelId, String channelName, String mediamtxPath,
                        String channelSlug, String rtspBase, long segmentMillis,
                        DvrStorage storage, SegmentSink sink) {
@@ -135,6 +145,7 @@ final class ChannelDvrRecorder implements Runnable, AutoCloseable {
             Instant basladi = Instant.now();
             String key = storage.keyFor(channelSlug, basladi);
             SegmentStream segment = new SegmentStream(ffmpegOut, segmentMillis);
+            aktifSegment = segment;
 
             long boyut;
             try {
@@ -146,9 +157,15 @@ final class ChannelDvrRecorder implements Runnable, AutoCloseable {
                 continue;
             }
 
-            if (segment.sourceEnded() && boyut == 0) {
-                // ffmpeg hic veri vermeden oldu: yeniden baslatilmali.
-                break;
+            if (boyut == 0) {
+                // Iki sebebi olabilir: ffmpeg hic veri vermeden oldu, ya da
+                // kesme emri veri gelmeden yakaladi. Ikisinde de cizelgeye
+                // satir YAZILMIYOR -- sifir baytlik bir segment cikarilamaz ve
+                // araligi kayitli gostererek klip uretimini yaniltirdi.
+                if (segment.sourceEnded()) {
+                    break;
+                }
+                continue;
             }
 
             Instant bitti = Instant.now();
@@ -266,6 +283,23 @@ final class ChannelDvrRecorder implements Runnable, AutoCloseable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             running = false;
+        }
+    }
+
+    /**
+     * Süren segmenti erkenden kapatır.
+     *
+     * <p>Kayıt durdurulduğunda çağrılıyor: segment kapanmadan zaman
+     * çizelgesine satır yazılmıyor ve o ana kadar kaydedilen hiçbir şey klip
+     * üretiminde görünmüyor. Bkz. {@link DvrSignalEvent.Tur#KES}.
+     *
+     * <p>Kayıt <b>durmuyor</b>; yalnızca segment sınırı öne alınıyor.
+     */
+    void kesSegmenti() {
+        SegmentStream segment = aktifSegment;
+        if (segment != null) {
+            segment.kes();
+            LOG.debugf("DVR segmenti erken kapatılıyor: %s", channelName);
         }
     }
 
