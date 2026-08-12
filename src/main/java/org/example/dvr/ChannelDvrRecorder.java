@@ -169,12 +169,41 @@ final class ChannelDvrRecorder implements Runnable, AutoCloseable {
             }
         }
 
+        // ffmpeg BEKLENMEDIK sekilde bitti. Buraya normal calismada
+        // gelinmemeli: surec kapanmasi gerektiginde running=false oluyor.
+        //
+        // Sebep ONCEDEN HIC YAZILMIYORDU -- stderr yalnizca istisna yolunda
+        // basiliyor, normal cikista yutuluyordu. Belirtisi "DVR kaydı başladı"
+        // satirinin arka arkaya tekrar etmesi ve arada hicbir aciklama
+        // olmamasi. Olculdu: 8 baslangic, 1 durdurma, sifir hata satiri.
+        if (running) {
+            // exitValue() surec HALA YASIYORSA istisna atiyor; sourceEnded
+            // yolunda ffmpeg henuz tam kapanmamis olabiliyor.
+            String kod;
+            try {
+                kod = process != null && !process.isAlive()
+                    ? String.valueOf(process.exitValue()) : "(hâlâ çalışıyor)";
+            } catch (IllegalThreadStateException e) {
+                kod = "(bilinmiyor)";
+            }
+            String hatalar = lastErrors();
+            LOG.warnf("DVR ffmpeg beklenmedik şekilde bitti (%s): çıkış kodu %s — %s",
+                channelName, kod,
+                // Bos stderr, ffmpeg'in TEMIZ bir EOF ile ciktigini gosteriyor:
+                // kaynak akisi kesmis demektir, ffmpeg'in kendi hatasi degil.
+                hatalar.isEmpty() ? "stderr boş (kaynak akışı kesmiş olabilir)" : hatalar);
+        }
+
         stop();
     }
 
     private void start() throws IOException {
         List<String> cmd = List.of(
-            "ffmpeg", "-v", "error",
+            // -v warning, "error" DEGIL: yeniden baglanma, zaman asimi ve
+            // paket kaybi UYARI seviyesinde bildiriliyor ve ffmpeg
+            // beklenmedik sekilde bittiginde tek ipucu bunlar. "error" ile
+            // stderr bos kaliyor ve sebep hic gorunmuyordu.
+            "ffmpeg", "-v", "warning",
             "-rtsp_transport", "tcp",
             "-i", rtspBase + "/" + mediamtxPath,
             "-c", "copy",

@@ -253,10 +253,20 @@ public class DvrArchive {
                     // ffprobe yeterli veriyi almis olabilir; sessizce geciyoruz.
                 }
             });
-            String cikti = new String(p.getInputStream().readAllBytes()).strip();
+            String cikti = new String(p.getInputStream().readAllBytes());
             p.waitFor(15, TimeUnit.SECONDS);
             p.destroy();
-            return "aac".equalsIgnoreCase(cikti);
+
+            // ILK SATIR aliniyor, ciktinin tamami degil. Birlestirilmis TS'te
+            // program bilgisi tekrar ettigi icin ffprobe ayni izi BIRDEN COK
+            // KEZ basabiliyor ("aac\naac"); tam esitlik arayan karsilastirma
+            // bu durumda false donuyordu.
+            //
+            // Sonucu sessiz ve agirdi: filtre eklenmiyor, ffmpeg AAC'yi MP4'e
+            // yazamayip hemen oluyor ve geriye yalnizca 1276 baytlik fMP4
+            // basligi kaliyor. Klip "HAZIR" isaretleniyor ama BOS. Olculdu.
+            String ilkSatir = cikti.lines().findFirst().orElse("").strip();
+            return "aac".equalsIgnoreCase(ilkSatir);
         } catch (IOException e) {
             LOG.warnf("Ses biçimi belirlenemedi (%s): %s", objectKey, e.getMessage());
             return false;
