@@ -84,7 +84,49 @@ Ayrıntı ve ölçüm için `docs/teknik-referans-modul.md` §15-16.
 
 Eksik varsa `./gereksinimler.sh --kur` kurar.
 
-Neden ayrı: donanım tespiti her zaman doğru olmayabilir — birden fazla GPU,
+### Test verisi
+
+Boş bir kurulumda denemek için 20 kanal ve 10 radyo hazır — **başlatırken
+parametre olarak** isteniyor:
+
+```bash
+./baslat.sh --test-verisi
+```
+
+Normal başlatmayı yapar, sonra üç adımı kendisi halleder:
+
+| | Adım | Neden gerekli |
+|---|---|---|
+| 1 | Kimlikli bir istek atar | Yerel kullanıcı satırı oluşsun — `created_by` zorunlu ve kullanıcılar Keycloak'tan **istek anında** eşitleniyor |
+| 2 | SQL'i yükler | Kanal ve radyo tanımları |
+| 3 | MediaMTX'e yazdırır | Yayınlar **gerçekten aksın** |
+
+Üçüncü adım atlanırsa kanallar listede görünür ama hiçbiri akmaz: MediaMTX
+path'leri bellekte tutuyor ve veritabanına yazılanlardan haberi olmuyor.
+
+Adresler **denenerek doğrulandı** (12 Ağustos 2026); listesi ve yeniden
+doğrulama yöntemi `docs/test-yayinlari.md`'de. Tekrar çalıştırılabilir —
+var olanları atlar, hiçbir şeyi ezmez.
+
+DVR yalnızca ilk beş kanalda açık: yirmisinde birden açmak 7 günde ~4,5 TB
+eder. Rendition üretimi kapalı — 20 kanalda VAAPI'de bile ~2,8 çekirdek ister.
+
+> Varsayılan giriş `admin1` / `12345678`. Başka bir kullanıcıysa:
+> ```bash
+> TEST_KULLANICI=... TEST_SIFRE=... ./baslat.sh --test-verisi
+> ```
+
+Yalnızca SQL'i elle çalıştırmak isterseniz (kullanıcı eşitleme ve MediaMTX
+adımları **sizde kalır**):
+
+```bash
+docker exec -i postgres psql -U app_user -d yayin_merkezi \
+  < src/main/resources/test-verisi.sql
+```
+
+### Neden üç ayrı adım
+
+Donanım tespiti her zaman doğru olmayabilir — birden fazla GPU,
 eksik sürücü, sunucuda farklı bir kart. Arada `.env`'i gözden geçirip
 düzeltebilmeniz gerekiyor. `baslat.sh`, `.env` yoksa başlatmaz ve
 `yapilandir.sh`'e yönlendirir.

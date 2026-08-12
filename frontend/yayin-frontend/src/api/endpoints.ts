@@ -92,7 +92,7 @@ export const channelsApi = {
   remove: (
     id: string,
     password: string,
-    secim: { deleteClips: boolean; deleteScreenshots: boolean },
+    secim: { deleteClips: boolean; deleteScreenshots: boolean; deleteDvr: boolean },
   ) => api.post<void>(`/api/channels/${id}/silme`, { password, ...secim }),
 
   capacity: () => api.get<Capacity>('/api/channels/capacity'),

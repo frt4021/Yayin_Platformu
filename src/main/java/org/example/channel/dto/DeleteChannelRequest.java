@@ -22,12 +22,27 @@ import jakarta.validation.constraints.NotBlank;
  * çıktı, ekran görüntüsü tek tıkla yeniden alınabilir. Birini tutup
  * diğerini atmak meşru bir istek.
  *
- * <p><b>DVR her koşulda siliniyor</b> ve seçeneği yok — bir kayıt
- * segmentinin kanalı olmadan hiçbir anlamı yok, geriye sarılacak yer de.
+ * @param deleteDvr DVR nesneleri <b>hemen</b> silinsin mi.
+ *
+ * <p><b>DVR'da "sakla" farklı anlama geliyor.</b> Zaman çizelgesi
+ * ({@code dvr_segments}) kanala {@code CASCADE} bağlı ve her koşulda
+ * gidiyor — kanalı olmayan bir segmentin gösterileceği yer yok.
+ * Seçilebilen tek şey MinIO'daki <b>baytların</b> kaderi:
+ *
+ * <ul>
+ *   <li>{@code true} — nesneler şimdi siliniyor, yer hemen boşalıyor</li>
+ *   <li>{@code false} — nesneler duruyor; saklama kuralı ({@code
+ *       DVR_RETENTION_DAYS}) süresi dolunca kendisi temizliyor</li>
+ * </ul>
+ *
+ * <p>İkincisinin değeri bir <b>yanlış tıklama ağı</b> olması: kanal
+ * silinse bile kayıt birkaç gün MinIO'da kalıyor ve konsoldan
+ * {@code dvr/&lt;kanal&gt;/} önekinden kurtarılabiliyor.
  */
 public record DeleteChannelRequest(
     @NotBlank(message = "Şifre gerekli.") String password,
     boolean deleteClips,
-    boolean deleteScreenshots
+    boolean deleteScreenshots,
+    boolean deleteDvr
 ) {
 }

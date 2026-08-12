@@ -21,7 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * birkaç milisaniye kayar ve asıl doğrulanması gereken şey — bütçeye
  * <b>tam eşit</b> gecikmenin ne sayıldığı — hiç test edilemezdi.
  */
-class SubtitleLagMetricsTest {
+class
+SubtitleLagMetricsTest {
 
     private static final Instant SIMDI = Instant.parse("2026-08-11T12:00:00Z");
 

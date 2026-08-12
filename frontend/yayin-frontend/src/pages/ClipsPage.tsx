@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { ApiError } from '@/api/client'
 import { clipsApi } from '@/api/endpoints'
@@ -167,7 +167,6 @@ export function ClipsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Kanal</TableHead>
                 <TableHead>Aralık</TableHead>
                 <TableHead>Süre</TableHead>
                 <TableHead>Nasıl</TableHead>
@@ -180,7 +179,7 @@ export function ClipsPage() {
             <TableBody>
               {loading && (
                 <TableRow>
-                  <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
                     <Loader2Icon className="mx-auto animate-spin" />
                   </TableCell>
                 </TableRow>
@@ -188,16 +187,36 @@ export function ClipsPage() {
 
               {!loading && clips.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
                     Henüz klip yok. Geriye sarma sayfasından aralık seçip oluşturun.
                   </TableCell>
                 </TableRow>
               )}
 
               {!loading &&
-                clips.map((clip) => (
+                kanalaGoreGrupla(clips).map((grup) => (
+                  <Fragment key={grup.anahtar}>
+                    {/* Kanal başlığı. Eskiden her satırda kanal adı tekrar
+                        ediyordu ve aynı kanalın klipleri listenin her yerine
+                        dağılmış olabiliyordu; hangi kanalda kaç klip olduğu
+                        ancak sayarak anlaşılıyordu. */}
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={7} className="bg-accent/40 py-2">
+                        <span className="flex items-center gap-2 text-sm font-medium">
+                          {grup.ad}
+                          {grup.silinmis && (
+                            <Badge variant="outline" className="text-[11px]">silinmiş kanal</Badge>
+                          )}
+                          <span className="font-normal text-muted-foreground">
+                            · {grup.klipler.length} klip
+                            {grup.toplamBayt > 0 && ` · ${boyut(grup.toplamBayt)}`}
+                          </span>
+                        </span>
+                      </TableCell>
+                    </TableRow>
+
+                    {grup.klipler.map((clip) => (
                   <TableRow key={clip.id}>
-                    <TableCell className="font-medium">{clip.channelName}</TableCell>
                     <TableCell className="text-muted-foreground">
                       {new Date(clip.start).toLocaleString('tr-TR')}
                     </TableCell>
@@ -255,6 +274,8 @@ export function ClipsPage() {
                       </div>
                     </TableCell>
                   </TableRow>
+                    ))}
+                  </Fragment>
                 ))}
             </TableBody>
           </Table>
@@ -297,4 +318,47 @@ export function ClipsPage() {
       </Dialog>
     </div>
   )
+}
+
+/**
+ * Klipleri kanala göre gruplar.
+ *
+ * <p>Sıralama <b>kanal adına göre</b>, grup içinde <b>en yeni önce</b>.
+ * Düz listede aynı kanalın klipleri araya karışıyordu ve "bu kanalda ne
+ * var" sorusu ancak göz taramasıyla cevaplanıyordu.
+ *
+ * <p>Kanalı silinmiş klipler {@code channelId} null taşıyor (V21) ve
+ * <b>en sona</b> konuyor: onlar arşiv, aktif iş değil.
+ */
+function kanalaGoreGrupla(clips: ClipDto[]) {
+  const harita = new Map<string, ClipDto[]>()
+  for (const c of clips) {
+    // Anahtar kimlikten: iki kanalın adı aynı olabilir ve birleşmeleri
+    // yanlış olurdu. Kanal silinmişse ada düşülüyor.
+    const anahtar = c.channelId ?? `silinmis:${c.channelName}`
+    const mevcut = harita.get(anahtar)
+    if (mevcut) mevcut.push(c)
+    else harita.set(anahtar, [c])
+  }
+
+  return [...harita.entries()]
+    .map(([anahtar, klipler]) => ({
+      anahtar,
+      ad: klipler[0].channelName ?? 'Bilinmeyen kanal',
+      silinmis: klipler[0].channelId === null,
+      klipler: [...klipler].sort(
+        (a, b) => Date.parse(b.start) - Date.parse(a.start),
+      ),
+      toplamBayt: klipler.reduce((t, c) => t + (c.sizeBytes ?? 0), 0),
+    }))
+    .sort((a, b) => {
+      if (a.silinmis !== b.silinmis) return a.silinmis ? 1 : -1
+      return a.ad.localeCompare(b.ad, 'tr')
+    })
+}
+
+function boyut(bayt: number): string {
+  if (bayt >= 1024 ** 3) return `${(bayt / 1024 ** 3).toFixed(1)} GB`
+  if (bayt >= 1024 ** 2) return `${Math.round(bayt / 1024 ** 2)} MB`
+  return `${Math.round(bayt / 1024)} KB`
 }

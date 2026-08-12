@@ -8,13 +8,6 @@ import { Badge } from '@/components/ui/badge'
 import { ScheduledRecordingCard } from './ScheduledRecordingCard'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Loader2Icon, PlayIcon, ScissorsIcon, XIcon } from 'lucide-react'
 import { Timeline, type Selection } from './Timeline'
 
@@ -310,18 +303,31 @@ export function DvrPage() {
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-3">
-            <Select value={channelId ?? undefined} onValueChange={setChannelId}>
-              <SelectTrigger className="w-56">
-                <SelectValue placeholder="Kanal seçin" />
-              </SelectTrigger>
-              <SelectContent>
-                {dvrChannels.map((channel) => (
-                  <SelectItem key={channel.id} value={channel.id}>
+            {/* Kanallar açılır liste değil, YAN YANA sıralı çipler.
+                Açılır listede hangi kanalların olduğunu görmek için tıklamak
+                gerekiyordu ve seçili olan dışındakiler görünmüyordu; geriye
+                sarmada kullanıcı çoğu zaman kanallar arasında gezinerek
+                arıyor. Ad sırası sabit — liste tazelendiğinde yer
+                değiştirmesinler. */}
+            <div className="flex flex-wrap gap-1.5">
+              {[...dvrChannels]
+                .sort((a, b) => a.name.localeCompare(b.name, 'tr'))
+                .map((channel) => (
+                  <Button
+                    key={channel.id}
+                    size="sm"
+                    variant={channel.id === channelId ? 'default' : 'secondary'}
+                    onClick={() => setChannelId(channel.id)}
+                    title={
+                      channel.streaming === false
+                        ? 'Kanal aktif ama yayın akmıyor'
+                        : undefined
+                    }
+                  >
                     {channel.name}
-                  </SelectItem>
+                  </Button>
                 ))}
-              </SelectContent>
-            </Select>
+            </div>
 
             <div className="flex gap-1">
               {WINDOWS.map((w) => (

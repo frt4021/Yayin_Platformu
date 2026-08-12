@@ -5,6 +5,9 @@
 #   ./yapilandir.sh           .env yoksa üret
 #   ./yapilandir.sh --zorla   var olanı ÜZERİNE YAZ
 #
+# Test verisi (20 kanal + 10 radyo) BURADA DEĞİL: veritabanına yazıyor ve o
+# sırada stack ayakta olmalı. Bkz. ./baslat.sh --test-verisi
+#
 # Başlatmadan AYRI bir adım: makinenin donanımı otomatik bulunuyor ama tespit
 # her zaman doğru olmayabilir (birden fazla GPU, sürücü eksik, sunucuda farklı
 # bir kart). Bu script üretip duruyor; kullanıcı .env'i gözden geçirip
@@ -88,7 +91,9 @@ env_uret() {
 
   local p_backend=8090 p_keycloak=8080
   local p_minio_api=9000 p_minio_konsol=9001
-  local p_hls=8888 p_rtsp=8554 p_mediamtx_api=9997 p_playback=9996
+  # PORT_PLAYBACK yok: DVR kaydi MediaMTX'ten alindi (MinIO'ya tasindi) ve
+  # playback sunucusu kapatildi. Bkz. mediamtx.yml "playback: no".
+  local p_hls=8888 p_rtsp=8554 p_mediamtx_api=9997
   local p_postgres=5433 p_redis=6379
 
   # Kodlayıcıya göre konteyner aygıt ayarları.
@@ -183,8 +188,6 @@ PORT_MINIO_CONSOLE=$p_minio_konsol
 PORT_HLS=$p_hls
 PORT_RTSP=$p_rtsp
 PORT_MEDIAMTX_API=$p_mediamtx_api
-# Geri sarma sunucusu yalnizca 127.0.0.1'e baglanir.
-PORT_PLAYBACK=$p_playback
 # Host'ta 5432'yi makinede kurulu PostgreSQL tutabilir; 5433 secildi.
 PORT_POSTGRES=$p_postgres
 PORT_REDIS=$p_redis

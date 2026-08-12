@@ -111,8 +111,12 @@ ClipWorker {
         }
         try {
             Duration duration = Duration.between(job.start(), job.end());
-            try (Response response = dvrService.streamChannel(job.channelId(), job.start(), duration);
-                 InputStream body = response.readEntity(InputStream.class)) {
+            // Akis DOGRUDAN aliniyor. readEntity() burada CALISMIYOR: o
+            // istemci yanitlari icin, sunucuda kurulmus bir Response'ta
+            // entity zaten nesnenin kendisi. Yasandi -- klipler
+            // "Request could not be mapped to type InputStream" ile dusuyordu.
+            try (InputStream body = dvrService.extractStream(
+                    job.channelId(), job.start(), duration)) {
 
                 long size = storage.put(job.objectKey(), body, "video/mp4");
                 markReady(clipId, job.objectKey(), size);

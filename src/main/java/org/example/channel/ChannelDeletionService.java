@@ -32,14 +32,19 @@ import java.util.UUID;
  * <h2>Ne siliniyor</h2>
  * <table>
  *   <tr><th></th><th>seçenek</th><th>seçilmezse</th></tr>
- *   <tr><td>DVR segmentleri</td><td><b>yok</b> — hep silinir</td><td>—</td></tr>
  *   <tr><td>Klipler</td><td>{@code deleteClips}</td><td>kalır, kanal bağı kopar</td></tr>
  *   <tr><td>Ekran görüntüleri</td><td>{@code deleteScreenshots}</td><td>kalır, kanal bağı kopar</td></tr>
+ *   <tr><td>DVR nesneleri</td><td>{@code deleteDvr}</td><td>kalır, saklama kuralı temizler</td></tr>
  * </table>
  *
- * <p>Klip ve ekran görüntüsü <b>ayrı ayrı</b> seçiliyor: klip emek harcanmış
- * bir çıktı, ekran görüntüsü tek tıkla yeniden alınabilir. Tek bir "içeriği
- * sil" bayrağı kullanıcıyı olmayan bir tercihe zorluyordu.
+ * <p>Üçü <b>ayrı ayrı</b> seçiliyor: klip emek harcanmış bir çıktı, ekran
+ * görüntüsü tek tıkla yeniden alınabilir, DVR ise büyük ve geçici. Tek bir
+ * "içeriği sil" bayrağı kullanıcıyı olmayan bir tercihe zorluyordu.
+ *
+ * <p><b>DVR'da "sakla" diğer ikisinden farklı.</b> Zaman çizelgesi kanala
+ * {@code CASCADE} bağlı ve her koşulda gidiyor; korunan şey yalnızca
+ * MinIO'daki baytlar. Değeri bir yanlış tıklama ağı olması -- kayıt birkaç
+ * gün daha kovada duruyor ve konsoldan kurtarılabiliyor.
  *
  * <p><b>DVR her koşulda gidiyor.</b> Bir kayıt segmentinin tek başına anlamı
  * yok: geriye sarma "şu kanalın şu anı" demek ve kanal yoksa gösterilecek yer
@@ -128,18 +133,19 @@ public class ChannelDeletionService {
      * @param username      işlemi yapan — şifresi bununla doğrulanıyor
      * @param deleteClips       klipler de silinsin mi
      * @param deleteScreenshots ekran görüntüleri de silinsin mi
+     * @param deleteDvr         DVR nesneleri hemen silinsin mi
      */
     public void delete(UUID channelId, String username, String password,
-                       boolean deleteClips, boolean deleteScreenshots) {
+                       boolean deleteClips, boolean deleteScreenshots, boolean deleteDvr) {
         // ONCE sifre. Gecersizse hicbir seye dokunulmadan cikiliyor.
         authService.verifyPassword(username, password);
 
         ChannelDeletionSummary ozet = summary(channelId);
 
-        // DVR nesneleri HER KOSULDA siliniyor. Satirlar cascade ile gidecek
-        // ama nesneleri MinIO'da birakmak, kimsenin ulasamayacagi ve yalnizca
-        // yasam dongusu kurali doldugunda temizlenecek olu veri demek.
-        long silinenSegment = removeDvrObjects(channelId);
+        // DVR SATIRLARI her kosulda gidiyor (CASCADE) -- kanali olmayan bir
+        // segmentin gosterilecegi yer yok. Secilebilen tek sey nesnelerin
+        // hemen silinip silinmeyecegi; silinmezse saklama kurali temizliyor.
+        long silinenSegment = deleteDvr ? removeDvrObjects(channelId) : 0;
 
         long silinenKlip = deleteClips ? removeClipObjects(channelId) : 0;
         long silinenEkran = deleteScreenshots ? removeScreenshotObjects(channelId) : 0;
@@ -150,11 +156,11 @@ public class ChannelDeletionService {
         channelService.delete(channelId);
 
         LOG.infof("Kanal silindi: %s — klipler %s (%d), ekran görüntüleri %s (%d), "
-                + "DVR segmenti %d",
+                + "DVR nesneleri %s (%d)",
             ozet.channelName(),
             deleteClips ? "silindi" : "korundu", silinenKlip,
             deleteScreenshots ? "silindi" : "korundu", silinenEkran,
-            silinenSegment);
+            deleteDvr ? "silindi" : "saklama kuralına bırakıldı", silinenSegment);
     }
 
     // ------------------------------------------------------------------

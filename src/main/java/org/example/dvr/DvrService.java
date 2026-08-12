@@ -4,6 +4,9 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.StreamingOutput;
+
+import java.io.InputStream;
 import org.example.channel.entity.Channel;
 import org.example.dvr.dto.TimelineSpan;
 import org.example.exception.AppException;
@@ -85,13 +88,35 @@ public class DvrService {
      * yalnızca elindeki listeyle çalışıyor.
      */
     public Response streamChannel(UUID channelId, Instant start, Duration duration) {
-        requireSaneRange(duration);
-        Instant end = start.plus(duration);
+        InputStream akis = extractStream(channelId, start, duration);
 
-        var plan = archive.plan(channelId, start, end);
-        return Response.ok(archive.extract(plan, start, duration))
-            .type(new MediaType("video", "mp4"))
-            .build();
+        // StreamingOutput ile sarmalaniyor: govde belleğe alinmadan
+        // aktariliyor ve aktarim bitince akis (dolayisiyla ffmpeg sureci)
+        // kapaniyor.
+        StreamingOutput govde = out -> {
+            try (akis) {
+                akis.transferTo(out);
+            }
+        };
+        return Response.ok(govde).type(new MediaType("video", "mp4")).build();
+    }
+
+    /**
+     * Aralığı <b>ham akış</b> olarak verir — HTTP yanıtı sarmalamadan.
+     *
+     * <p>Klip işçisi için: içeriği MinIO'ya aktarmak üzere <i>okuması</i>
+     * gerekiyor. {@link #streamChannel} bir {@code Response} döndürüyor ve
+     * ondan {@code readEntity(InputStream.class)} ile okumak <b>çalışmıyor</b>
+     * — o metot istemci yanıtları için; sunucuda kurulmuş bir
+     * {@code Response}'ta entity zaten nesnenin kendisi. Yaşandı.
+     *
+     * <p>Çağıran akışı <b>kapatmalı</b>: kapanışta ffmpeg süreci de
+     * sonlandırılıyor.
+     */
+    public InputStream extractStream(UUID channelId, Instant start, Duration duration) {
+        requireSaneRange(duration);
+        var plan = archive.plan(channelId, start, start.plus(duration));
+        return archive.extract(plan, start, duration);
     }
 
     /** Kanalın kayıt bulunan aralıkları — klip isteğinin doğrulanmasında da kullanılır. */

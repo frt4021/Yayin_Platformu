@@ -60,6 +60,15 @@ export function DeleteChannelDialog({
    */
   const [klipSilinsin, setKlipSilinsin] = useState(false)
   const [ekranSilinsin, setEkranSilinsin] = useState(false)
+  /**
+   * DVR nesneleri hemen silinsin mi.
+   *
+   * <p><b>Diğer ikisinden farklı anlama geliyor.</b> Zaman çizelgesi kanala
+   * bağlı ve her koşulda gidiyor; korunan şey yalnızca MinIO'daki baytlar.
+   * Değeri bir yanlış tıklama ağı olması — kayıt birkaç gün daha kovada
+   * duruyor ve saklama kuralı dolduğunda kendiliğinden temizleniyor.
+   */
+  const [dvrSilinsin, setDvrSilinsin] = useState(false)
   const [gonderiliyor, setGonderiliyor] = useState(false)
 
   useEffect(() => {
@@ -70,6 +79,7 @@ export function DeleteChannelDialog({
     setSifre('')
     setKlipSilinsin(false)
     setEkranSilinsin(false)
+    setDvrSilinsin(false)
     setYukleniyor(true)
 
     let iptal = false
@@ -98,6 +108,7 @@ export function DeleteChannelDialog({
       await channelsApi.remove(channel.id, sifre, {
         deleteClips: klipSilinsin,
         deleteScreenshots: ekranSilinsin,
+        deleteDvr: dvrSilinsin,
       })
       onDeleted(channel.id)
       toast.success(`${channel.name} silindi.`, { description: sonucMetni() })
@@ -122,7 +133,10 @@ export function DeleteChannelDialog({
     const parcalar: string[] = []
     if (silinen.length) parcalar.push(`${silinen.join(' ve ')} silindi`)
     if (korunan.length) parcalar.push(`${korunan.join(' ve ')} korundu`)
-    return parcalar.length ? `${parcalar.join(', ')}.` : 'DVR kaydı silindi.'
+    if ((ozet?.dvrSegmentCount ?? 0) > 0) {
+      parcalar.push(dvrSilinsin ? 'DVR dosyaları silindi' : 'DVR dosyaları bırakıldı')
+    }
+    return parcalar.length ? `${parcalar.join(', ')}.` : 'Kanal silindi.'
   }
 
   return (
@@ -154,19 +168,19 @@ export function DeleteChannelDialog({
               )}
 
               <div className="rounded-xl border">
-                {/* DVR'ın seçeneği YOK ve bu gizlenmiyor: bir kayıt
-                    segmentinin kanalı olmadan anlamı yok, geriye sarılacak
-                    yer de. Satırı hiç göstermemek "acaba kalıyor mu"
-                    sorusunu açık bırakırdı. */}
-                <Satir
+                <SecimSatiri
                   ad="DVR kaydı"
                   deger={
                     ozet.dvrSegmentCount === 0
                       ? 'yok'
                       : `${sureBicimi(ozet.dvrHours)} · ${boyut(ozet.dvrBytes)}`
                   }
-                  not="her zaman silinir"
-                  vurgu
+                  varMi={ozet.dvrSegmentCount > 0}
+                  secili={dvrSilinsin}
+                  onChange={setDvrSilinsin}
+                  // DVR'da "sakla" diğer ikisinden farklı ve bu gizlenmiyor:
+                  // çizelge her koşulda gidiyor, korunan yalnızca baytlar.
+                  korunanMetni="dosyalar kalır"
                 />
 
                 <SecimSatiri
@@ -192,9 +206,18 @@ export function DeleteChannelDialog({
 
               {(ozet.clipCount > 0 || ozet.screenshotCount > 0) && (
                 <p className="text-sm text-muted-foreground">
-                  İşaretlenmeyenler korunur; listede{' '}
+                  İşaretlenmeyen klip ve ekran görüntüleri korunur; listede{' '}
                   <em className="text-foreground">{channel?.name} (silinmiş)</em> olarak
                   görünürler.
+                </p>
+              )}
+
+              {ozet.dvrSegmentCount > 0 && !dvrSilinsin && (
+                <p className="text-sm text-muted-foreground">
+                  <strong className="text-foreground">DVR farklı:</strong> geriye
+                  sarma çizelgesi her koşulda siliniyor — kanalı olmayan bir kaydın
+                  gösterileceği yer yok. İşaretlenmezse yalnızca dosyalar MinIO'da
+                  kalır ve saklama süresi dolunca kendiliğinden temizlenir.
                 </p>
               )}
 
@@ -250,6 +273,7 @@ function SecimSatiri({
   varMi,
   secili,
   onChange,
+  korunanMetni = 'korunacak',
   son = false,
 }: {
   ad: string
@@ -257,6 +281,8 @@ function SecimSatiri({
   varMi: boolean
   secili: boolean
   onChange: (v: boolean) => void
+  /** İşaretsizken gösterilen rozet. DVR'da "korunacak" yanıltıcı olurdu. */
+  korunanMetni?: string
   son?: boolean
 }) {
   if (!varMi) {
@@ -289,7 +315,7 @@ function SecimSatiri({
             : 'bg-secondary text-muted-foreground',
         )}
       >
-        {secili ? 'silinecek' : 'korunacak'}
+        {secili ? 'silinecek' : korunanMetni}
       </span>
     </label>
   )

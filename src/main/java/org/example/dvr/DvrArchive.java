@@ -3,7 +3,6 @@ package org.example.dvr;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
-import jakarta.ws.rs.core.StreamingOutput;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.example.dvr.dto.TimelineSpan;
 import org.example.dvr.entity.DvrSegment;
@@ -120,13 +119,26 @@ public class DvrArchive {
     }
 
     /**
-     * Segmentlerden istenen aralığı çıkarır.
+     * Segmentlerden istenen aralığı çıkarır ve <b>akış olarak</b> verir.
+     *
+     * <p>Dönen akış ffmpeg'in stdout'u. Kapatıldığında süreç sonlandırılıyor
+     * ve besleyici iş parçacığı durduruluyor — çağıran
+     * {@code try-with-resources} kullanmalı.
+     *
+     * <p><b>Neden {@code StreamingOutput} değil:</b> iki tüketici var ve
+     * ihtiyaçları zıt. REST ucu gövdeye <i>yazmak</i> istiyor, klip işçisi
+     * MinIO'ya vermek için <i>okumak</i>. Yalnızca {@code StreamingOutput}
+     * verilince klip işçisi {@code readEntity(InputStream.class)} ile almaya
+     * çalışıyordu ve bu <b>çalışmıyor</b>: {@code readEntity} istemci
+     * yanıtları için, sunucuda kurulmuş bir {@code Response}'ta entity zaten
+     * nesnenin kendisi. Yaşandı — klipler "Request could not be mapped to
+     * type InputStream" ile düşüyordu. Akış vermek ikisini de karşılıyor.
      *
      * @param plan     {@link #plan} çıktısı, zaman sırasında
      * @param start    istenen başlangıç
      * @param duration istenen süre
      */
-    public StreamingOutput extract(List<SegmentRef> plan, Instant start, Duration duration) {
+    public InputStream extract(List<SegmentRef> plan, Instant start, Duration duration) {
         if (plan.isEmpty()) {
             throw AppException.notFound(
                 "Bu aralıkta kayıt bulunamadı. Kayıt silinmiş veya o sırada yayın olmamış olabilir.");
@@ -135,26 +147,68 @@ public class DvrArchive {
         // Ilk segment istenen andan ONCE baslamis olabilir; aradaki fark
         // ffmpeg'e atlanacak sure olarak veriliyor.
         long offsetMs = Math.max(0, start.toEpochMilli() - plan.get(0).basladi().toEpochMilli());
-
         boolean adtsAac = sesAacMi(plan.get(0).objectKey());
 
-        return output -> {
-            Process ffmpeg = spawn(offsetMs, duration, adtsAac);
-            Thread besleyici = feed(ffmpeg, plan);
+        Process ffmpeg;
+        try {
+            ffmpeg = spawn(offsetMs, duration, adtsAac);
+        } catch (IOException e) {
+            throw AppException.internalError("Aralık çıkarma başlatılamadı.", e);
+        }
+        Thread besleyici = feed(ffmpeg, plan);
+        return new FfmpegStream(ffmpeg, besleyici, extractTimeoutMinutes);
+    }
+
+    /**
+     * ffmpeg çıktısı — kapanışta süreci de toplayan akış.
+     *
+     * <p>Ayrı sınıf: {@code process.getInputStream()} doğrudan verilseydi
+     * çağıran onu kapattığında ffmpeg <b>hayatta kalırdı</b> ve her klipte
+     * bir zombi süreç birikirdi.
+     */
+    private static final class FfmpegStream extends InputStream {
+        private final Process process;
+        private final Thread besleyici;
+        private final InputStream inner;
+        private final int timeoutMinutes;
+
+        FfmpegStream(Process process, Thread besleyici, int timeoutMinutes) {
+            this.process = process;
+            this.besleyici = besleyici;
+            this.inner = process.getInputStream();
+            this.timeoutMinutes = timeoutMinutes;
+        }
+
+        @Override
+        public int read() throws IOException {
+            return inner.read();
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            return inner.read(b, off, len);
+        }
+
+        @Override
+        public void close() throws IOException {
             try {
-                ffmpeg.getInputStream().transferTo(output);
-                if (!ffmpeg.waitFor(extractTimeoutMinutes, TimeUnit.MINUTES)) {
-                    ffmpeg.destroyForcibly();
-                    throw new IOException("Aralık çıkarma zaman aşımına uğradı.");
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                ffmpeg.destroyForcibly();
+                inner.close();
             } finally {
                 besleyici.interrupt();
-                ffmpeg.destroy();
+                try {
+                    // Normal bitiste ffmpeg zaten cikmis olur; bekleme yalnizca
+                    // erken kapatmada (istemci baglantiyi kesti) is goruyor.
+                    if (!process.waitFor(timeoutMinutes, TimeUnit.MINUTES)) {
+                        process.destroyForcibly();
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    process.destroyForcibly();
+                } finally {
+                    process.destroy();
+                }
             }
-        };
+        }
     }
 
     /**
@@ -164,19 +218,20 @@ public class DvrArchive {
      * MPEG-TS'te AAC <b>ADTS çerçeveli</b> taşınıyor; MP4 ise ham AAC + ASC
      * başlığı bekliyor. {@code -c copy} ile aktarırken araya
      * {@code aac_adtstoasc} bit akışı filtresi girmezse muxer birkaç kareden
-     * sonra <i>"Malformed AAC bitstream"</i> deyip duruyor ve geriye neredeyse
-     * boş bir dosya kalıyor.
+     * sonra <i>"Malformed AAC bitstream"</i> deyip duruyor.
      *
      * <p>Filtreyi <b>koşulsuz eklemek de olmuyor</b>: AAC olmayan bir ses
      * izinde ffmpeg <i>"Codec 'mp3' is not supported by the bitstream filter"</i>
-     * diyerek hiç başlamıyor ve çıktı 0 bayt kalıyor. İkisi de ölçüldü.
+     * diyerek hiç başlamıyor ve çıktı 0 bayt kalıyor. İkisi de ölçüldü:
      *
-     * <p>Yayın kaynakları neredeyse her zaman AAC; yine de tahmin etmek,
-     * tek bir MP3 sesli kanalda tüm klipleri sessizce boş üretmek demekti.
+     * <table>
+     *   <tr><th>ses</th><th>filtre var</th><th>filtre yok</th></tr>
+     *   <tr><td>AAC</td><td>25,0 sn / 964 KB</td><td>0,13 sn — muxer duruyor</td></tr>
+     *   <tr><td>MP3</td><td>0 bayt — hiç başlamıyor</td><td>10,0 sn / 287 KB</td></tr>
+     * </table>
      *
-     * @return AAC ise {@code true}; belirlenemezse {@code false} (filtre
-     *         eklenmez -- yanlış filtre eklemek, eksik filtreden daha kötü:
-     *         ilki hiç çalışmıyor, ikincisi yalnızca sesi bozuyor)
+     * @return AAC ise {@code true}; belirlenemezse {@code false} (yanlış
+     *         filtre eklemek, eksik filtreden kötü: ilki hiç çalışmıyor)
      */
     private boolean sesAacMi(String objectKey) {
         List<String> cmd = List.of(

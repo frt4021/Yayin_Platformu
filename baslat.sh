@@ -2,10 +2,11 @@
 #
 # Yayın Merkezi — tek komutla kurulum ve başlatma.
 #
-#   ./baslat.sh              kur ve başlat
-#   ./baslat.sh --yeniden    imajları yeniden kurarak başlat
-#   ./baslat.sh --durdur     durdur
-#   ./baslat.sh --sifirla    durdur ve TÜM VERİYİ sil
+#   ./baslat.sh                 kur ve başlat
+#   ./baslat.sh --test-verisi   başlat + 20 kanal ve 10 radyo ekle
+#   ./baslat.sh --yeniden       imajları yeniden kurarak başlat
+#   ./baslat.sh --durdur        durdur
+#   ./baslat.sh --sifirla       durdur ve TÜM VERİYİ sil
 #
 # .env ÜRETİLMEZ — o ayrı bir adım:
 #
@@ -27,6 +28,16 @@ mavi()    { printf '\033[34m%s\033[0m\n' "$*"; }
 gri()     { printf '\033[90m%s\033[0m\n' "$*"; }
 
 baslik() { echo; mavi "── $* ─────────────────────────────────"; }
+
+# .env'den tek bir alan okur.
+#
+# Dosyayi "source" ETMIYORUZ: icinde tirnaksiz degerler ve yorumlar var,
+# kaynaklamak kabuk degiskenlerini beklenmedik sekilde ezebilir.
+env_al() {
+  local anahtar="$1" varsayilan="${2:-}" deger
+  deger="$(grep -m1 "^${anahtar}=" "$ENV_DOSYASI" 2>/dev/null | cut -d= -f2-)"
+  echo "${deger:-$varsayilan}"
+}
 
 # ---------------------------------------------------------------- ön koşullar
 
@@ -129,9 +140,48 @@ baslat() {
   hazir_bekle "backend"   "curl -so /dev/null -w '%{http_code}' http://localhost:8090/api/channels | grep -qE '401|200'" 180
   # Port .env'den: alan adiyla calisirken 80, aksi halde 3000.
   local fport alan puny ip
-  fport="$(grep -m1 '^PORT_FRONTEND=' "$ENV_DOSYASI" | cut -d= -f2)"
-  fport="${fport:-3000}"
+  fport="$(env_al PORT_FRONTEND 3000)"
   hazir_bekle "frontend"  "curl -sf http://localhost:$fport/"
+
+  # --- Ters proxy yollari ---
+  #
+  # Servislerin TEK TEK ayakta olmasi yetmiyor: kullanici hicbirine dogrudan
+  # gitmiyor, hepsine frontend'deki nginx uzerinden ulasiyor. Vekillik yanlis
+  # yapilandirilmissa backend saglikli gorunur ama arayuz bos kalir -- bu
+  # projede tam olarak yasandi (/hls onek kirpma ve 302 yonlendirme sorunu:
+  # "yayinda ama baglanmiyor").
+  #
+  # Bu yuzden yollarin KENDISI deneniyor.
+  local vekil_sorun=0
+  vekil_dene() {
+    local ad="$1" yol="$2" beklenen="$3"
+    local kod
+    kod="$(curl -so /dev/null -w '%{http_code}' "http://localhost:$fport$yol" 2>/dev/null || echo 000)"
+    if echo "$kod" | grep -qE "$beklenen"; then
+      yesil "  $ad ($yol) — $kod"
+    else
+      kirmizi "  $ad ($yol) — $kod, beklenen $beklenen"
+      vekil_sorun=1
+    fi
+  }
+
+  baslik "Ters proxy yolları"
+  # Backend kimlik istiyor: 401 de "vekillik calisiyor" demek.
+  vekil_dene "API      " "/api/channels" "401|200"
+  vekil_dene "API belge" "/docs"         "200|30[0-9]"
+  # HLS'te path yoksa MediaMTX 404 doner -- yine de vekilligin calistigini
+  # gosterir. 502/504 ise nginx MediaMTX'e ULASAMIYOR demek.
+  vekil_dene "HLS      " "/hls/"         "200|30[0-9]|404"
+
+  if [ "$vekil_sorun" -eq 1 ]; then
+    echo
+    sari "  ! Bir vekil yolu beklenmedik cevap verdi."
+    gri  "    502/504 -> nginx hedefe ulaşamıyor (servis ayakta mı?)"
+    gri  "    404 (/api) -> nginx.conf'taki location bloğu eksik ya da yanlış"
+    gri  "    Frontend imajı nginx.conf'u GÖMÜLÜ taşıyor; değiştirdiyseniz:"
+    gri  "               docker compose build frontend"
+    echo
+  fi
 
   ip="$(grep -m1 '^MINIO_PUBLIC_URL=' "$ENV_DOSYASI" | sed 's|.*//||;s|:.*||')"
   alan="$(grep -m1 '^PUBLIC_HOST=' "$ENV_DOSYASI" | cut -d= -f2- || true)"
@@ -173,22 +223,100 @@ baslat() {
     echo "  Arayüz      : http://localhost:$fport"
     [ -n "$ip" ] && echo "  Ağdan       : http://$ip:$fport"
   fi
-  echo "  API belgesi : http://localhost:8090/docs"
-  echo "  Keycloak    : http://localhost:8080  (admin / admin)"
-  echo "  MinIO       : http://localhost:9001"
+  # Adresler VEKIL uzerinden yaziliyor: kullanicinin gidecegi yer burasi ve
+  # dogrudan port yazmak, ters proxy'yi atlayan ve alan adiyla calismayan bir
+  # aliskanlik yaratiyordu.
+  local taban
+  if [ -n "$alan" ]; then taban="http://$alan"; else taban="http://localhost:$fport"; fi
+  echo "  API belgesi : $taban/docs"
+  echo "  HLS yayını  : $taban/hls/<kanal>/index.m3u8"
+  echo
+  gri  "  Doğrudan (yalnızca teşhis — normal kullanımda gerekmez):"
+  gri  "    backend   http://localhost:8090"
+  gri  "    Keycloak  http://localhost:8080  (admin / admin)"
+  gri  "    MinIO     http://localhost:9001"
   echo
   gri "  İlk giriş: Keycloak'ta tanımlı kullanıcı, şifre 12345678"
   gri "  Loglar   : docker compose -f $COMPOSE logs -f backend"
   echo
 }
 
+# ------------------------------------------------------------- test verisi
+
+# 20 kanal + 10 radyo yükler ve yayına sokar.
+#
+# ÜÇ ADIM, ÜÇÜ DE GEREKLİ
+#   1. Kimlikli bir istek at   -> yerel kullanıcı satırı oluşsun
+#   2. SQL'i yükle             -> kanal ve radyo tanımları
+#   3. MediaMTX'e yazdır       -> yayınlar gerçekten aksın
+#
+# Birincisi olmadan SQL "users tablosu boş" diye duruyor: created_by zorunlu
+# ve kullanıcılar Keycloak'tan İSTEK ANINDA eşitleniyor (UserProvisioningFilter).
+# Üçüncüsü olmadan kanallar listede görünür ama hiçbiri akmaz -- MediaMTX
+# path'leri bellekte tutuyor ve veritabanından haberi yok.
+test_verisi_yukle() {
+  local sql="$KOK/src/main/resources/test-verisi.sql"
+  baslik "Test verisi"
+
+  if [ ! -f "$sql" ]; then
+    kirmizi "  Dosya yok: $sql"
+    return 1
+  fi
+
+  local kport realm cid secret fport
+  kport="$(env_al PORT_KEYCLOAK 8080)"
+  realm="$(env_al KEYCLOAK_REALM YayinYonetimi)"
+  cid="$(env_al KEYCLOAK_CLIENT_ID '')"
+  secret="$(env_al KEYCLOAK_CLIENT_SECRET '')"
+  fport="$(env_al PORT_FRONTEND 3000)"
+
+  # --- 1. Kimlikli istek: yerel kullanici olussun ---
+  gri "  Kullanıcı eşitleniyor…"
+  local token
+  token="$(curl -s -m 15 -X POST \
+      "http://localhost:$kport/realms/$realm/protocol/openid-connect/token" \
+      -d "client_id=$cid" -d "client_secret=$secret" -d "grant_type=password" \
+      -d "username=${TEST_KULLANICI:-admin1}" -d "password=${TEST_SIFRE:-12345678}" \
+    | python3 -c 'import sys,json;print(json.load(sys.stdin).get("access_token",""))' 2>/dev/null)"
+
+  if [ -z "$token" ]; then
+    kirmizi "  Giriş yapılamadı (${TEST_KULLANICI:-admin1})."
+    gri    "  Farklı bir kullanıcıysa:  TEST_KULLANICI=... TEST_SIFRE=... $0 --test-verisi"
+    return 1
+  fi
+  # Herhangi bir kimlikli uc yeterli: filtre istek sirasinda satiri aciyor.
+  curl -so /dev/null -H "Authorization: Bearer $token" \
+    "http://localhost:$fport/api/channels" 2>/dev/null || true
+
+  # --- 2. SQL ---
+  gri "  20 kanal + 10 radyo ekleniyor (var olanlar atlanıyor)…"
+  if ! docker exec -i postgres psql -U "$(env_al POSTGRES_USER app_user)" \
+         -d yayin_merkezi -v ON_ERROR_STOP=1 < "$sql" 2>&1 | sed 's/^/    /'; then
+    kirmizi "  Yükleme başarısız."
+    return 1
+  fi
+
+  # --- 3. MediaMTX ---
+  gri "  MediaMTX'e yazılıyor…"
+  local sonuc
+  sonuc="$(curl -s -m 60 -X POST -H "Authorization: Bearer $token" \
+    "http://localhost:$fport/api/channels/restore" 2>/dev/null)"
+  echo "$sonuc" | grep -q "restored" \
+    && yesil "  Yayına alındı: $(echo "$sonuc" | grep -oE '[0-9]+' | head -1) kanal" \
+    || sari  "  ! MediaMTX'e yazılamadı — Kanallar sayfasındaki düğmeyle elle deneyin."
+
+  echo
+  gri "  Adres listesi ve doğrulama yöntemi: docs/test-yayinlari.md"
+}
+
 case "${1:-}" in
-  --durdur)  durdur ;;
-  --sifirla) sifirla ;;
-  --yeniden) baslat evet ;;
-  "")        baslat hayir ;;
+  --durdur)      durdur ;;
+  --sifirla)     sifirla ;;
+  --yeniden)     baslat evet ;;
+  --test-verisi) baslat hayir; test_verisi_yukle ;;
+  "")            baslat hayir ;;
   *)
-    echo "Kullanım: $0 [--yeniden | --durdur | --sifirla]"
+    echo "Kullanım: $0 [--test-verisi | --yeniden | --durdur | --sifirla]"
     exit 1
     ;;
 esac
