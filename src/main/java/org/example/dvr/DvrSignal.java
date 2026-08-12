@@ -33,7 +33,16 @@ public class DvrSignal {
     /** Tek kanal: emir sayısı saniyede birkaç, kanal başına ayırmaya değmez. */
     static final String KANAL = "dvr:sinyal";
 
+    /**
+     * Pub/sub'a AYRILMIS istemci ({@code quarkus.redis.pubsub.*}).
+     *
+     * <p>Varsayilan istemci klip kuyrugunun {@code BLMOVE}'uyla paylasiliyor
+     * ve abonelik oradan baglanti alamiyordu; olculdu: abonelik acilmasi 41
+     * saniye bloke kaldi. Abonelik bir baglantiyi surekli tutuyor, komut
+     * trafigiyle ayni havuzda olmamali.
+     */
     @Inject
+    @io.quarkus.redis.client.RedisClientName("pubsub")
     RedisDataSource redis;
 
     @Inject

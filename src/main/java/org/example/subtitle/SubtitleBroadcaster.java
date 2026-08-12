@@ -24,26 +24,34 @@ import java.util.concurrent.ConcurrentHashMap;
  * Altyazıyı üreten süreç {@code video-worker}, tarayıcıya gönderen süreç
  * {@code backend} — <b>ayrı konteynerler</b>. Doğrudan çağrı yapılamaz.
  *
- * <h2>Neden TEK abonelik</h2>
- * Önce kanal başına abone olunuyor, son izleyici gidince bırakılıyordu.
- * <b>Bozuktu.</b> Vert.x Redis istemcisi aynı bağlantı üzerinde arka arkaya
- * gelen {@code subscribe}/{@code unsubscribe} çağrılarında handler'ı
- * kaybediyor: Redis abonelik kaydını açıyor ({@code PUBSUB NUMSUB} > 0), ama
- * gelen mesaj hiçbir yere ulaşmıyor. Tek belirtisi tek satırlık bir uyarı:
+ * <h2>Abonelik neden TEK ve neden ayrı istemcide</h2>
+ * Önce kanal başına abone olunuyor, son izleyici gidince bırakılıyordu ve
+ * hepsi klip kuyruğuyla aynı Redis istemcisini paylaşıyordu. <b>Altyazı
+ * tarayıcıya hiç ulaşmıyordu</b> — üretim, çeviri ve Redis'in üçü de
+ * sapasağlam olduğu, arayüzde de hiçbir belirti çıkmadığı için sorun uzun
+ * süre görünmedi.
+ *
+ * <p>Ölçülen: aboneliğin açılması <b>41 saniye</b> bloke kaldı ve dönene
+ * kadar tek bir mesaj bile dağıtılmadı. Log'daki tek iz:
  *
  * <pre>
- * WARN io.vertx.redis.client.impl.RedisStandaloneConnection
- *      No handler waiting for message: [subscribe, altyazi:&lt;id&gt;, 1]
+ * 11:36:59.227  WARN io.vertx...RedisStandaloneConnection
+ *               No handler waiting for message: [psubscribe, altyazi:*, 1]
+ * 11:37:40.211  INFO Altyazı aboneliği açıldı          ← 41 sn sonra
  * </pre>
  *
- * <p>Ölçüldü: <b>ilk</b> abonelik çalışıyor, bırakılıp yeniden açılan
- * abonelik çalışmıyor. Kullanıcı açısından altyazı bir kez çalışıp sonra
- * sessizce kesiliyordu — üretim, çeviri ve Redis'in üçü de sapasağlam
- * olduğu için hata hiçbir yerde görünmüyordu.
+ * <p>İki değişiklik birlikte gerekiyordu:
  *
- * <p>Artık <b>desenle tek abonelik</b> ({@code altyazi:*}) açılıyor, ilk
- * izleyicide, ve süreç kapanana kadar duruyor. Kanal ayrımı bu süreçte
- * yapılıyor.
+ * <ol>
+ *   <li><b>Ayrı Redis istemcisi</b> ({@code quarkus.redis.pubsub.*}).
+ *       Abonelik bir bağlantıyı sürekli tutuyor; klip kuyruğunun
+ *       {@code BLMOVE}'u da her işçiyi 2 saniyeye kadar tutuyor. İkisini
+ *       aynı havuza koymak baştan yanlıştı.</li>
+ *   <li><b>Desenle tek abonelik</b> ({@code altyazi:*}), ilk izleyicide
+ *       açılıp süreç kapanana kadar duruyor. Her izleyici gidişinde
+ *       bırakılıp yeniden açılması, aynı hatayı tekrar tekrar tetikleyen
+ *       şeydi.</li>
+ * </ol>
  *
  * <p><b>Bedeli:</b> izlenmeyen kanalların altyazısı da bu sürece geliyor.
  * Ölçek küçük: bölüt başına ~500 bayt, kanal başına birkaç saniyede bir —
@@ -54,7 +62,16 @@ public class SubtitleBroadcaster {
 
     private static final Logger LOG = Logger.getLogger(SubtitleBroadcaster.class);
 
+    /**
+     * Pub/sub'a AYRILMIS istemci ({@code quarkus.redis.pubsub.*}).
+     *
+     * <p>Varsayilan istemci klip kuyrugunun {@code BLMOVE}'uyla paylasiliyor
+     * ve abonelik oradan baglanti alamiyordu; olculdu: abonelik acilmasi 41
+     * saniye bloke kaldi. Abonelik bir baglantiyi surekli tutuyor, komut
+     * trafigiyle ayni havuzda olmamali.
+     */
     @Inject
+    @io.quarkus.redis.client.RedisClientName("pubsub")
     RedisDataSource redis;
 
     @Inject
