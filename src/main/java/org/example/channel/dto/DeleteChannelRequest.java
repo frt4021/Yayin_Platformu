@@ -13,14 +13,21 @@ import jakarta.validation.constraints.NotBlank;
  * @param password    işlemi yapanın <b>kendi</b> şifresi. Paylaşılan bir
  *                    yönetici parolası yerine kişisel şifre: kimin sildiği
  *                    Keycloak tarafında izlenebilir kalıyor
- * @param deleteContent {@code true} ise klipler, ekran görüntüleri ve
- *                    dosyaları da siliniyor. {@code false} ise içerik kalıyor
- *                    ve kanal bağı kopuyor.
- *                    <p><b>DVR her koşulda siliniyor</b> — bir kayıt
- *                    segmentinin kanalı olmadan hiçbir anlamı yok.
+ * @param deleteClips {@code true} ise klipler ve dosyaları siliniyor;
+ *                    {@code false} ise kalıyor ve kanal bağı kopuyor
+ * @param deleteScreenshots aynısı, ekran görüntüleri için
+ *
+ * <p><b>İkisi ayrı seçenek.</b> Tek bir "içeriği sil" bayrağıydı ve
+ * kullanıcıyı olmayan bir tercihe zorluyordu: klip emek harcanmış bir
+ * çıktı, ekran görüntüsü tek tıkla yeniden alınabilir. Birini tutup
+ * diğerini atmak meşru bir istek.
+ *
+ * <p><b>DVR her koşulda siliniyor</b> ve seçeneği yok — bir kayıt
+ * segmentinin kanalı olmadan hiçbir anlamı yok, geriye sarılacak yer de.
  */
 public record DeleteChannelRequest(
     @NotBlank(message = "Şifre gerekli.") String password,
-    boolean deleteContent
+    boolean deleteClips,
+    boolean deleteScreenshots
 ) {
 }

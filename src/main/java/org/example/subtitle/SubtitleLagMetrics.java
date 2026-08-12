@@ -31,14 +31,25 @@ import java.util.concurrent.ConcurrentHashMap;
  * Bir bölütün görünebilmesinin koşulu:
  *
  * <pre>
- *   üretim gecikmesi  &lt;  HLS gecikmesi + bölüt süresi
- *   └ burada ölçülen ┘     └──── bütçe (altyazi.butce-ms) ────┘
+ *   üretim gecikmesi  &lt;  HLS gecikmesi
+ *   └ burada ölçülen ┘     └ bütçe (altyazi.butce-ms) ┘
  * </pre>
  *
  * <p><b>Üretim gecikmesi</b> = bölüt sesinin bittiği an ile altyazının
  * yayınlandığı an arasındaki fark. Ses bittiği andan itibaren sayılıyor,
- * başladığı andan değil: bölüt kapanmadan çözümleme başlayamıyor, dolayısıyla
- * bölüt süresi gecikmenin parçası değil <b>bütçenin</b> parçası.
+ * başladığı andan değil: bölüt kapanmadan çözümleme başlayamıyor.
+ *
+ * <p><b>Bölüt süresi bütçeye EKLENMİYOR.</b> İlk sürümde eklenmişti ve
+ * yanlıştı. Arayüz süzgeci {@code bitis > playingDate()} diyor: altyazının
+ * izleyici o bölütü <b>bitirmeden</b> gelmesi gerekiyor. Altyazı
+ * {@code bitis + üretim} anında hazır oluyor, izleyici oraya
+ * {@code bitis + HLS} anında varıyor; koşul sadeleşince geriye
+ * {@code üretim < HLS} kalıyor. Eklemek kapsamayı olduğundan iyi
+ * gösteriyordu -- bölüt süresi kadar.
+ *
+ * <p>Bölüt süresi yine de anlamlı, ama başka bir eşikte: altyazının bölütün
+ * <b>tamamı</b> boyunca ekranda kalması için {@code üretim < HLS - bölüt
+ * süresi} gerekiyor. Arası "kısmi": cümlenin yalnızca sonu görünüyor.
  *
  * <h2>Bütçe neden yapılandırılabilir</h2>
  * Sağ taraf <b>sunucudan bilinemez</b>: HLS gecikmesi izleyicinin tamponuna,
@@ -76,7 +87,8 @@ public class SubtitleLagMetrics {
      * burada atılan bir istisna bölütü kaybettirirdi.
      *
      * @param bitis      bölüt sesinin bittiği an
-     * @param sureMs     bölüt süresi — bütçeye ekleniyor
+     * @param sureMs     bölüt süresi — bütçeye değil, kısmi/tam görünürlük
+     *                   eşiğine giriyor
      */
     public void kaydet(UUID channelId, String channelName, Instant bitis, long sureMs) {
         kaydet(channelId, channelName, bitis, sureMs, Instant.now());
@@ -95,7 +107,7 @@ public class SubtitleLagMetrics {
         try {
             long gecikme = simdi.toEpochMilli() - bitis.toEpochMilli();
             pencereler.computeIfAbsent(channelId, id -> new Pencere(channelName))
-                .ekle(gecikme, butceMs + sureMs);
+                .ekle(gecikme, butceMs, sureMs);
         } catch (RuntimeException e) {
             LOG.debugf("Altyazı gecikmesi ölçülemedi: %s", e.getMessage());
         }
@@ -120,17 +132,18 @@ public class SubtitleLagMetrics {
             // Yetisemeyen varsa WARN: bu, arayuzde SESSIZCE eksik altyazi
             // demek ve baska hicbir yerde belirti vermiyor.
             if (o.gecKalan() > 0) {
-                LOG.warnf("ALTYAZI KAPSAMA %s — %d bölüt, %%%.0f yetişti "
-                        + "(%d yetişemedi) | gecikme ort %d ms, p50 %d ms, p95 %d ms, "
-                        + "en kötü %d ms | bütçe %d ms",
-                    o.kanal(), o.adet(), o.kapsamaYuzde(), o.gecKalan(),
+                LOG.warnf("ALTYAZI KAPSAMA %s — %d bölüt: %d tam, %d kısmi, "
+                        + "%d görünmedi (%%%.0f yetişti) | gecikme ort %d ms, "
+                        + "p50 %d ms, p95 %d ms, en kötü %d ms | bütçe %d ms",
+                    o.kanal(), o.adet(), o.tamGorunen(), o.kismiGorunen(),
+                    o.gecKalan(), o.kapsamaYuzde(),
                     o.ortalama(), o.p50(), o.p95(), o.enKotu(), o.butce());
             } else {
-                LOG.infof("ALTYAZI KAPSAMA %s — %d bölüt, %%100 yetişti "
-                        + "| gecikme ort %d ms, p50 %d ms, p95 %d ms, en kötü %d ms "
-                        + "| bütçe %d ms",
-                    o.kanal(), o.adet(), o.ortalama(), o.p50(), o.p95(),
-                    o.enKotu(), o.butce());
+                LOG.infof("ALTYAZI KAPSAMA %s — %d bölüt: %d tam, %d kısmi "
+                        + "(%%100 yetişti) | gecikme ort %d ms, p50 %d ms, "
+                        + "p95 %d ms, en kötü %d ms | bütçe %d ms",
+                    o.kanal(), o.adet(), o.tamGorunen(), o.kismiGorunen(),
+                    o.ortalama(), o.p50(), o.p95(), o.enKotu(), o.butce());
             }
         }
     }
@@ -147,11 +160,17 @@ public class SubtitleLagMetrics {
     }
 
     /** Bir kanalın rapor penceresi özeti. */
-    public record Ozet(String kanal, int adet, int gecKalan, long ortalama,
-                       long p50, long p95, long enKotu, long butce) {
+    public record Ozet(String kanal, int adet, int gecKalan, int kismiGorunen,
+                       long ortalama, long p50, long p95, long enKotu, long butce) {
 
+        /** Hiç görünmeyenler dışındakiler. */
         public double kapsamaYuzde() {
             return adet == 0 ? 0 : 100.0 * (adet - gecKalan) / adet;
+        }
+
+        /** Bölütün <b>tamamı</b> boyunca ekranda kalanlar. */
+        public int tamGorunen() {
+            return adet - gecKalan - kismiGorunen;
         }
     }
 
@@ -168,6 +187,8 @@ public class SubtitleLagMetrics {
         private final List<Long> gecikmeler = new ArrayList<>();
         private int adet;
         private int gecKalan;
+        /** Yetişti ama bölütün yalnızca sonunda göründü. */
+        private int kismiGorunen;
         private long toplam;
         private long enKotu;
         /** Bütçe bölüt süresine bağlı olduğu için pencerede ortalaması alınıyor. */
@@ -177,7 +198,7 @@ public class SubtitleLagMetrics {
             this.kanal = kanal;
         }
 
-        synchronized void ekle(long gecikme, long butce) {
+        synchronized void ekle(long gecikme, long butce, long sureMs) {
             adet++;
             toplam += gecikme;
             butceToplam += butce;
@@ -185,13 +206,17 @@ public class SubtitleLagMetrics {
             gecikmeler.add(gecikme);
             if (gecikme >= butce) {
                 gecKalan++;
+            } else if (gecikme >= butce - sureMs) {
+                // Yetisti ama gec: bolutun yalnizca SON kismi boyunca ekranda
+                // kaldi, izleyici cumlenin basini goremedi.
+                kismiGorunen++;
             }
         }
 
         synchronized Ozet ozetle() {
             List<Long> sirali = new ArrayList<>(gecikmeler);
             sirali.sort(null);
-            return new Ozet(kanal, adet, gecKalan, toplam / adet,
+            return new Ozet(kanal, adet, gecKalan, kismiGorunen, toplam / adet,
                 yuzdelik(sirali, 50), yuzdelik(sirali, 95), enKotu,
                 butceToplam / adet);
         }

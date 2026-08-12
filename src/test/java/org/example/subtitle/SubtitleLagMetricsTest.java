@@ -50,16 +50,38 @@ class SubtitleLagMetricsTest {
     }
 
     @Test
-    void bolutSuresiButceyeEkleniyor() {
-        // 5 sn gecikme, 2 sn butce varsayimi, 4 sn bolut -> butce 6 sn, yetisir.
-        // Bolut suresi eklenmeseydi yetismemis sayilirdi: bir altyazi, ait
-        // oldugu anin oynatilmasi BITENE KADAR gelirse hala gorunur.
+    void bolutSuresiButceyeEKLENMIYOR() {
+        // REGRESYON. Ilk surumde butce = HLS + bolut suresi diye hesaplaniyordu
+        // ve YANLISTI: arayuz suzgeci "bitis > playingDate()" diyor, yani
+        // altyazinin izleyici o bolutu BITIRMEDEN gelmesi gerekiyor.
+        //   altyazi hazir:      bitis + uretim
+        //   izleyici oraya varir: bitis + HLS
+        // Sadelesince geriye "uretim < HLS" kaliyor. Bolut suresini eklemek
+        // kapsamayi bolut suresi kadar iyi gosteriyordu.
         var m = metrics(2_000);
-        kaydet(m, 5_000, 4_000);
+        kaydet(m, 5_000, 4_000);   // 5 sn gecikme, 2 sn butce, 4 sn bolut
 
         SubtitleLagMetrics.Ozet o = tekOzet(m);
-        assertEquals(0, o.gecKalan());
-        assertEquals(6_000, o.butce());
+        assertEquals(2_000, o.butce(), "bütçe yalnızca HLS varsayımı olmalı");
+        assertEquals(1, o.gecKalan(), "5 sn gecikme 2 sn bütçeyi aşıyor");
+    }
+
+    @Test
+    void kismiGorunenAyriSayiliyor() {
+        // Butce 10 sn, bolut 4 sn.
+        //   gecikme < 6 sn  -> bolutun TAMAMI boyunca gorunur
+        //   6-10 sn arasi   -> yalnizca sonuna dogru gorunur (kismi)
+        //   >= 10 sn        -> hic gorunmez
+        var m = metrics(10_000);
+        kaydet(m, 3_000, 4_000);    // tam
+        kaydet(m, 8_000, 4_000);    // kismi
+        kaydet(m, 12_000, 4_000);   // gorunmez
+
+        SubtitleLagMetrics.Ozet o = tekOzet(m);
+        assertEquals(3, o.adet());
+        assertEquals(1, o.tamGorunen());
+        assertEquals(1, o.kismiGorunen());
+        assertEquals(1, o.gecKalan());
     }
 
     @Test

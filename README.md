@@ -9,14 +9,80 @@ Quarkus tabanlı backend'de; arayüz React + shadcn/ui.
 
 ---
 
-## Hızlı başlangıç
+## Gereksinimler
 
-**İki adım:**
+Tek komutla denetlenir — **hiçbir şey kurmaz**, yalnızca ne eksik söyler:
 
 ```bash
-./yapilandir.sh    # donanımı bulup .env üretir
-./baslat.sh        # paketler, kurar, başlatır
+./gereksinimler.sh
 ```
+
+Eksik varsa çıkış kodu `1` döner ve `./gereksinimler.sh --kur` kurar.
+
+### Zorunlu
+
+| Gereksinim | Sürüm | Neden |
+|---|---|---|
+| `docker` | 24+ | Tüm servisler konteynerde |
+| `docker compose` | **v2** | Proje v2 sözdizimi kullanıyor; eski `docker-compose` ayrı bir ikili ve yetmiyor |
+| **JDK** | 21+ | `./mvnw package` derleme yapıyor |
+| `curl` | — | `baslat.sh` servis sağlığını bununla yokluyor |
+| `docker` grup üyeliği | — | Daemon'a `sudo`suz erişim |
+
+> **JDK, JRE değil.** Yalnızca JRE kuruluysa `java` çalışır ama derleme
+> *"no compiler is provided"* ile düşer — ve mesaj sebebini söylemez.
+
+### Gerekmeyenler
+
+| | Neden gerekmiyor |
+|---|---|
+| **Node.js** | Ön yüz imajın içinde `node:22-alpine` ile derleniyor |
+| **ffmpeg** | Yalnızca konteynerlerin içinde; `backend` ve `video-worker` imajları kendi ffmpeg'ini taşıyor |
+| **Maven** | `./mvnw` sarmalayıcısı kendini indiriyor |
+| **PostgreSQL / Redis / MinIO** | Hepsi compose'da |
+
+### İsteğe bağlı — ama etkisi büyük
+
+| | Etki |
+|---|---|
+| NVIDIA sürücüsü + container toolkit | `CHANNELS_ENCODER=NVENC` ve **GPU'da STT**. Toolkit `--kur --gpu` ile kurulur; **sürücü kurulmaz** (çekirdek modülü + yeniden başlatma ister) |
+| `/dev/dri/renderD128` (Intel/AMD) | VAAPI ile rendition üretimi |
+| `python3` | `yayın.com` gibi IDN alan adının punycode'a çevrilmesi (yedeği var) |
+| `git` | Sürüm etiketleme |
+
+**Donanım kodlayıcı yoksa** rendition üretimi yazılımda yapılır. Ölçüldü:
+kanal başına **%14 yerine %142 CPU** — 16 kanalda 2,2 çekirdek ile 22,7
+çekirdek farkı.
+
+### Donanım
+
+| | En az | Not |
+|---|---|---|
+| Disk | **25 GB** (yalnızca imajlar ~15 GB) | `stt-worker` tek başına 9,8 GB. DVR ayrıca: 16 kanal × 7 gün × 3 Mbps ≈ **3,6 TB** |
+| RAM | **8 GB** | Altından `stt-worker` modelleri yükleyemeden yeniden başlar |
+| Çekirdek | 4 | Rendition ve altyazı açıksa çok daha fazlası |
+
+### Canlı altyazı için ayrıca
+
+Altyazı hattı (`VAD_ENABLED=true`) **pratikte GPU istiyor.** CPU'da ölçülen
+üretim gecikmesi 22-32 sn; izleyici HLS yüzünden yalnızca 6-12 sn geride
+olduğu için altyazı ona **hiç yetişmiyor** ve ekranda görünmüyor.
+
+Ayrıntı ve ölçüm için `docs/teknik-referans-modul.md` §15-16.
+
+---
+
+## Hızlı başlangıç
+
+**Üç adım:**
+
+```bash
+./gereksinimler.sh   # neyin eksik olduğunu söyler (hiçbir şey kurmaz)
+./yapilandir.sh      # donanımı bulup .env üretir
+./baslat.sh          # paketler, kurar, başlatır
+```
+
+Eksik varsa `./gereksinimler.sh --kur` kurar.
 
 Neden ayrı: donanım tespiti her zaman doğru olmayabilir — birden fazla GPU,
 eksik sürücü, sunucuda farklı bir kart. Arada `.env`'i gözden geçirip
@@ -58,7 +124,31 @@ NVIDIA ve Intel/AMD için hazır örnekler var.
 
 ### Ön koşullar
 
-`docker`, `docker compose` (v2) ve `java` (21+). Script yoksa söyler.
+```bash
+./gereksinimler.sh          # yalnızca denetler
+./gereksinimler.sh --kur    # eksikleri kurar (sudo ister)
+./gereksinimler.sh --kur --gpu   # NVIDIA container toolkit'i de kurar
+```
+
+**Zorunlu:** `docker`, `docker compose` (v2), **JDK** 21+, `curl`, ve
+kullanıcının `docker` grubunda olması.
+
+> JDK, JRE değil. `./mvnw package` derleme yapıyor; yalnızca JRE kuruluysa
+> *"no compiler is provided"* hatası veriyor ve mesaj sebebini söylemiyor.
+
+**Gerekmeyenler:** Node.js (ön yüz imajın içinde `node:22-alpine` ile
+derleniyor) ve ffmpeg (yalnızca konteynerlerin içinde kullanılıyor).
+
+**İsteğe bağlı:** NVIDIA sürücüsü + container toolkit ya da `/dev/dri`
+(VAAPI). Hiçbiri yoksa rendition üretimi yazılımda yapılır — ölçüldü,
+kanal başına %14 yerine **%142 CPU**.
+
+Denetim eksik bulursa çıkış kodu `1` döner; betiklerde kullanılabilir.
+
+> `--kur` Docker'ı **resmi deposundan** kuruyor. Dağıtımların kendi paketi
+> çoğu yerde eski ve `docker compose` v2 eklentisini getirmiyor.
+> NVIDIA **sürücüsü** kurulmuyor: çekirdek modülü ve yeniden başlatma
+> gerektiriyor, bir kurulum betiğinin üstlenmemesi gereken bir iş.
 
 ### Compose'u elle çalıştırmak
 

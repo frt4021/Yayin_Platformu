@@ -29,14 +29,17 @@ import java.util.UUID;
  * ChannelService} kanalın kendi yaşam döngüsüyle ilgili; bunları oraya
  * koymak o sınıfı ikinci bir sorumlulukla doldururdu.
  *
- * <h2>İki sonuç</h2>
+ * <h2>Ne siliniyor</h2>
  * <table>
- *   <tr><th></th><th>içerik silinsin</th><th>içerik kalsın</th></tr>
- *   <tr><td>DVR segmentleri</td><td>silinir</td><td><b>silinir</b></td></tr>
- *   <tr><td>Klipler</td><td>silinir</td><td>kalır, kanal bağı kopar</td></tr>
- *   <tr><td>Ekran görüntüleri</td><td>silinir</td><td>kalır, kanal bağı kopar</td></tr>
- *   <tr><td>MinIO nesneleri</td><td>silinir</td><td>kalır (DVR hariç)</td></tr>
+ *   <tr><th></th><th>seçenek</th><th>seçilmezse</th></tr>
+ *   <tr><td>DVR segmentleri</td><td><b>yok</b> — hep silinir</td><td>—</td></tr>
+ *   <tr><td>Klipler</td><td>{@code deleteClips}</td><td>kalır, kanal bağı kopar</td></tr>
+ *   <tr><td>Ekran görüntüleri</td><td>{@code deleteScreenshots}</td><td>kalır, kanal bağı kopar</td></tr>
  * </table>
+ *
+ * <p>Klip ve ekran görüntüsü <b>ayrı ayrı</b> seçiliyor: klip emek harcanmış
+ * bir çıktı, ekran görüntüsü tek tıkla yeniden alınabilir. Tek bir "içeriği
+ * sil" bayrağı kullanıcıyı olmayan bir tercihe zorluyordu.
  *
  * <p><b>DVR her koşulda gidiyor.</b> Bir kayıt segmentinin tek başına anlamı
  * yok: geriye sarma "şu kanalın şu anı" demek ve kanal yoksa gösterilecek yer
@@ -123,9 +126,11 @@ public class ChannelDeletionService {
      * Ters sırada şifre yanlışsa bile nesneler silinmiş olurdu.
      *
      * @param username      işlemi yapan — şifresi bununla doğrulanıyor
-     * @param deleteContent klip ve ekran görüntüleri de silinsin mi
+     * @param deleteClips       klipler de silinsin mi
+     * @param deleteScreenshots ekran görüntüleri de silinsin mi
      */
-    public void delete(UUID channelId, String username, String password, boolean deleteContent) {
+    public void delete(UUID channelId, String username, String password,
+                       boolean deleteClips, boolean deleteScreenshots) {
         // ONCE sifre. Gecersizse hicbir seye dokunulmadan cikiliyor.
         authService.verifyPassword(username, password);
 
@@ -136,21 +141,20 @@ public class ChannelDeletionService {
         // yasam dongusu kurali doldugunda temizlenecek olu veri demek.
         long silinenSegment = removeDvrObjects(channelId);
 
-        long silinenKlip = 0;
-        long silinenEkran = 0;
-        if (deleteContent) {
-            silinenKlip = removeClipObjects(channelId);
-            silinenEkran = removeScreenshotObjects(channelId);
-        }
+        long silinenKlip = deleteClips ? removeClipObjects(channelId) : 0;
+        long silinenEkran = deleteScreenshots ? removeScreenshotObjects(channelId) : 0;
 
         // Satirlarin silinmesi ve MediaMTX temizligi mevcut yolda kaliyor.
-        // Klip/ekran goruntusu satirlari: deleteContent ise yukarida silindi,
-        // degilse FK'nin SET NULL kurali bagi koparıyor (V21).
+        // Silinmesi istenmeyen klip/ekran goruntusu satirlari icin FK'nin
+        // SET NULL kurali bagi koparıyor (V21).
         channelService.delete(channelId);
 
-        LOG.infof("Kanal silindi: %s — içerik %s (klip %d, ekran görüntüsü %d, DVR segmenti %d)",
-            ozet.channelName(), deleteContent ? "silindi" : "korundu",
-            silinenKlip, silinenEkran, silinenSegment);
+        LOG.infof("Kanal silindi: %s — klipler %s (%d), ekran görüntüleri %s (%d), "
+                + "DVR segmenti %d",
+            ozet.channelName(),
+            deleteClips ? "silindi" : "korundu", silinenKlip,
+            deleteScreenshots ? "silindi" : "korundu", silinenEkran,
+            silinenSegment);
     }
 
     // ------------------------------------------------------------------

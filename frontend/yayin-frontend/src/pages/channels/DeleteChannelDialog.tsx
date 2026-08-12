@@ -48,7 +48,18 @@ export function DeleteChannelDialog({
   const [ozet, setOzet] = useState<ChannelDeletionSummary | null>(null)
   const [yukleniyor, setYukleniyor] = useState(false)
   const [sifre, setSifre] = useState('')
-  const [icerikSilinsin, setIcerikSilinsin] = useState(false)
+  /**
+   * Klip ve ekran görüntüsü <b>ayrı ayrı</b> seçiliyor.
+   *
+   * <p>Önce tek bir "içeriği sil" kutusuydu ve kullanıcıyı olmayan bir
+   * tercihe zorluyordu: klip emek harcanmış bir çıktı, ekran görüntüsü tek
+   * tıkla yeniden alınabilir. Birini tutup diğerini atmak meşru bir istek.
+   *
+   * <p><b>İkisi de varsayılan olarak KAPALI</b> — silme geri alınamaz ve
+   * varsayılanın güvenli tarafta olması gerekiyor.
+   */
+  const [klipSilinsin, setKlipSilinsin] = useState(false)
+  const [ekranSilinsin, setEkranSilinsin] = useState(false)
   const [gonderiliyor, setGonderiliyor] = useState(false)
 
   useEffect(() => {
@@ -57,7 +68,8 @@ export function DeleteChannelDialog({
     // kullanici yanlis sayilara bakarak onay verebilirdi.
     setOzet(null)
     setSifre('')
-    setIcerikSilinsin(false)
+    setKlipSilinsin(false)
+    setEkranSilinsin(false)
     setYukleniyor(true)
 
     let iptal = false
@@ -83,13 +95,12 @@ export function DeleteChannelDialog({
     if (!channel) return
     setGonderiliyor(true)
     try {
-      await channelsApi.remove(channel.id, sifre, icerikSilinsin)
-      onDeleted(channel.id)
-      toast.success(`${channel.name} silindi.`, {
-        description: icerikSilinsin
-          ? 'Klip ve ekran görüntüleri de silindi.'
-          : 'Klip ve ekran görüntüleri korundu.',
+      await channelsApi.remove(channel.id, sifre, {
+        deleteClips: klipSilinsin,
+        deleteScreenshots: ekranSilinsin,
       })
+      onDeleted(channel.id)
+      toast.success(`${channel.name} silindi.`, { description: sonucMetni() })
       onClose()
     } catch (e) {
       // Sifre hatasi en olasi durum ve iletisim kutusu ACIK kalmali ki
@@ -100,7 +111,19 @@ export function DeleteChannelDialog({
     }
   }
 
-  const icerikVar = (ozet?.clipCount ?? 0) + (ozet?.screenshotCount ?? 0) > 0
+  /** Bildirimde ne olduğunu tek cümleyle söylüyor. */
+  function sonucMetni(): string {
+    const silinen: string[] = []
+    const korunan: string[] = []
+    if ((ozet?.clipCount ?? 0) > 0) (klipSilinsin ? silinen : korunan).push('klipler')
+    if ((ozet?.screenshotCount ?? 0) > 0) {
+      (ekranSilinsin ? silinen : korunan).push('ekran görüntüleri')
+    }
+    const parcalar: string[] = []
+    if (silinen.length) parcalar.push(`${silinen.join(' ve ')} silindi`)
+    if (korunan.length) parcalar.push(`${korunan.join(' ve ')} korundu`)
+    return parcalar.length ? `${parcalar.join(', ')}.` : 'DVR kaydı silindi.'
+  }
 
   return (
     <Dialog open={channel !== null} onOpenChange={(acik) => !acik && onClose()}>
@@ -131,6 +154,10 @@ export function DeleteChannelDialog({
               )}
 
               <div className="rounded-xl border">
+                {/* DVR'ın seçeneği YOK ve bu gizlenmiyor: bir kayıt
+                    segmentinin kanalı olmadan anlamı yok, geriye sarılacak
+                    yer de. Satırı hiç göstermemek "acaba kalıyor mu"
+                    sorusunu açık bırakırdı. */}
                 <Satir
                   ad="DVR kaydı"
                   deger={
@@ -138,44 +165,37 @@ export function DeleteChannelDialog({
                       ? 'yok'
                       : `${sureBicimi(ozet.dvrHours)} · ${boyut(ozet.dvrBytes)}`
                   }
-                  // DVR her kosulda gidiyor; secenegi yokmus gibi degil,
-                  // ACIKCA "her zaman silinir" diye yaziliyor.
                   not="her zaman silinir"
                   vurgu
                 />
-                <Satir
+
+                <SecimSatiri
                   ad="Klipler"
-                  deger={ozet.clipCount === 0 ? 'yok' : `${ozet.clipCount} adet · ${boyut(ozet.clipBytes)}`}
-                  not={ozet.clipCount === 0 ? undefined : icerikSilinsin ? 'silinecek' : 'korunacak'}
-                  vurgu={icerikSilinsin && ozet.clipCount > 0}
+                  deger={
+                    ozet.clipCount === 0
+                      ? 'yok'
+                      : `${ozet.clipCount} adet · ${boyut(ozet.clipBytes)}`
+                  }
+                  varMi={ozet.clipCount > 0}
+                  secili={klipSilinsin}
+                  onChange={setKlipSilinsin}
                 />
-                <Satir
+                <SecimSatiri
                   ad="Ekran görüntüleri"
                   deger={ozet.screenshotCount === 0 ? 'yok' : `${ozet.screenshotCount} adet`}
-                  not={
-                    ozet.screenshotCount === 0 ? undefined : icerikSilinsin ? 'silinecek' : 'korunacak'
-                  }
-                  vurgu={icerikSilinsin && ozet.screenshotCount > 0}
+                  varMi={ozet.screenshotCount > 0}
+                  secili={ekranSilinsin}
+                  onChange={setEkranSilinsin}
                   son
                 />
               </div>
 
-              {icerikVar && (
-                <label className="flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors hover:bg-accent/50">
-                  <input
-                    type="checkbox"
-                    checked={icerikSilinsin}
-                    onChange={(e) => setIcerikSilinsin(e.target.checked)}
-                    className="mt-0.5 size-4 accent-[var(--destructive)]"
-                  />
-                  <span className="text-sm">
-                    <span className="font-medium">Klip ve ekran görüntüleri de silinsin</span>
-                    <span className="mt-0.5 block text-muted-foreground">
-                      İşaretlenmezse dosyalar korunur; listede{' '}
-                      <em>{channel?.name} (silinmiş)</em> olarak görünürler.
-                    </span>
-                  </span>
-                </label>
+              {(ozet.clipCount > 0 || ozet.screenshotCount > 0) && (
+                <p className="text-sm text-muted-foreground">
+                  İşaretlenmeyenler korunur; listede{' '}
+                  <em className="text-foreground">{channel?.name} (silinmiş)</em> olarak
+                  görünürler.
+                </p>
               )}
 
               <div className="space-y-2">
@@ -211,6 +231,67 @@ export function DeleteChannelDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * Onay kutusu taşıyan döküm satırı.
+ *
+ * <p>Kutu ve sayı <b>aynı satırda</b>: "12 klip var" ile "silinsin mi"
+ * ayrı yerlerde dururken kullanıcı hangi sayının hangi kutuya ait olduğunu
+ * eşleştirmek zorunda kalıyordu.
+ *
+ * <p>İçerik yoksa kutu <b>hiç çizilmiyor</b> — sıfır klibi silmeyi seçmek
+ * anlamsız ve seçenek sunmak "bir şey kaçırıyor muyum" hissi veriyor.
+ */
+function SecimSatiri({
+  ad,
+  deger,
+  varMi,
+  secili,
+  onChange,
+  son = false,
+}: {
+  ad: string
+  deger: string
+  varMi: boolean
+  secili: boolean
+  onChange: (v: boolean) => void
+  son?: boolean
+}) {
+  if (!varMi) {
+    return <Satir ad={ad} deger={deger} son={son} />
+  }
+  return (
+    <label
+      className={cn(
+        'flex cursor-pointer items-center justify-between gap-3 px-3.5 py-3 text-sm transition-colors hover:bg-accent/50',
+        !son && 'border-b',
+      )}
+    >
+      <span className="flex items-center gap-3">
+        <input
+          type="checkbox"
+          checked={secili}
+          onChange={(e) => onChange(e.target.checked)}
+          className="size-4 accent-[var(--destructive)]"
+        />
+        <span>
+          <span className="block font-medium">{ad}</span>
+          <span className="block text-xs text-muted-foreground">{deger}</span>
+        </span>
+      </span>
+      <span
+        className={cn(
+          'shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium',
+          secili
+            ? 'bg-status-error-bg text-status-error'
+            : 'bg-secondary text-muted-foreground',
+        )}
+      >
+        {secili ? 'silinecek' : 'korunacak'}
+      </span>
+    </label>
   )
 }
 

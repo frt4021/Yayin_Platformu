@@ -118,8 +118,8 @@ public class ChannelResource {
     @jakarta.ws.rs.Path("/{id}/silme")
     @RolesAllowed({Roles.YONETICI, Roles.MODERATOR})
     @Operation(summary = "Kanalı sil",
-        description = "Şifre doğrulaması ister. DVR kaydı her koşulda silinir; "
-            + "klip ve ekran görüntüleri deleteContent'e göre silinir ya da "
+        description = "Şifre doğrulaması ister. DVR kaydı her koşulda silinir. "
+            + "Klipler ve ekran görüntüleri AYRI AYRI seçilebilir; silinmeyenlerin "
             + "kanal bağı koparılarak korunur.")
     public Response delete(@PathParam("id") UUID id,
                            @Valid org.example.channel.dto.DeleteChannelRequest request) {
@@ -127,7 +127,7 @@ public class ChannelResource {
         // gonderdigi bir ada guvenmek, baskasinin sifresiyle dogrulama
         // yapmaya calismanin onunu acardi.
         deletionService.delete(id, jwt.getClaim("preferred_username"),
-            request.password(), request.deleteContent());
+            request.password(), request.deleteClips(), request.deleteScreenshots());
         return Response.noContent().build();
     }
 

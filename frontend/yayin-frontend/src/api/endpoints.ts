@@ -89,8 +89,11 @@ export const channelsApi = {
    * POST, DELETE değil: istek şifre taşıyor ve şifre sorgu parametresinde
    * gidemez — erişim günlüklerine ve tarayıcı geçmişine düz metin düşer.
    */
-  remove: (id: string, password: string, deleteContent: boolean) =>
-    api.post<void>(`/api/channels/${id}/silme`, { password, deleteContent }),
+  remove: (
+    id: string,
+    password: string,
+    secim: { deleteClips: boolean; deleteScreenshots: boolean },
+  ) => api.post<void>(`/api/channels/${id}/silme`, { password, ...secim }),
 
   capacity: () => api.get<Capacity>('/api/channels/capacity'),
 
