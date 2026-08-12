@@ -1,6 +1,5 @@
 package org.example.subtitle;
 
-import io.quarkus.redis.datasource.ReactiveRedisDataSource;
 import io.quarkus.redis.datasource.RedisDataSource;
 import io.quarkus.redis.datasource.pubsub.PubSubCommands;
 import io.quarkus.runtime.ShutdownEvent;
@@ -73,9 +72,6 @@ public class SubtitleBroadcaster {
     @Inject
     @io.quarkus.redis.client.RedisClientName("pubsub")
     RedisDataSource redis;
-
-    @Inject
-    ReactiveRedisDataSource reactiveRedis;
 
     @Inject
     com.fasterxml.jackson.databind.ObjectMapper json;
