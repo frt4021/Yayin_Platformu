@@ -5,9 +5,6 @@
 #   ./yapilandir.sh           .env yoksa üret
 #   ./yapilandir.sh --zorla   var olanı ÜZERİNE YAZ
 #
-# Test verisi (20 kanal + 10 radyo) BURADA DEĞİL: veritabanına yazıyor ve o
-# sırada stack ayakta olmalı. Bkz. ./baslat.sh --test-verisi
-#
 # Başlatmadan AYRI bir adım: makinenin donanımı otomatik bulunuyor ama tespit
 # her zaman doğru olmayabilir (birden fazla GPU, sürücü eksik, sunucuda farklı
 # bir kart). Bu script üretip duruyor; kullanıcı .env'i gözden geçirip
@@ -103,6 +100,8 @@ env_uret() {
   # STT varsayilani CPU + small: GPU yoksa large-v3 hic calismaz, small ise
   # mimariyi dogrulamaya yeter.
   local stt_device="cpu" stt_runtime="runc" stt_model="small" stt_compute="int8"
+  # Gecikme degerleri: CPU varsayilanlari. NVENC dalinda eziliyor.
+  local vad_segment_ms=6000 stt_batch=8 stt_concurrency=2
 
   case "$kodlayici" in
     NVENC)
@@ -114,6 +113,14 @@ env_uret() {
       # tasimaz ve sebebi hicbir yerde gorunmezdi.
       stt_device="cuda"; stt_runtime="nvidia"; stt_model="large-v3"
       stt_compute="int8_float16"
+      # Gecikmeyi belirleyen degerler de GPU'ya gore. Bunlar CPU'da
+      # birakilirsa GPU alinmis ama gecikme CPU ayarinda kalmis olur:
+      #   VAD_MAX_SEGMENT_MS 6000 -> CPU'da KALITEYI korumak icin secilmisti
+      #   (kisa pencere Whisper'a baglam birakmiyor). GPU'da kisaltmanin
+      #   maliyeti dusuk ve gecikmenin en buyuk parcasi bu.
+      # DIKKAT: bunlar OLCULMUS degil, baslangic noktasi.
+      # Bkz. docs/altyazi-gpu-olcum.md
+      vad_segment_ms=4000; stt_batch=16; stt_concurrency=4
       ;;
     VAAPI)
       media_dev="/dev/dri:/dev/dri"
@@ -130,10 +137,22 @@ env_uret() {
   # adresten aliyor. Boylece localhost, LAN IP ve alan adi -- ucu de
   # kendiliginden dogru calisiyor ve hangi adresten girildigi onemsiz.
   local hls_base="/hls"
+  # PORT SONEKI. Tarayici Origin basligini "scheme://host:port" olarak
+  # gonderiyor ve 80 disindaki HER portta ":port" kismi yer aliyor.
+  #
+  # Eskiden alan adi verildiginde origin PORTSUZ yaziliyordu ve frontend 80
+  # disinda bir porta alindiginda hicbir origin eslesmiyor, butun API
+  # cagrilari CORS'a takiliyordu. 80'de gorunmuyordu cunku orada tarayici
+  # port yazmiyor.
+  local sonek=""
+  [ "$p_frontend" != "80" ] && sonek=":$p_frontend"
+
+  # Uc erisim yolu da yaziliyor: alan adi, localhost ve LAN IP. Hangisinden
+  # girilecegi onceden bilinemiyor.
   if [ -n "$alan" ]; then
-    cors_origins="http://$alan,http://localhost"
+    cors_origins="http://$alan$sonek,http://localhost$sonek,http://$ip$sonek"
   else
-    cors_origins="http://localhost:$p_frontend,http://$ip:$p_frontend"
+    cors_origins="http://localhost$sonek,http://$ip$sonek"
   fi
 
   cat > "$ENV_DOSYASI" <<EOF
@@ -227,8 +246,15 @@ STORAGE_FAILED_CLIP_RETENTION=P7D
 STORAGE_SWEEP_INTERVAL=1h
 
 # --- VAD (ses etkinligi tespiti) — Faz 5.1 ---
-# Yarim hat uretimde kendiliginden calismasin diye varsayilan KAPALI.
-VAD_ENABLED=false
+# Canli altyazi hatti. Varsayilan ACIK.
+#
+# DIKKAT: pratikte GPU istiyor. CPU'da olculen uretim gecikmesi 22-32 sn;
+# izleyici HLS yuzunden yalnizca 6-12 sn geride oldugu icin altyazi ona
+# YETISEMIYOR ve ekranda hic gorunmuyor. Kapsama olcumu bunu loglara
+# yaziyor (ALTYAZI KAPSAMA satirlari).
+#
+# CPU'da denemek bosuna yuk ise kapatin: VAD_ENABLED=false
+VAD_ENABLED=true
 
 # Model IMAJA GOMULU olmali; calisma aninda indirme kapali agda sessizce
 # basarisiz olur.
@@ -265,8 +291,9 @@ STT_COMPUTE_TYPE=$stt_compute
 
 STT_BEAM_SIZE=5
 # Yigin cozumleme: pencereler tek tek gonderilirse GPU surekli bosta bekler.
-STT_BATCH_SIZE=8
-STT_MAX_CONCURRENCY=2
+STT_BATCH_SIZE=$stt_batch
+# Es zamanli cozumleme. GPU'da VRAM'e bagli -- olcerek artirin.
+STT_MAX_CONCURRENCY=$stt_concurrency
 
 # Hedef diller. Whisper pivotu sagladigi icin yalnizca EN->X modelleri
 # gerekiyor; kaynak dil kumesi genislese bile bu set SABIT kalir.
@@ -281,6 +308,34 @@ PORT_STT=8100
 #   STT_RUNTIME=nvidia -> GPU'yu konteynere acar (calisma zamani)
 # Yalnizca biri degistirilirse GPU ya gorunmez ya kullanilamaz.
 STT_RUNTIME=$stt_runtime
+
+# --- Canli altyazi gecikmesi ---
+#
+# KALITE <-> GECIKME EKSENI. Ucu de denenebilir; hangisinin dogru oldugu
+# DONANIMA ve kanal sayisina bagli, OLCULMEDEN bilinemez:
+#
+#   Kalite oncelikli  : VAD_MAX_SEGMENT_MS=6000  STT_MODEL=large-v3
+#   Denge             : VAD_MAX_SEGMENT_MS=4000  STT_MODEL=large-v3
+#   Gecikme oncelikli : VAD_MAX_SEGMENT_MS=3000  STT_MODEL=medium
+#
+# Nasil olculecegi: docs/altyazi-gpu-olcum.md
+#
+# Bolut penceresi gecikmenin EN BUYUK parcasi: cozumleme bolut kapanmadan
+# baslamiyor. Kisaltmak gecikmeyi dusuruyor ama Whisper'a birakilan baglami
+# da azaltiyor ve metin kalitesi dusuyor.
+VAD_MAX_SEGMENT_MS=$vad_segment_ms
+VAD_MIN_SILENCE_MS=400
+VAD_MIN_EMIT_MS=0
+# Zorla kesimde onceki bolutle ortusme: cumle ortasindan kesilince baglam
+# tamamen kaybolmasin diye.
+VAD_OVERLAP_MS=800
+
+# --- Altyazi kapsama olcumu ---
+# Izleyicinin canli kenardan geride olma VARSAYIMI. Tarayici gercek degeri
+# olcup bildirdiginde bunun yerine o kullaniliyor; rapor satirinda
+# "(olculdu)" ya da "(varsayim)" yaziyor.
+ALTYAZI_BUTCE_MS=8000
+ALTYAZI_RAPOR_ARALIGI=60s
 
 
 # VAD ses cekme adresi (ic ag).

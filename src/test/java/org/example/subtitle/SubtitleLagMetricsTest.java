@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -136,6 +137,48 @@ SubtitleLagMetricsTest {
         var m = metrics(1_000);
         m.kaydet(UUID.randomUUID(), "kanal", null, 0, SIMDI);
         assertTrue(m.anlikOzet().isEmpty(), "hatalı kayıt pencereye girmemeli");
+    }
+
+    @Test
+    void olculenHlsGecikmesiVarsayiminYerineGeciyor() {
+        // Butce varsayimi 2 sn ama izleyici gercekte 10 sn geride.
+        // 5 sn'lik bir uretim gecikmesi VARSAYIMA gore yetismiyor,
+        // OLCUME gore yetisiyor. Fark bu.
+        var m = metrics(2_000);
+        m.hlsGecikmeBildir(KANAL, 10_000);
+        kaydet(m, 5_000, 0);
+
+        SubtitleLagMetrics.Ozet o = tekOzet(m);
+        assertEquals(10_000, o.butce(), "ölçülen değer kullanılmalı");
+        assertEquals(0, o.gecKalan(), "10 sn bütçede 5 sn gecikme yetişir");
+        assertTrue(o.butceOlculdu());
+        assertEquals("ölçüldü", o.butceKaynagi());
+    }
+
+    @Test
+    void olcumYokkaVarsayimaDusuluyor() {
+        var m = metrics(2_000);
+        kaydet(m, 5_000, 0);
+
+        SubtitleLagMetrics.Ozet o = tekOzet(m);
+        assertEquals(2_000, o.butce());
+        assertEquals(1, o.gecKalan());
+        assertFalse(o.butceOlculdu());
+        assertEquals("varsayım", o.butceKaynagi());
+    }
+
+    @Test
+    void akilDisiOlcumYokSayiliyor() {
+        // Saati bozuk bir istemci ya da geriye sarma modundaki bir oynatici
+        // saatlerce gecikme bildirebilir ve butceyi anlamsizlastirirdi.
+        var m = metrics(2_000);
+        m.hlsGecikmeBildir(KANAL, -5_000);      // negatif
+        m.hlsGecikmeBildir(KANAL, 3_600_000);   // bir saat
+        kaydet(m, 5_000, 0);
+
+        SubtitleLagMetrics.Ozet o = tekOzet(m);
+        assertEquals(2_000, o.butce(), "geçersiz ölçümler yok sayılmalı");
+        assertFalse(o.butceOlculdu());
     }
 
     // ------------------------------------------------------------------

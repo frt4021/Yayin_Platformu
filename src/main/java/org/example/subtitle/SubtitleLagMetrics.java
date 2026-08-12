@@ -81,6 +81,41 @@ public class SubtitleLagMetrics {
     private final Map<UUID, Pencere> pencereler = new ConcurrentHashMap<>();
 
     /**
+     * İzleyicilerin bildirdiği <b>gerçek</b> HLS gecikmesi, kanal başına.
+     *
+     * <p>{@code altyazi.butce-ms} yalnızca bir <b>varsayım</b>: sunucu
+     * izleyicinin canlı kenardan ne kadar geride olduğunu bilemez, bu
+     * tamponuna ve ağına bağlı. Ölçüm geldiğinde varsayımın yerine geçiyor
+     * ve kapsama kararı iki ölçülmüş sayının karşılaştırması oluyor.
+     *
+     * <p>Değer <b>uçucu</b>: son bildirim tutuluyor, geçmiş biriktirilmiyor.
+     * İzleyici ayrıldığında eski değer bir süre kalıyor -- kısa bir pencerede
+     * yanlış olması, varsayıma geri dönmekten iyi.
+     */
+    private final Map<UUID, Long> hlsGecikmeleri = new ConcurrentHashMap<>();
+
+    /**
+     * Bir izleyicinin ölçtüğü HLS gecikmesini kaydeder.
+     *
+     * <p>Değer tarayıcıda {@code Date.now() - playingDate()} ile bulunuyor.
+     * Aynı kanalı birden fazla kişi izliyorsa son bildiren geçerli oluyor;
+     * ortalama almak, tamponu bozuk tek bir istemcinin ölçümü kaydırmasını
+     * engellemezdi ve karmaşıklığa değmiyor.
+     *
+     * @param ms izleyicinin canlı kenardan geride olma süresi
+     */
+    public void hlsGecikmeBildir(UUID channelId, long ms) {
+        // Akil disi degerler yok sayiliyor: saati bozuk bir istemci ya da
+        // geriye sarma modundaki bir oynatici saatlerce gecikme bildirebilir
+        // ve butceyi anlamsizlastirirdi.
+        if (ms < 0 || ms > 120_000) {
+            LOG.debugf("HLS gecikmesi yok sayıldı (%s): %d ms", channelId, ms);
+            return;
+        }
+        hlsGecikmeleri.put(channelId, ms);
+    }
+
+    /**
      * Bir altyazının yayınlandığını kaydeder.
      *
      * <p><b>Hiçbir koşulda patlamamalı:</b> ölçüm altyazı hattının yan ürünü;
@@ -106,8 +141,11 @@ public class SubtitleLagMetrics {
                 Instant simdi) {
         try {
             long gecikme = simdi.toEpochMilli() - bitis.toEpochMilli();
+            // Olculen HLS gecikmesi varsa VARSAYIMIN yerine geciyor.
+            Long olculen = hlsGecikmeleri.get(channelId);
             pencereler.computeIfAbsent(channelId, id -> new Pencere(channelName))
-                .ekle(gecikme, butceMs, sureMs);
+                .ekle(gecikme, olculen != null ? olculen : butceMs, sureMs,
+                    olculen != null);
         } catch (RuntimeException e) {
             LOG.debugf("Altyazı gecikmesi ölçülemedi: %s", e.getMessage());
         }
@@ -134,16 +172,18 @@ public class SubtitleLagMetrics {
             if (o.gecKalan() > 0) {
                 LOG.warnf("ALTYAZI KAPSAMA %s — %d bölüt: %d tam, %d kısmi, "
                         + "%d görünmedi (%%%.0f yetişti) | gecikme ort %d ms, "
-                        + "p50 %d ms, p95 %d ms, en kötü %d ms | bütçe %d ms",
+                        + "p50 %d ms, p95 %d ms, en kötü %d ms | bütçe %d ms (%s)",
                     o.kanal(), o.adet(), o.tamGorunen(), o.kismiGorunen(),
                     o.gecKalan(), o.kapsamaYuzde(),
-                    o.ortalama(), o.p50(), o.p95(), o.enKotu(), o.butce());
+                    o.ortalama(), o.p50(), o.p95(), o.enKotu(),
+                    o.butce(), o.butceKaynagi());
             } else {
                 LOG.infof("ALTYAZI KAPSAMA %s — %d bölüt: %d tam, %d kısmi "
                         + "(%%100 yetişti) | gecikme ort %d ms, p50 %d ms, "
-                        + "p95 %d ms, en kötü %d ms | bütçe %d ms",
+                        + "p95 %d ms, en kötü %d ms | bütçe %d ms (%s)",
                     o.kanal(), o.adet(), o.tamGorunen(), o.kismiGorunen(),
-                    o.ortalama(), o.p50(), o.p95(), o.enKotu(), o.butce());
+                    o.ortalama(), o.p50(), o.p95(), o.enKotu(),
+                    o.butce(), o.butceKaynagi());
             }
         }
     }
@@ -161,7 +201,13 @@ public class SubtitleLagMetrics {
 
     /** Bir kanalın rapor penceresi özeti. */
     public record Ozet(String kanal, int adet, int gecKalan, int kismiGorunen,
-                       long ortalama, long p50, long p95, long enKotu, long butce) {
+                       long ortalama, long p50, long p95, long enKotu, long butce,
+                       boolean butceOlculdu) {
+
+        /** Rapor satırında bütçenin kaynağını belirtiyor. */
+        public String butceKaynagi() {
+            return butceOlculdu ? "ölçüldü" : "varsayım";
+        }
 
         /** Hiç görünmeyenler dışındakiler. */
         public double kapsamaYuzde() {
@@ -187,6 +233,8 @@ public class SubtitleLagMetrics {
         private final List<Long> gecikmeler = new ArrayList<>();
         private int adet;
         private int gecKalan;
+        /** Bütçe ölçülen bir değerden mi geldi, yoksa varsayımdan mı. */
+        private boolean butceOlculdu;
         /** Yetişti ama bölütün yalnızca sonunda göründü. */
         private int kismiGorunen;
         private long toplam;
@@ -198,7 +246,8 @@ public class SubtitleLagMetrics {
             this.kanal = kanal;
         }
 
-        synchronized void ekle(long gecikme, long butce, long sureMs) {
+        synchronized void ekle(long gecikme, long butce, long sureMs, boolean olculdu) {
+            butceOlculdu = olculdu;
             adet++;
             toplam += gecikme;
             butceToplam += butce;
@@ -218,7 +267,7 @@ public class SubtitleLagMetrics {
             sirali.sort(null);
             return new Ozet(kanal, adet, gecKalan, kismiGorunen, toplam / adet,
                 yuzdelik(sirali, 50), yuzdelik(sirali, 95), enKotu,
-                butceToplam / adet);
+                butceToplam / adet, butceOlculdu);
         }
 
         private static long yuzdelik(List<Long> sirali, int yuzde) {

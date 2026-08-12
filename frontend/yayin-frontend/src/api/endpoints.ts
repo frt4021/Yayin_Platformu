@@ -263,6 +263,16 @@ export const scheduledRecordingsApi = {
  * geride.
  */
 export const subtitlesApi = {
+  /**
+   * İzleyicinin ölçtüğü HLS gecikmesini bildirir.
+   *
+   * Kapsama ölçümünde bütçenin GERÇEK değeri olarak kullanılıyor; bugüne
+   * kadar sunucu tarafında bir varsayımdı. Hata yutuluyor — altyazının
+   * kendisi buna bağlı değil.
+   */
+  hlsGecikmeBildir: (channelId: string, ms: number) =>
+    api.post<void>(`/api/channels/${channelId}/altyazilar/hls-gecikme`, { ms }),
+
   list: (channelId: string, from: Date, to: Date) =>
     api.get<SubtitleDto[]>(
       `/api/channels/${channelId}/altyazilar` +

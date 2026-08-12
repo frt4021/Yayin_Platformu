@@ -2,11 +2,10 @@
 #
 # Yayın Merkezi — tek komutla kurulum ve başlatma.
 #
-#   ./baslat.sh                 kur ve başlat
-#   ./baslat.sh --test-verisi   başlat + 20 kanal ve 10 radyo ekle
-#   ./baslat.sh --yeniden       imajları yeniden kurarak başlat
-#   ./baslat.sh --durdur        durdur
-#   ./baslat.sh --sifirla       durdur ve TÜM VERİYİ sil
+#   ./baslat.sh              kur ve başlat
+#   ./baslat.sh --yeniden    imajları yeniden kurarak başlat
+#   ./baslat.sh --durdur     durdur
+#   ./baslat.sh --sifirla    durdur ve TÜM VERİYİ sil
 #
 # .env ÜRETİLMEZ — o ayrı bir adım:
 #
@@ -24,6 +23,7 @@ ENV_DOSYASI="$KOK/.env"
 
 kirmizi() { printf '\033[31m%s\033[0m\n' "$*"; }
 yesil()   { printf '\033[32m%s\033[0m\n' "$*"; }
+sari()    { printf '\033[33m%s\033[0m\n' "$*"; }
 mavi()    { printf '\033[34m%s\033[0m\n' "$*"; }
 gri()     { printf '\033[90m%s\033[0m\n' "$*"; }
 
@@ -241,82 +241,13 @@ baslat() {
   echo
 }
 
-# ------------------------------------------------------------- test verisi
-
-# 20 kanal + 10 radyo yükler ve yayına sokar.
-#
-# ÜÇ ADIM, ÜÇÜ DE GEREKLİ
-#   1. Kimlikli bir istek at   -> yerel kullanıcı satırı oluşsun
-#   2. SQL'i yükle             -> kanal ve radyo tanımları
-#   3. MediaMTX'e yazdır       -> yayınlar gerçekten aksın
-#
-# Birincisi olmadan SQL "users tablosu boş" diye duruyor: created_by zorunlu
-# ve kullanıcılar Keycloak'tan İSTEK ANINDA eşitleniyor (UserProvisioningFilter).
-# Üçüncüsü olmadan kanallar listede görünür ama hiçbiri akmaz -- MediaMTX
-# path'leri bellekte tutuyor ve veritabanından haberi yok.
-test_verisi_yukle() {
-  local sql="$KOK/src/main/resources/test-verisi.sql"
-  baslik "Test verisi"
-
-  if [ ! -f "$sql" ]; then
-    kirmizi "  Dosya yok: $sql"
-    return 1
-  fi
-
-  local kport realm cid secret fport
-  kport="$(env_al PORT_KEYCLOAK 8080)"
-  realm="$(env_al KEYCLOAK_REALM YayinYonetimi)"
-  cid="$(env_al KEYCLOAK_CLIENT_ID '')"
-  secret="$(env_al KEYCLOAK_CLIENT_SECRET '')"
-  fport="$(env_al PORT_FRONTEND 3000)"
-
-  # --- 1. Kimlikli istek: yerel kullanici olussun ---
-  gri "  Kullanıcı eşitleniyor…"
-  local token
-  token="$(curl -s -m 15 -X POST \
-      "http://localhost:$kport/realms/$realm/protocol/openid-connect/token" \
-      -d "client_id=$cid" -d "client_secret=$secret" -d "grant_type=password" \
-      -d "username=${TEST_KULLANICI:-admin1}" -d "password=${TEST_SIFRE:-12345678}" \
-    | python3 -c 'import sys,json;print(json.load(sys.stdin).get("access_token",""))' 2>/dev/null)"
-
-  if [ -z "$token" ]; then
-    kirmizi "  Giriş yapılamadı (${TEST_KULLANICI:-admin1})."
-    gri    "  Farklı bir kullanıcıysa:  TEST_KULLANICI=... TEST_SIFRE=... $0 --test-verisi"
-    return 1
-  fi
-  # Herhangi bir kimlikli uc yeterli: filtre istek sirasinda satiri aciyor.
-  curl -so /dev/null -H "Authorization: Bearer $token" \
-    "http://localhost:$fport/api/channels" 2>/dev/null || true
-
-  # --- 2. SQL ---
-  gri "  20 kanal + 10 radyo ekleniyor (var olanlar atlanıyor)…"
-  if ! docker exec -i postgres psql -U "$(env_al POSTGRES_USER app_user)" \
-         -d yayin_merkezi -v ON_ERROR_STOP=1 < "$sql" 2>&1 | sed 's/^/    /'; then
-    kirmizi "  Yükleme başarısız."
-    return 1
-  fi
-
-  # --- 3. MediaMTX ---
-  gri "  MediaMTX'e yazılıyor…"
-  local sonuc
-  sonuc="$(curl -s -m 60 -X POST -H "Authorization: Bearer $token" \
-    "http://localhost:$fport/api/channels/restore" 2>/dev/null)"
-  echo "$sonuc" | grep -q "restored" \
-    && yesil "  Yayına alındı: $(echo "$sonuc" | grep -oE '[0-9]+' | head -1) kanal" \
-    || sari  "  ! MediaMTX'e yazılamadı — Kanallar sayfasındaki düğmeyle elle deneyin."
-
-  echo
-  gri "  Adres listesi ve doğrulama yöntemi: docs/test-yayinlari.md"
-}
-
 case "${1:-}" in
   --durdur)      durdur ;;
   --sifirla)     sifirla ;;
   --yeniden)     baslat evet ;;
-  --test-verisi) baslat hayir; test_verisi_yukle ;;
   "")            baslat hayir ;;
   *)
-    echo "Kullanım: $0 [--test-verisi | --yeniden | --durdur | --sifirla]"
+    echo "Kullanım: $0 [--yeniden | --durdur | --sifirla]"
     exit 1
     ;;
 esac
