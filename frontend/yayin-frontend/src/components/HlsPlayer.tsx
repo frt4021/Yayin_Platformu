@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Hls from 'hls.js'
 import { cn } from '@/lib/utils'
+import { hlsGerideOku } from '@/player/oynaticiAyarlari'
 
 type Status = 'loading' | 'playing' | 'error'
 
@@ -161,7 +162,24 @@ export function HlsPlayer({
       lowLatencyMode: true,
       capLevelToPlayerSize: true,
       maxBufferLength: 10,
-      liveSyncDurationCount: 3,
+
+      // İzleyicinin canlı kenardan geride kalma miktarı:
+      //     liveSyncDurationCount x EXT-X-TARGETDURATION
+      // Ölçülen yayında hedef süre 2 sn, yani 8 -> 16 saniye geride.
+      //
+      // BU DEĞER ALTYAZININ BÜTÇESİ. Arayüz altyazıyı
+      // "baslangic <= playingDate() < bitis" ile eşliyor: altyazı, izleyici o
+      // saniyeye varmadan üretilmiş olmalı. Geç kalan altyazı geç değil HİÇ
+      // gösterilmiyor ve hiçbir yerde hata görünmüyor.
+      //
+      // Sabit 3'tü (6 sn). Ölçülen üretim gecikmesi p50 ~13 sn, p95 ~23 sn --
+      // hiçbir altyazı yetişmiyordu. Artık .env'den geliyor
+      // (ALTYAZI_HLS_GERIDE): GPU'da gecikme düşünce geri indirilmeli.
+      //
+      // AÇIKÇA VERİLMESİ ŞART. Sunucu oynatma listesinde PART-HOLD-BACK=0.5
+      // ilan ediyor; lowLatencyMode açıkken hls.js kullanıcı ayarı yoksa ONU
+      // kullanıyor ve bütçe yarım saniyeye düşüyor.
+      liveSyncDurationCount: hlsGerideOku(),
     })
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {

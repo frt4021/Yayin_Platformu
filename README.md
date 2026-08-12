@@ -65,11 +65,17 @@ kanal başına **%14 yerine %142 CPU** — 16 kanalda 2,2 çekirdek ile 22,7
 ### Canlı altyazı için ayrıca
 
 Altyazı hattı (`VAD_ENABLED=true`) **pratikte GPU istiyor.** CPU'da ölçülen
-üretim gecikmesi 22-32 sn; izleyici HLS yüzünden yalnızca 6-12 sn geride
-olduğu için altyazı ona **hiç yetişmiyor** ve ekranda görünmüyor.
+kapasite `realtime_factor` **0,67×**; gereken, eşzamanlı çözümlenen kanal
+sayısı kadar. Üretim gecikmesi p50 ~13 sn, p95 ~23 sn çıkıyor.
 
-GPU'ya geçiş ve **ölçerek ayarlama** için: `docs/altyazi-gpu-olcum.md`.
-Mimari ayrıntı: `docs/teknik-referans-modul.md` §15-16.
+CPU'da da görünmesi için `ALTYAZI_HLS_GERIDE` ile izleyici geriye alınıyor
+(bkz. **Canlı altyazı: bütçe ve gecikme**). Bu gecikmeyi çözmüyor, saklıyor.
+
+| Belge | İçerik |
+|---|---|
+| `docs/altyazi-gpu-olcum.md` | GPU'ya geçiş ve ölçerek ayarlama reçetesi |
+| `docs/altyazi-acik-isler.md` | Gecikmeyi gerçekten düşüren iki iş — ölçüldü, yapılmadı |
+| `docs/teknik-referans-modul.md` §15-16 | Mimari ayrıntı |
 
 ---
 
@@ -571,6 +577,78 @@ Kayıt **kaynak kalitesinde**, rendition'a düşürülmeden alınıyor (`-c copy
 Gerekçesi: rendition üretilmezse eski düzende kayıt klasörü açılıyor ama
 içine hiçbir şey yazılmıyordu — kullanıcı dakikalarca kaydettiğini sanıp boş
 dönüyordu (`V17`).
+
+---
+
+### Canlı altyazı: bütçe ve gecikme ⚠️
+
+Altyazının görünüp görünmemesini **tek bir sayı** belirliyor.
+
+Arayüz altyazıyı geldiği ana göre değil **taşıdığı zaman damgasına** göre
+eşliyor (`SubtitleOverlay.tsx`):
+
+```
+baslangic <= playingDate() < bitis
+```
+
+Yani altyazı, izleyici o saniyeye **varmadan** üretilmiş olmalı. Geç kalan
+altyazı geç gösterilmez — **hiç gösterilmez**, ve hiçbir yerde hata çıkmaz.
+Ekran boş kalır, loglar temiz görünür.
+
+| Alan | Varsayılan | Açıklama |
+|---|---|---|
+| `ALTYAZI_HLS_GERIDE` | `12` (CPU) / `5` (GPU) | İzleyici canlı kenardan kaç bölüt geriden izlesin. **Altyazının bütçesi bu.** |
+| `ALTYAZI_BUTCE_MS` | `8000` | **Yalnızca rapor içindir, hiçbir şeyi düşürmez.** Tarayıcı gerçek değeri bildirene kadar kullanılan varsayım |
+| `ALTYAZI_RAPOR_ARALIGI` | `60s` | Kapsama özetinin sıklığı |
+
+```
+bütçe = ALTYAZI_HLS_GERIDE × EXT-X-TARGETDURATION
+```
+
+Ölçülen yayında hedef süre **2 saniye**, yani `12` → 24 saniye bütçe.
+
+**Kural: bütçe ≥ p95 gecikme.** p95 şu satırdan okunuyor:
+
+```bash
+docker compose logs backend | grep "ALTYAZI KAPSAMA"
+```
+
+```
+ALTYAZI KAPSAMA trt — 7 bölüt: 0 tam, 1 kısmi, 6 görünmedi (%14 yetişti)
+| gecikme ort 12919 ms, p50 10850 ms, p95 22703 ms | bütçe 8000 ms (varsayım)
+```
+
+`(varsayım)` yazıyorsa o kanalı kimse izlemiyordur; bir sekmede açıp bir
+dakika bekleyin, `(ölçüldü)`ye dönsün. Varsayıma göre ayar yapmak tahmine
+göre ayar yapmaktır.
+
+> **Sıfır yazmayın.** MediaMTX oynatma listesinde `PART-HOLD-BACK=0.5` ilan
+> ediyor ve `lowLatencyMode` açık. Kullanıcı ayarı verilmezse hls.js **onu**
+> kullanıyor ve bütçe yarım saniyeye düşer — altyazı GPU'yla bile yetişemez.
+
+**GPU'ya geçince bu sayıyı geri indirin.** Bütçeyi büyütmek gecikmeyi
+çözmüyor, sadece saklıyor: izleyici o kadar geriden izler. Asıl çözüm üretimi
+hızlandırmak — `docs/altyazi-gpu-olcum.md`.
+
+#### Ölçülen kapasite (CPU, bu makine)
+
+```bash
+curl -s localhost:8100/metrics | python3 -m json.tool
+```
+
+```json
+{ "audio_s": 2537.7, "processing_s": 3190.3, "translation_s": 577.5,
+  "realtime_factor": 0.8, "model": "small", "device": "cpu" }
+```
+
+| Ölçüm | Değer | Anlamı |
+|---|---|---|
+| Çözümleme | 0,80× | Saniyede 0,8 saniyelik ses |
+| Çeviri | 4,39× | **CPU'da ve seri** — GPU'ya hiç gitmiyor |
+| **Toplam** | **0,67×** | Gereken: eşzamanlı çözümlenen kanal sayısı |
+
+Çeviri (`stt-worker/app/translate.py`) tek kilitle sıraya giriyor ve GPU
+kullanmıyor: **kart ne kadar hızlı olursa olsun tavan ~4,4 kanal.**
 
 ---
 

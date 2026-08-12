@@ -102,6 +102,10 @@ env_uret() {
   local stt_device="cpu" stt_runtime="runc" stt_model="small" stt_compute="int8"
   # Gecikme degerleri: CPU varsayilanlari. NVENC dalinda eziliyor.
   local vad_segment_ms=6000 stt_batch=8 stt_concurrency=2
+  # Izleyicinin canli kenardan kac bolut geriden izleyecegi = ALTYAZININ
+  # BUTCESI. CPU'da uretim gecikmesi buyuk (olculdu: p95 ~23 sn), bu yuzden
+  # yuksek. GPU dalinda dusuruluyor.
+  local altyazi_hls_geride=12
 
   case "$kodlayici" in
     NVENC)
@@ -121,6 +125,10 @@ env_uret() {
       # DIKKAT: bunlar OLCULMUS degil, baslangic noktasi.
       # Bkz. docs/altyazi-gpu-olcum.md
       vad_segment_ms=4000; stt_batch=16; stt_concurrency=4
+      # Butce de dusuruluyor: GPU'da uretim hizlanmazsa zaten sorun var,
+      # hizlanirsa 24 saniye geriden izlemenin anlami yok. OLCTUKTEN SONRA
+      # ayarlayin -- kural: butce >= p95 gecikme.
+      altyazi_hls_geride=5
       ;;
     VAAPI)
       media_dev="/dev/dri:/dev/dri"
@@ -336,6 +344,27 @@ VAD_OVERLAP_MS=800
 # "(olculdu)" ya da "(varsayim)" yaziyor.
 ALTYAZI_BUTCE_MS=8000
 ALTYAZI_RAPOR_ARALIGI=60s
+
+# --- Altyazinin GERCEK butcesi ---
+# YUKARIDAKI ALTYAZI_BUTCE_MS yalnizca RAPOR icin, hicbir seyi dusurmuyor.
+# Altyaziyi gercekten eleyen sey bu:
+#
+#   butce = ALTYAZI_HLS_GERIDE x bolut suresi (olculen yayinda 2 sn)
+#
+# Arayuz altyaziyi zaman damgasina gore esliyor; izleyici o saniyeye
+# VARMADAN altyazi uretilmis olmali. Yetismeyen altyazi gec degil HIC
+# gosterilmiyor ve hicbir yerde hata cikmiyor.
+#
+# 8 -> 16 saniye butce. Eski sabit deger 3'tu (6 sn) ve olculen gecikme
+# p50 ~13 sn, p95 ~23 sn oldugu icin HICBIR altyazi yetismiyordu.
+#
+# KURAL: butce >= p95 gecikme. p95 su satirda:
+#   docker compose logs backend | grep "ALTYAZI KAPSAMA"
+#
+# GPU'da gecikme dusunce bu sayiyi GERI INDIRIN -- yoksa bosuna geriden
+# izlenir. SIFIR YAZMAYIN: hls.js o durumda sunucunun PART-HOLD-BACK=0.5
+# onerisine duser ve butce yarim saniye olur.
+ALTYAZI_HLS_GERIDE=$altyazi_hls_geride
 
 
 # VAD ses cekme adresi (ic ag).
