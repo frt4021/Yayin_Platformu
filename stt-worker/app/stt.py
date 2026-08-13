@@ -58,55 +58,96 @@ class Transcriber:
             local_files_only=True,
         )
 
-        if SETTINGS.batch_size > 1:
-            # Yigin ardisik hat, TEK bir sesi parcalara bolup birlikte
-            # cozumluyor. 15 saniyelik bir bolutte kazanc sinirli.
-            #
-            # Asil kazanc KANALLAR ARASI yiginlamada: 20 kanalin bolutleri
-            # tek yiginda toplanirsa GPU bosta beklemez. O, istek duzeyinde
-            # bir kuyruk gerektiriyor ve HENUZ YOK -- kart geldiginde
-            # olculup eklenecek.
-            try:
-                from faster_whisper import BatchedInferencePipeline
-                self._pipeline = BatchedInferencePipeline(model=self._model)
-            except ImportError:
-                log.warning("BatchedInferencePipeline yok, tekil çözümleme kullanılacak")
+        # transcribe_batch SART kosuyor -- kanallar arasi batching'in alt
+        # mekanizmasi (generate_segment_batched) bu sinifin uzerinde.
+        from faster_whisper import BatchedInferencePipeline
+        self._pipeline = BatchedInferencePipeline(model=self._model)
 
     def is_ready(self) -> bool:
         return self._model is not None
 
-    def transcribe(self, pcm: bytes) -> tuple[str, str, float]:
+    def transcribe_batch(self, pcm_list: list[bytes]) -> list[tuple[str, str, float]]:
         """
-        Bölütü İngilizce metne çevirir.
+        Birden fazla BAĞIMSIZ bölütü (farklı kanallardan) TEK GPU çağrısında
+        çözümler — asıl kazanç budur, tekil `transcribe()`'ın N katı değil.
 
-        :param pcm: 16 kHz, tek kanal, ``s16le`` ham ses
-        :return: (İngilizce metin, tespit edilen dil, tespit güveni)
+        <p>Normal akışta N eşzamanlı istek, GPU'da N ayrı forward-pass demek
+        — her biri kendi kernel açma/bellek hazırlama maliyetini öder ve
+        birbirini bekletir. Ölçüldü: `STT_MAX_CONCURRENCY`'yi 6'dan 20'ye
+        çıkarınca GPU util %100'e vurdu ama kapsama %0'a düştü — daha fazla
+        eşzamanlı istek kabul etmek GPU'nun sabit hesap gücünü büyütmüyor,
+        sadece çekişmeyi artırıyor. Burada N istek TEK forward-pass'te
+        birleşiyor; sabit maliyet N kez değil BİR kez ödeniyor.
+
+        <p>`faster-whisper`'ın kendi `BatchedInferencePipeline`'ı TEK bir
+        sesin İÇİNDEKİ parçalarını batch'liyor (bkz. {@link #load}). Burada
+        AYNI alt mekanizma (`generate_segment_batched`) — kütüphanenin kendi
+        `.transcribe()` akışından birebir kopyalanan özellik çıkarma/ayar
+        mantığıyla — FARKLI seslere uygulanıyor. Segmentler zaten Java
+        tarafında VAD ile kesildiği ve 30 sn'yi hiç aşmadığı için, her biri
+        `.transcribe()`'ın tek-chunk'lık normal yolundan geçmiş olsaydı
+        üreteceği ÖZELLİK ile birebir aynı özellik üretiliyor — davranış
+        değişmiyor, yalnızca N tanesi birlikte işleniyor.
+
+        <p>Dil tespiti: `generate_segment_batched` içeride her öğe için ayrı
+        ayrı yapılıyor (`options.multilingual=True`) ama sonucu dışarı
+        vermiyor — aynı `encoder_output` üzerinde (ikinci bir forward-pass
+        DEĞİL, zaten hesaplanmış çıktı) ayrıca `detect_language` çağırıp
+        kendi dil/güven değerimizi çıkarıyoruz.
+
+        :param pcm_list: her biri 16 kHz, tek kanal, ``s16le`` ham ses
+        :return: ``pcm_list`` ile AYNI sırada (metin, tespit edilen dil, güven)
         """
-        if self._model is None:
-            raise RuntimeError("Model yüklenmedi")
+        from faster_whisper.transcribe import (
+            Tokenizer, TranscriptionOptions, get_suppressed_tokens, pad_or_trim,
+        )
 
-        audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+        if self._model is None or self._pipeline is None:
+            raise RuntimeError("Model veya batch pipeline yüklenmedi")
 
-        # Esszamanlilik siniri: sinirsiz birakilirsa bellek doyar ve butun
-        # istekler birden yavaslar. Sirada beklemek, hepsinin bozulmasindan
-        # iyi.
+        model = self._model
         with self._semaphore:
-            options = dict(
-                task="translate",          # <- hangi dil gelirse gelsin Ingilizce
-                beam_size=SETTINGS.beam_size,
-                # VAD ZATEN YAPILDI (Silero, Java tarafinda). Ikinci kez
-                # kosmak bosa CPU ve bolut sinirlarini bozar.
-                vad_filter=False,
+            arrays = [
+                np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+                for pcm in pcm_list
+            ]
+            # ".transcribe()"in tek-chunk yolundaki AYNI cikarim: feature_extractor
+            # + son karenin atilmasi + 3000 kareye pad/trim.
+            features = np.stack([
+                pad_or_trim(model.feature_extractor(audio)[..., :-1])
+                for audio in arrays
+            ])
+
+            # Dil placeholder'i: generate_segment_batched multilingual=True'da
+            # bunu OGE BASINA gercek tespit edilen dille degistiriyor -- ilk
+            # deger sadece prompttaki yerini bulmaya yariyor, sonucu etkilemiyor.
+            tokenizer = Tokenizer(
+                model.hf_tokenizer, model.model.is_multilingual,
+                task="translate", language="en",
             )
-            if self._pipeline is not None:
-                segments, info = self._pipeline.transcribe(
-                    audio, batch_size=SETTINGS.batch_size, **options)
-            else:
-                segments, info = self._model.transcribe(audio, **options)
+            options = TranscriptionOptions(
+                beam_size=SETTINGS.beam_size, best_of=5, patience=1,
+                length_penalty=1, repetition_penalty=1, no_repeat_ngram_size=0,
+                log_prob_threshold=-1.0, no_speech_threshold=0.6,
+                compression_ratio_threshold=2.4, temperatures=[0.0],
+                initial_prompt=None, prefix=None, suppress_blank=True,
+                suppress_tokens=get_suppressed_tokens(tokenizer, [-1]),
+                prepend_punctuations="\"'“¿([{-",
+                append_punctuations="\"'.。,，!！?？:：”)]}、",
+                max_new_tokens=None, hotwords=None, word_timestamps=False,
+                hallucination_silence_threshold=None,
+                condition_on_previous_text=False, clip_timestamps=[],
+                prompt_reset_on_temperature=0.5, multilingual=True,
+                without_timestamps=True, max_initial_timestamp=0.0,
+            )
 
-            # transcribe TEMBEL bir uretec dondurur; tuketilmeden is
-            # yapilmaz. Kilit icinde tuketmek SART, yoksa esszamanlilik
-            # siniri hicbir seyi sinirlamaz.
-            text = " ".join(s.text.strip() for s in segments).strip()
+            encoder_output, outputs = self._pipeline.generate_segment_batched(
+                features, tokenizer, options)
+            lang_results = model.model.detect_language(encoder_output)
 
-        return text, info.language, float(info.language_probability)
+        results = []
+        for output, langs in zip(outputs, lang_results):
+            text = tokenizer.decode(output["tokens"]).strip()
+            token, probability = langs[0]
+            results.append((text, token[2:-2], float(probability)))
+        return results

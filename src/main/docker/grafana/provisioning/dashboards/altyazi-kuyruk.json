@@ -218,7 +218,7 @@
       "type": "timeseries",
       "datasource": "Prometheus",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 29 },
-      "description": "DCGM_FI_PROF_SM_OCCUPANCY ve DCGM_FI_PROF_SM_ACTIVE -- GPU_UTIL'den daha ince: kartın hesap birimlerinin (SM) ne kadarı gerçekten dolu. UYARI: bu profiling alanları bazı GeForce/tüketici kartlarında hiç raporlanmaz -- panel boş kalırsa bu, yapılandırma hatası değil, DCGM'in donanım/sürücü sınırlaması.",
+      "description": "DCGM_FI_PROF_SM_OCCUPANCY ve DCGM_FI_PROF_SM_ACTIVE -- GPU_UTIL'den daha ince: kartın hesap birimlerinin (SM) ne kadarı gerçekten dolu (GPU_UTIL yalnızca \"meşgul mü\" der, bunlar \"ne kadar dolu\" der). ÖLÇÜLDÜ: panel bu makinede boş -- sebep donanım/GeForce kısıtı DEĞİL, host'un NVIDIA sürücüsünde RmProfilingAdminOnly=1 ayarı (görmek için: cat /proc/driver/nvidia/params | grep Restrict). Düzeltmesi: /etc/modprobe.d'ye 'options nvidia NVreg_RestrictProfilingToAdminUsers=0' eklenip nvidia modülü yeniden yüklenmeli -- bu modül kullanımdayken (Xorg + tüm konteynerler) değişmiyor, host reboot gerekiyor.",
       "targets": [
         { "expr": "DCGM_FI_PROF_SM_OCCUPANCY", "legendFormat": "SM occupancy — GPU {{gpu}}" },
         { "expr": "DCGM_FI_PROF_SM_ACTIVE", "legendFormat": "SM active — GPU {{gpu}}" }

@@ -63,66 +63,88 @@ class Translator:
     def loaded_languages(self) -> list[str]:
         return sorted(self._models.keys())
 
-    async def translate(self, english: str) -> dict[str, str]:
+    async def translate_batch(self, texts: list[str]) -> list[dict[str, str]]:
         """
-        İngilizce metni hedef dillere çevirir.
+        Birden fazla BAĞIMSIZ metni (farklı kanallardan gelen bölütlerin
+        Whisper çıktıları) her dil için TEK `model.generate()` çağrısında
+        çevirir.
 
-        İngilizce'nin kendisi **çeviri istemiyor** — Whisper'ın çıktısı zaten
-        o; çağıran onu doğrudan kullanıyor.
+        <p>Marian bir metnin İÇİNDEKİ cümleleri zaten tek yığında çeviriyordu
+        (bkz. `_translate_many`); burada aynı fikir kanallar arasına
+        genişliyor — 5 farklı kanalın 5 ayrı metni, aynı dil için TEK
+        tokenize+generate çağrısında birlikte çevriliyor. Sabit maliyet
+        (kernel açma, dolgu/padding hazırlığı) 5 kez değil 1 kez ödeniyor.
 
-        <p>Üç dil AYRI thread'lere dağıtılıp eşzamanlı çalıştırılıyor
-        (anyio.to_thread + asyncio.gather) — sıralı çağrıldığında (eski
-        davranış) üç dilin süresi toplanıyordu. Dil başına ayrı kilit
-        (bkz. _translate_one) olduğu için bu güvenli: bir dilin çevirisi
-        diğerini bloklamıyor.
-
-        :return: dil kodundan metne. Bir dil başarısız olursa o dil sonuçta
-                 **yer almaz**; diğerleri üretilir.
+        :param texts: her biri bir Whisper çıktısı, boş olabilir
+        :return: ``texts`` ile AYNI sırada, dil kodundan metne sözlük —
+                 boş girdi için `{}`, tek bir dil başarısız olursa o dil o
+                 girdinin sözlüğünde yer almaz.
         """
-        if not english.strip():
-            return {}
-
-        sentences = self._split(english)
+        # Her metnin cumlelere bolunmus hali -- bos metin icin bos liste,
+        # asagida bu metnin hicbir dile cevrilmeyecegini isaret ediyor.
+        tumu = [self._split(t) if t.strip() else [] for t in texts]
 
         import anyio
 
         async def bir_dili_cevir(language, tokenizer, model):
             try:
-                metin = await anyio.to_thread.run_sync(
-                    self._translate_one, language, tokenizer, model, sentences)
-                return language, metin
+                sonuclar = await anyio.to_thread.run_sync(
+                    self._translate_many, language, tokenizer, model, tumu)
+                return language, sonuclar
             except Exception as e:
-                # Tek dilin hatasi TUM altyaziyi dusurmemeli: diger diller
-                # uretilsin, eksik olan gorunsun.
-                log.warning("Çeviri başarısız (EN → %s): %s", language.upper(), e)
-                return language, None
+                log.warning("Toplu çeviri başarısız (EN → %s): %s", language.upper(), e)
+                return language, [None] * len(texts)
+
+        outcomes: list[tuple[str, list[str | None]]] = []
 
         async with anyio.create_task_group() as tg:
-            sonuclar: list[tuple[str, str | None]] = []
-
             async def calistir(language, tokenizer, model):
-                sonuclar.append(await bir_dili_cevir(language, tokenizer, model))
+                outcomes.append(await bir_dili_cevir(language, tokenizer, model))
 
             for language, (tokenizer, model) in self._models.items():
                 tg.start_soon(calistir, language, tokenizer, model)
 
-        return {lang: metin for lang, metin in sonuclar if metin is not None}
+        results: list[dict[str, str]] = [{} for _ in texts]
+        for language, sonuclar in outcomes:
+            for i, metin in enumerate(sonuclar):
+                if metin is not None and tumu[i]:  # bos metin -> hicbir dile girmesin
+                    results[i][language] = metin
+        return results
 
     # ------------------------------------------------------------------
 
-    def _translate_one(self, language: str, tokenizer, model, sentences: list[str]) -> str:
+    def _translate_many(self, language: str, tokenizer, model,
+                         tumu: list[list[str]]) -> list[str]:
+        """
+        `tumu`'daki HER metnin cümlelerini TEK yığında çevirir, sonra hangi
+        cümlenin hangi metne ait olduğuna göre geri böler.
+
+        <p>Kilit şart: aynı model nesnesine eşzamanlı `generate()` çağrısı
+        güvenli değil — dil başına ayrı kilit olduğu için farklı dillerin
+        çevirisi birbirini bloklamıyor, aynı dilin ardışık batch'leri seri.
+        """
         import torch
 
-        # Cumleler TEK YIGINDA: tek tek cevirmek her cumle icin ayri bir
-        # ileri gecis demek ve kisa cumlelerde ek yuk isin kendisinden
-        # buyuk oluyor.
+        # Duz bir cumle listesi + hangi metnin kac cumle katkida bulundugunu
+        # gosteren sinirlar -- sonuc geldiginde bu sinirlarla geri bolunecek.
+        duz_cumleler = [s for sentences in tumu for s in sentences]
+        if not duz_cumleler:
+            return ["" for _ in tumu]
+
         with self._locks[language], torch.no_grad():
-            batch = tokenizer(sentences, return_tensors="pt",
+            batch = tokenizer(duz_cumleler, return_tensors="pt",
                               padding=True, truncation=True, max_length=512)
             batch = batch.to(SETTINGS.device)
             generated = model.generate(**batch, max_length=512, num_beams=1)
             parts = tokenizer.batch_decode(generated, skip_special_tokens=True)
-        return " ".join(p.strip() for p in parts if p.strip())
+
+        sonuclar = []
+        i = 0
+        for sentences in tumu:
+            n = len(sentences)
+            sonuclar.append(" ".join(p.strip() for p in parts[i:i + n] if p.strip()))
+            i += n
+        return sonuclar
 
     @staticmethod
     def _split(text: str) -> list[str]:

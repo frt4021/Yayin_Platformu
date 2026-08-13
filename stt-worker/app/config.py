@@ -58,12 +58,20 @@ class Settings:
 
     beam_size: int = int(os.getenv("STT_BEAM_SIZE", "5"))
 
-    # Yigin cozumleme. Tek bir sesi parcalara bolup birlikte isliyor; asil
-    # kazanc kanallar arasi yiginlamada ve o henuz yok (bkz. stt.py).
-    batch_size: int = int(os.getenv("STT_BATCH_SIZE", "8"))
-
-    # Ayni anda kac bolut cozumlenebilir. Sinirsiz birakilirsa bellek doyar.
+    # Ayni anda kac BATCH cozumlenebilir (tek bolut degil -- batching
+    # katmani devreye girdikten sonra semafor batch cagrisini sariyor).
     max_concurrency: int = int(os.getenv("STT_MAX_CONCURRENCY", "2"))
+
+    # --- Kanallar arasi batching ---
+    # Farkli kanallardan gelen istekler bu pencerede (ms) toplanip TEK GPU
+    # cagrisinda islenir. Kucuk tutulmali: ALTYAZI_BUTCE_MS (8000ms) yaninda
+    # ihmal edilebilir olsun, ama concurrent istekleri yakalamaya yetsin.
+    batch_window_ms: int = int(os.getenv("STT_BATCH_WINDOW_MS", "80"))
+
+    # Pencere dolmadan da bu sayiya ulasilirsa hemen islenir -- bekleme
+    # gereksiz olurdu. VRAM'in bu sayidan asla darbogaz olmadigi olculdu
+    # (bkz. 4050-kapasite-testi-sonuclar.md); ust sinir GPU'nun hesap gucu.
+    batch_max_size: int = int(os.getenv("STT_BATCH_MAX_SIZE", "8"))
 
     # --- Ceviri ---
     # Whisper pivotu sagladigi icin yalnizca Ingilizce'den cikan yonler var.

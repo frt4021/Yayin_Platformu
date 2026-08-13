@@ -19,9 +19,11 @@ import logging
 import threading
 import time
 
-import anyio
 from fastapi import FastAPI, HTTPException, Query, Request
 
+import anyio
+
+from .batching import BatchCoalescer
 from .config import BYTES_PER_SAMPLE, SAMPLE_RATE, SETTINGS
 from .schemas import HealthStatus, TranscriptionResult
 from .stt import Transcriber
@@ -34,6 +36,14 @@ app = FastAPI(title="Yayın Merkezi — STT")
 
 transcriber = Transcriber()
 translator = Translator()
+
+# İki ayrı pencere: çözümleme (ses -> İngilizce metin) ve çeviri (İngilizce
+# -> tr/de/ru) bağımsız GPU çağrıları, biri diğerini beklemeden kendi
+# penceresinde dolup boşalıyor.
+transcribe_batcher: BatchCoalescer[bytes, tuple[str, str, float]] = BatchCoalescer(
+    lambda pcms: anyio.to_thread.run_sync(transcriber.transcribe_batch, pcms))
+translate_batcher: BatchCoalescer[str, dict[str, str]] = BatchCoalescer(
+    translator.translate_batch)
 
 
 class Metrics:
@@ -134,29 +144,28 @@ async def transcribe(
     started = time.perf_counter()
 
     try:
-        # KRITIK: transcribe() senkron/blocking (model.transcribe CPU/GPU'da
-        # calisirken Python thread'i tutuyor). Dogrudan cagrilirsa uvicorn'un
-        # tek event loop'unu bloklar -- "async def" olmasina ragmen istekler
-        # TEK TEK islenir (olculdu: Asama 0 testinde 6 paralel istek, art arda
-        # ~1,5-2sn arayla sirayla bitti, aralarinda ORTUSME yoktu).
-        # to_thread.run_sync bunu ayri bir thread'e atip event loop'u serbest
-        # birakir -- STT_MAX_CONCURRENCY'nin (Semaphore) etkili olabilmesi
-        # icin bu SART, semafor tek basina yetmiyor.
-        text, language, confidence = await anyio.to_thread.run_sync(
-            transcriber.transcribe, pcm)
+        # KANALLAR ARASI BATCHING: bu cagriyi dogrudan transcriber.transcribe
+        # yerine kisa bir pencerede (STT_BATCH_WINDOW_MS) baska kanallardan
+        # gelen isteklerle birlestiren BatchCoalescer'a birakiyoruz. Eskiden
+        # (tekil transcribe + to_thread.run_sync) her istek GPU'da AYRI bir
+        # forward-pass'ti; N eszamanli istek N kat kernel-acma/bellek-hazirlama
+        # maliyeti demekti ve birbirini bekletiyordu (STT_MAX_CONCURRENCY'yi
+        # 6'dan 20'ye cikarinca GPU util %100'e vurdu ama kapsama %0'a dustu
+        # -- daha fazla ES ZAMANLI KABUL, GPU'nun sabit hesap gucunu
+        # buyutmuyor). Batching, N istegi TEK forward-pass'te birlestirip bu
+        # sabit maliyeti bir kez odetiyor -- bkz. stt.py transcribe_batch.
+        text, language, confidence = await transcribe_batcher.submit(pcm)
     except Exception as e:
         metrics.record_failure()
         log.exception("Çözümleme başarısız: channel=%s %s", channel, start)
         raise HTTPException(status_code=500, detail=f"Çözümleme başarısız: {e}") from e
 
     translation_started = time.perf_counter()
-    # Ceviri hatasi TUM sonucu dusurmemeli: Ingilizce metin zaten uretildi ve
-    # tek basina degerli. Eksik diller sonucta yer almiyor.
-    #
-    # translate() kendi icinde artik async: 3 dili ayri thread'lere dagitip
-    # asyncio ile bekliyor (bkz. translate.py) -- sirali cagrilsaydi 3 dilin
-    # suresi toplanirdi.
-    translations = await translator.translate(text)
+    # Ayni gerekce: cevirinin kendisi de kanallar arasi batch'leniyor
+    # (translate_batcher -> Translator.translate_batch). Ceviri hatasi TUM
+    # sonucu dusurmemeli: Ingilizce metin zaten uretildi ve tek basina
+    # degerli. Eksik diller sonucta yer almiyor.
+    translations = await translate_batcher.submit(text)
     translation_ms = int((time.perf_counter() - translation_started) * 1000)
 
     processing_ms = int((time.perf_counter() - started) * 1000)
