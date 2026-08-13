@@ -19,12 +19,6 @@ const WINDOWS = [
   { label: 'Son 7 gün', hours: 24 * 7 },
 ] as const
 
-/**
- * Önizleme bölümü belleğe indirildiği için üst sınır şart: 2 saatlik bir
- * seçim 6 Mbps'te ~5 GB eder ve tarayıcıyı düşürür.
- */
-const PREVIEW_MAX_SECONDS = 180
-
 /** Çizelgeye tıklandığında yüklenen bölüm. */
 const PREVIEW_DEFAULT_SECONDS = 60
 
@@ -174,16 +168,18 @@ export function DvrPage() {
    * Geçmişten oynatma. Uç token gerektirdiği için {@code <video src>} ile
    * doğrudan kullanılamıyor; parça fetch ile alınıp blob olarak veriliyor.
    *
-   * <p>Bölüm <b>tamamen indiriliyor</b>, akış halinde değil. Bu yüzden süre
-   * {@link PREVIEW_MAX_SECONDS} ile sınırlı: 2 saatlik bir seçim 6 Mbps'te
-   * ~5 GB eder ve tarayıcıyı düşürürdü.
+   * <p>Bölüm <b>tamamen indiriliyor</b>, akış halinde değil — bu yüzden uzun
+   * seçimlerde büyük bir indirme olur. Süre artık kırpılmıyor: seçilen aralık
+   * ne kadarsa o kadar geliyor (üstteki "Tahmini boyut" kullanıcıyı önceden
+   * uyarıyor). Sunucu tarafında {@code DvrService.MAX_CLIP} (2 saat) zaten
+   * üst sınır.
    */
   async function playFrom(at: Date, seconds: number) {
     if (!channelId) return
     const tokens = readTokens()
     if (!tokens) return
 
-    const sure = Math.min(Math.max(5, Math.round(seconds)), PREVIEW_MAX_SECONDS)
+    const sure = Math.max(5, Math.round(seconds))
     setPreviewLoading(true)
     try {
       const response = await fetch(dvrApi.streamUrl(channelId, at, sure), {
@@ -518,11 +514,9 @@ export function DvrPage() {
                       <Badge variant="error">En fazla 2 saatlik klip alınabilir</Badge>
                     )}
 
-                    {/* Klip almadan once secimi izlemek. Uc, bolumu belleğe
-                        indirdiği icin tamami oynatilamiyor; PREVIEW_MAX_SECONDS'i
-                        asan secimlerde bastan o kadari geliyor ve durum
-                        dugmenin altinda ACIKCA yaziliyor -- sessizce kirpmak
-                        kullaniciyi "hepsini gordum" sanisina dusururdu. */}
+                    {/* Klip almadan once secimi izlemek. Secimin TAMAMI
+                        indirilip oynatiliyor -- ustteki "Tahmini boyut"
+                        kullaniciyi indirme oncesinde uyariyor. */}
                     <Button
                       variant="outline"
                       onClick={() => void playFrom(selection.start, selectionSeconds)}
@@ -535,13 +529,6 @@ export function DvrPage() {
                       )}
                       Seçimi oynat
                     </Button>
-                    {selectionSeconds > PREVIEW_MAX_SECONDS && (
-                      <p className="-mt-1 text-xs text-muted-foreground">
-                        Seçim {formatDuration(selectionSeconds)}; oynatıcı baştan{' '}
-                        {formatDuration(PREVIEW_MAX_SECONDS)} gösterir. Sonrasını görmek
-                        için şeritteki karelere tıklayın.
-                      </p>
-                    )}
 
                     <div className="flex gap-2">
                       <Button
