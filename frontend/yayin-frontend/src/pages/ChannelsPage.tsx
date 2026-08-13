@@ -25,8 +25,14 @@ import {
 import { ChannelFormDialog } from './channels/ChannelFormDialog'
 import { DeleteChannelDialog } from './channels/DeleteChannelDialog'
 
-/** Durum bilgisi MediaMTX'ten anlık okunuyor; tazelenmezse gösterge gerçeklikle ilgisini kaybeder. */
-const REFRESH_MS = 15000
+/**
+ * Durum bilgisi MediaMTX'ten anlık okunuyor; tazelenmezse gösterge
+ * gerçeklikle ilgisini kaybeder. 5s: MediaMTX'in oturum kapanma süresinden
+ * (hlsMuxerCloseAfter, 10s) daha sık yoklamıyorsa izleyici sayısı gerçek
+ * değerinden uzun süre yüksek görünüyor (bkz. PlayerContext.tsx, RadiosPage.tsx
+ * — aynı düzeltme).
+ */
+const REFRESH_MS = 5000
 
 function statusBadge(channel: ChannelDto) {
   if (!channel.active) return <Badge variant="outline">Pasif</Badge>

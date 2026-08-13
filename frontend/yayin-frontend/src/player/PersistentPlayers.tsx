@@ -13,7 +13,7 @@ import { qualitiesOf } from '@/lib/renditions'
 import { LiveRewind } from './LiveRewind'
 import { PlayerControls } from './PlayerControls'
 import { useEffect as useEffectReact, useState as useStateReact } from 'react'
-import { MinimizeIcon, SearchIcon, SettingsIcon, Volume2Icon, VolumeXIcon, XIcon } from 'lucide-react'
+import { SearchIcon, SettingsIcon, Volume2Icon, VolumeXIcon, XIcon } from 'lucide-react'
 
 /** İzleme sayfasının yolu; katman bu yolda içerik alanını kaplar, diğerlerinde mini olur. */
 export const WATCH_PATH = '/izle'
@@ -496,17 +496,6 @@ function Tile({
           >
             {hasAudio ? <Volume2Icon /> : <VolumeXIcon />}
           </Button>
-          {expanded && (
-            <Button
-              variant="secondary"
-              size="icon"
-              className="size-7"
-              title="Küçült"
-              onClick={onToggleExpand}
-            >
-              <MinimizeIcon />
-            </Button>
-          )}
           <Button
             variant="secondary"
             size="icon"
