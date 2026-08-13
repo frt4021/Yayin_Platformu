@@ -253,7 +253,7 @@ public class RadioService {
             radio.sortOrder,
             hlsBaseUrl + "/" + radio.mediamtxPath + "/index.m3u8",
             state == null ? null : state.ready(),
-            state == null || state.readers() == null ? null : state.readers().size(),
+            state == null ? null : state.hlsReaderCount(),
             radio.createdBy == null ? null : radio.createdBy.username,
             radio.createdAt
         );

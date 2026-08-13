@@ -339,7 +339,7 @@ public class ChannelService {
             channel.sourceHeight,
             hlsBaseUrl + "/" + channel.mediamtxPath + "/index.m3u8",
             state == null ? null : state.ready(),
-            state == null || state.readers() == null ? null : state.readers().size(),
+            state == null ? null : state.hlsReaderCount(),
             channel.createdBy == null ? null : channel.createdBy.username,
             channel.createdAt
         );

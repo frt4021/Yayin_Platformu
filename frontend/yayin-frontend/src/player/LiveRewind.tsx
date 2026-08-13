@@ -11,6 +11,7 @@ import { Loader2Icon, RadioIcon, RotateCcwIcon } from 'lucide-react'
  *  tıkla karşılıyor; çubuk daha uzak/hassas bir ana gitmek için duruyor. */
 const STEPS = [
   { label: '30 sn', seconds: 30 },
+  { label: '1 dk', seconds: 60 },
   { label: '3 dk', seconds: 180 },
   { label: '5 dk', seconds: 300 },
 ] as const
@@ -25,8 +26,17 @@ const STEPS = [
  */
 const DVR_WINDOW_HOURS = 2
 
-/** Tek seferde DVR'dan çekilecek bölüm. Bittiğinde canlıya dönülüyor. */
-const CHUNK_SECONDS = 120
+/**
+ * Bir bölüm isteğinin altına düşülmeyecek en kısa süre.
+ *
+ * <p>Çekilecek süre artık SABİT değil — seçilen andan "şimdi"ye kadar olan
+ * fark neyse o kadar isteniyor, öyle ki seçilen aralığın TAMAMI izlenebilsin
+ * (eskiden sabit 120sn'lik bir bölüm çekiliyordu; 3dk/5dk düğmeleri kendi
+ * seçtikleri aralığın sonunu hiç göstermiyordu). Bu alt sınır yalnızca
+ * canlı kenara çok yakın tıklamalarda (fark <10sn) anlamsız kısa bir istek
+ * gitmesin diye.
+ */
+const MIN_CHUNK_SECONDS = 10
 
 /**
  * Canlı yayında geri sarma.
@@ -35,7 +45,7 @@ const CHUNK_SECONDS = 120
  * segmenti taşıyor (bizde 7 × 1.96 sn ≈ 14 sn). Daha geriye gitmek DVR
  * kaydından okumayı gerektirir.
  *
- * <p><b>İki yol var:</b> sabit 30sn/3dk/5dk düğmeleri "az önce ne oldu"yu
+ * <p><b>İki yol var:</b> sabit 30sn/1dk/3dk/5dk düğmeleri "az önce ne oldu"yu
  * tek tıkla karşılıyor. Yanındaki DVR çubuğu ise kayıtlı aralıkları gösteren
  * bir zaman çizelgesi — kullanıcı çubuğun herhangi bir yerine tıklayıp daha
  * hassas/uzak bir ana gidebilir. İkisi de aynı {@code seekTo}'ya çıkıyor:
@@ -101,6 +111,24 @@ export function LiveRewind({
     )
   }
 
+  /**
+   * Seçilen anın içinde bulunduğu kayıtlı aralığın nerede bittiğini bulur.
+   *
+   * <p>DVR kaydı sürekli değil — ffmpeg bir kez daha çöküp yeniden başladığında
+   * (bkz. ChannelDvrRecorder) araya birkaç saniyelik boşluk giriyor. Seçilen
+   * an kayıtlıysa bile, "şimdi"ye kadar olan yolun ortasında böyle bir boşluk
+   * olabilir; o noktadan sonrası hiç yayınlanamaz. Bunu önceden bilmek,
+   * "5 dk seçtim ama 3 dk oynadı" şaşkınlığı yerine açık bir uyarı vermek için.
+   */
+  function kayitliSonNokta(time: Date): Date {
+    const t = time.getTime()
+    const kapsayan = spans.find(
+      (s) => new Date(s.start).getTime() <= t && t < new Date(s.end).getTime(),
+    )
+    if (!kapsayan) return time
+    return new Date(Math.min(new Date(kapsayan.end).getTime(), Date.now()))
+  }
+
   async function seekTo(time: Date) {
     if (!isRecorded(time)) {
       toast.error('Bu aralıkta kayıt yok.', {
@@ -114,7 +142,25 @@ export function LiveRewind({
     try {
       // İstenen andan biraz önce başla — paketleme gecikmesi için pay.
       const start = new Date(time.getTime() - 2000)
-      const response = await fetch(dvrApi.streamUrl(channel.id, start, CHUNK_SECONDS), {
+      // Şimdiye kadar olan sürenin TAMAMI çekiliyor ki seçilen aralık
+      // baştan sona izlenebilsin — bkz. MIN_CHUNK_SECONDS.
+      const suresSaniye = Math.max(
+        MIN_CHUNK_SECONDS,
+        Math.ceil((Date.now() - start.getTime()) / 1000),
+      )
+
+      // Kayıt boşluğu varsa gerçekte oynayacak süre istenenden kısa olacak —
+      // bu, sunucudan bölüm gelmeden ÖNCE bilinebilir (spans zaten elde).
+      const kapsananSaniye = Math.ceil(
+        (kayitliSonNokta(time).getTime() - start.getTime()) / 1000,
+      )
+      if (kapsananSaniye < suresSaniye - 5) {
+        toast.info('Bu aralıkta kayıt boşluğu var.', {
+          description: `Yalnızca ~${Math.max(kapsananSaniye, 0)} sn oynatılabiliyor, sonrası canlıya dönecek.`,
+        })
+      }
+
+      const response = await fetch(dvrApi.streamUrl(channel.id, start, suresSaniye), {
         headers: { Authorization: `Bearer ${tokens.accessToken}` },
       })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)

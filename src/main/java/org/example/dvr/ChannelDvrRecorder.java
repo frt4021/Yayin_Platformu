@@ -222,6 +222,12 @@ final class ChannelDvrRecorder implements Runnable, AutoCloseable {
             // stderr bos kaliyor ve sebep hic gorunmuyordu.
             "ffmpeg", "-v", "warning",
             "-rtsp_transport", "tcp",
+            // Varsayilan probe suresi/boyutu bazen ilk paketlerde codec
+            // parametrelerini bulamiyor ("Could not find codec parameters")
+            // ve ffmpeg hicbir veri vermeden hemen cikiyor -- CLAUDE.md acik
+            // isler #5. -i'DEN ONCE gelmeli, girdiye uygulanan secenekler.
+            "-analyzeduration", "5000000",
+            "-probesize", "10000000",
             "-i", rtspBase + "/" + mediamtxPath,
             "-c", "copy",
             "-f", "mpegts", "-");

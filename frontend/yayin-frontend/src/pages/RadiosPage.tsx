@@ -23,8 +23,13 @@ import {
 } from 'lucide-react'
 import { RadioFormDialog } from './radios/RadioFormDialog'
 
-/** Durum MediaMTX'ten anlık okunuyor; tazelenmezse gösterge gerçeklikle ilgisini kaybeder. */
-const REFRESH_MS = 15000
+/**
+ * Durum MediaMTX'ten anlık okunuyor; tazelenmezse gösterge gerçeklikle
+ * ilgisini kaybeder. 5s: MediaMTX'in oturum kapanma süresinden
+ * (hlsMuxerCloseAfter, 10s) daha sık yoklamıyorsa dinleyici ayrıldıktan
+ * sonra sayı ekranda gerçek değerinden uzun süre yüksek görünüyor.
+ */
+const REFRESH_MS = 5000
 
 export function RadiosPage() {
   const { hasRole } = useAuth()

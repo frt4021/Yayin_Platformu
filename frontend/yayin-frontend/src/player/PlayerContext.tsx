@@ -71,7 +71,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     }
     void yukle()
-    const timer = setInterval(() => void yukle(), 30_000)
+    // 5s: izleyici sayısı MediaMTX'ten anlık okunuyor (bkz. ChannelService)
+    // ama buraya yalnızca her yoklamada düşüyor. 30s'de bir yoklarken
+    // MediaMTX'in kendi oturum kapanma süresiyle (hlsMuxerCloseAfter, 10s)
+    // çakışınca sayı gerçekte düşmüş olsa bile ekranda uzun süre yüksek
+    // görünüyor, "birikiyor" gibi algılanıyordu.
+    const timer = setInterval(() => void yukle(), 5_000)
     return () => clearInterval(timer)
   }, [])
 
