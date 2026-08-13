@@ -23,7 +23,11 @@ ENV TORCH_INDEX=https://download.pytorch.org/whl/cpu
 # -runtime etiketi bilerek: -devel derleyiciyi de içeriyor ve ~3 GB daha
 # büyük. Bize hazır kütüphaneler yetiyor.
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 AS taban-cuda
-ENV TORCH_INDEX=https://download.pytorch.org/whl/cu124
+# cu124 DEGIL: o indeksteki torch 2.4-2.6 serisinin tumu
+# nvidia-cudnn-cu12==9.1.0.70'e sabit bagli ve bu tam surum PyPI'dan
+# kaldirildi (dis, gecici bir kirlma -- olculdu, bu Dockerfile ONCEDEN
+# ayni satirla basariyla kuruluyordu). cu126 farkli bir cudnn pinliyor.
+ENV TORCH_INDEX=https://download.pytorch.org/whl/cu126
 
 # --- Seçilen taban ---
 FROM taban-${STT_DEVICE} AS temel
@@ -36,15 +40,37 @@ ENV PYTHONUNBUFFERED=1 \
     STT_MODEL_DIR=/models
 
 # CUDA tabanli imajda python yok; slim'de var. Ikisinde de calissin.
+#
+# gcc de burada ekleniyor: cu126 indeksindeki daha yeni torch, Marian
+# generate() sirasinda bazi cekirdekleri Triton (torch.compile alt katmani,
+# NVIDIA Triton Inference Server DEGIL) ile JIT-derlemeye calisiyor ve
+# derleyici yoksa SESSIZCE degil ama HER cagrida basarisiz oluyor --
+# olculdu: 3 dilin UCU DE %100 "Failed to find C compiler" ile dusuyordu.
+# Tam "-devel" imaja (~3 GB) gecmek yerine tek paket yetiyor.
 RUN if ! command -v python3 >/dev/null 2>&1; then \
       apt-get update && apt-get install -y --no-install-recommends \
-        python3 python3-pip && rm -rf /var/lib/apt/lists/*; \
+        python3 python3-pip python3-dev gcc libc6-dev && rm -rf /var/lib/apt/lists/*; \
+    else \
+      apt-get update && apt-get install -y --no-install-recommends \
+        python3-dev gcc libc6-dev && rm -rf /var/lib/apt/lists/*; \
     fi
+
+# Ubuntu 22.04'un apt'tan gelen pip'i (22.0.2) --break-system-packages
+# bayragini tanimiyor (bu bayrak pip 23.0 ile geldi). Once pip'i
+# yukseltiyoruz ki asagidaki komutlar iki tabanda da calissin.
+RUN python3 -m pip install --upgrade pip
 
 WORKDIR /app
 COPY requirements.txt .
 
 # torch AYRI kuruluyor: indeks tabana gore yukarida secildi.
+#
+# SURUM SABIT: pinlenmemis "torch" pip'e "en uygun surumu sen sec" demek --
+# PyTorch indeksi zaman icinde yeni surumler ekledikce cozumleyici (resolver)
+# farkli calisip nvidia-cudnn-cu12 gibi bagimliliklarda cakisma cikarabiliyor
+# (olculdu: ayni Dockerfile once basariyla 2.6.0+cu124 kurmustu, sonraki
+# build'de ayni satir "ResolutionImpossible" ile patladi). Sabit surum bu
+# belirsizligi kapatiyor.
 RUN python3 -m pip install --break-system-packages torch --index-url ${TORCH_INDEX} \
  && python3 -m pip install --break-system-packages -r requirements.txt
 

@@ -1,7 +1,10 @@
 package org.example.subtitle;
 
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.quarkus.scheduler.Scheduled;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
@@ -9,6 +12,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -77,8 +81,24 @@ public class SubtitleLagMetrics {
     @ConfigProperty(name = "altyazi.butce-ms")
     long butceMs;
 
+    @Inject
+    MeterRegistry meterRegistry;
+
     /** Kanal başına biriken pencere. */
     private final Map<UUID, Pencere> pencereler = new ConcurrentHashMap<>();
+
+    /**
+     * Grafana'nın okuduğu son rapor değerleri, kanal başına — bu, WARN/INFO
+     * log satırındaki ("ALTYAZI KAPSAMA ...") sayıların birebir metrik
+     * karşılığı. Log grep'e alternatif: Loki eklemeden aynı bilgi sorgulanabilir
+     * ve zaman içinde grafiklenebilir olsun diye.
+     *
+     * <p>Dizi indeksleri: 0 ortalama, 1 p50, 2 p95, 3 en kötü, 4 kapsama yüzdesi.
+     * Gauge'lar bu diziye canlı referans tutuyor; her rapor döngüsünde
+     * içerik güncelleniyor, nesne değişmiyor.
+     */
+    private final Map<UUID, double[]> sonRapor = new ConcurrentHashMap<>();
+    private final Set<UUID> gaugeKayitli = ConcurrentHashMap.newKeySet();
 
     /**
      * İzleyicilerin bildirdiği <b>gerçek</b> HLS gecikmesi, kanal başına.
@@ -167,6 +187,7 @@ public class SubtitleLagMetrics {
                 continue;
             }
             Ozet o = p.ozetle();
+            metrikGuncelle(id, o);
             // Yetisemeyen varsa WARN: bu, arayuzde SESSIZCE eksik altyazi
             // demek ve baska hicbir yerde belirti vermiyor.
             if (o.gecKalan() > 0) {
@@ -186,6 +207,59 @@ public class SubtitleLagMetrics {
                     o.butce(), o.butceKaynagi());
             }
         }
+    }
+
+    /**
+     * Rapor değerlerini Grafana'nın okuyabileceği gauge'lara yazar.
+     *
+     * <p>Gauge'lar kanal başına <b>bir kez</b> kaydediliyor ({@code
+     * gaugeKayitli}); sonraki her çağrıda yalnızca arkasındaki dizi
+     * güncelleniyor. Aksi halde her rapor döngüsünde yeni bir meter
+     * kaydedilir ve Prometheus'ta aynı kanal için sonsuz seri birikirdi.
+     */
+    private void metrikGuncelle(UUID channelId, Ozet o) {
+        double[] deger = sonRapor.computeIfAbsent(channelId, id -> new double[5]);
+        deger[0] = o.ortalama();
+        deger[1] = o.p50();
+        deger[2] = o.p95();
+        deger[3] = o.enKotu();
+        deger[4] = o.kapsamaYuzde();
+
+        if (gaugeKayitli.add(channelId)) {
+            for (var istatistik : java.util.List.of(
+                    java.util.Map.entry("ortalama", 0), java.util.Map.entry("p50", 1),
+                    java.util.Map.entry("p95", 2), java.util.Map.entry("en_kotu", 3))) {
+                int idx = istatistik.getValue();
+                Gauge.builder("altyazi_gecikme_ms", deger, d -> d[idx])
+                    .tag("kanal", o.kanal())
+                    .tag("istatistik", istatistik.getKey())
+                    .description("Üretim gecikmesi (bölüt bitişi -> yayın anı), rapor penceresi özeti")
+                    .register(meterRegistry);
+            }
+            Gauge.builder("altyazi_kapsama_yuzde", deger, d -> d[4])
+                .tag("kanal", o.kanal())
+                .description("Bölütlerin yüzde kaçı bütçe içinde yayınlandı (izleyicinin görebileceği kadar hızlı)")
+                .register(meterRegistry);
+        }
+    }
+
+    /**
+     * Kanal kapandığında çağrılır — kayıtlı gauge'ları ve biriken durumu siler.
+     *
+     * <p>{@code metrikGuncelle} gauge'ları {@code gaugeKayitli} korumasıyla
+     * kanal başına bir kez kaydediyor; bu koruma olmadan yayından çıkmış bir
+     * kanal için {@code sonRapor}'daki dizi donmuş son değerinde Prometheus'ta
+     * sonsuza dek raporlanmaya devam ederdi (kanal silinse bile).
+     */
+    public void temizle(UUID channelId, String channelName) {
+        meterRegistry.find("altyazi_gecikme_ms").tag("kanal", channelName)
+            .meters().forEach(meterRegistry::remove);
+        meterRegistry.find("altyazi_kapsama_yuzde").tag("kanal", channelName)
+            .meters().forEach(meterRegistry::remove);
+        gaugeKayitli.remove(channelId);
+        sonRapor.remove(channelId);
+        pencereler.remove(channelId);
+        hlsGecikmeleri.remove(channelId);
     }
 
     /** Son raporlanmamış pencerelerin özeti — testler ve teşhis için. */

@@ -110,6 +110,16 @@ public class Video extends PanacheEntityBase {
     @Column(nullable = false)
     public int attempts = 0;
 
+    /**
+     * İzlenme sayısı. {@code /links} uç noktası her çağrıldığında artar —
+     * kullanıcı "Oynat" düğmesine bastığında. Gerçek oynatma başlamamış
+     * olabilir (kullanıcı hemen kapatabilir) ama izlenme niyetini yeterince
+     * yansıtıyor; ayrı bir "oynatma başladı" olayı kurmak aşırı hassasiyet
+     * olurdu.
+     */
+    @Column(name = "view_count", nullable = false)
+    public long viewCount = 0;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "uploaded_by", nullable = false)
     public AppUser uploadedBy;

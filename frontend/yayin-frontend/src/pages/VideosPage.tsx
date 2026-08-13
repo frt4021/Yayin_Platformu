@@ -4,11 +4,13 @@ import { ApiError } from '@/api/client'
 import { useAuth } from '@/auth/AuthContext'
 import { videosApi } from '@/api/endpoints'
 import { formatBytes, formatDuration } from '@/api/upload'
-import type { VideoDto } from '@/api/types'
+import type { VideoDto, VideoLinks } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
 import {
+  DownloadIcon,
   FilmIcon,
   Loader2Icon,
   PencilIcon,
@@ -18,11 +20,15 @@ import {
   UploadIcon,
 } from 'lucide-react'
 import { VideoEditDialog } from './videos/VideoEditDialog'
-import { VideoPlayerDialog } from './videos/VideoPlayerDialog'
 import { VideoUploadDialog } from './videos/VideoUploadDialog'
 
 /** İşlenen kayıt varken liste tazelenir; yoksa boşuna sorgulanmaz. */
 const REFRESH_MS = 5000
+
+/** 1.234 görüntülenme — YouTube tarzı binlik ayraç. */
+function formatViews(count: number): string {
+  return count.toLocaleString('tr') + ' görüntülenme'
+}
 
 export function VideosPage() {
   // Kütüphane PAYLAŞILAN bir arşiv: giriş yapmış herkes tüm videoları görür
@@ -38,9 +44,14 @@ export function VideosPage() {
   // Yukleme, duzenleme ve silme yalnizca bu rollerde. Izleyici salt okuma.
   const { session, hasRole } = useAuth()
   const yazabilir = hasRole('Yönetici', 'Moderatör')
-  const [playing, setPlaying] = useState<VideoDto | null>(null)
   const [editing, setEditing] = useState<VideoDto | null>(null)
   const [pending, setPending] = useState<Set<string>>(new Set())
+
+  // Oynatılan video (sayfa içi oynatıcı; dialog değil — YouTube gibi solda
+  // oynatıcı, sağda liste).
+  const [playing, setPlaying] = useState<VideoDto | null>(null)
+  const [links, setLinks] = useState<VideoLinks | null>(null)
+  const [linksError, setLinksError] = useState<string | null>(null)
 
   const load = useCallback(async (query: string) => {
     try {
@@ -67,6 +78,44 @@ export function VideosPage() {
     const timer = setInterval(() => void load(search), REFRESH_MS)
     return () => clearInterval(timer)
   }, [active, load, search])
+
+  // Oynatılan video listeden kalktıysa (silindi) oynatıcıyı kapat.
+  useEffect(() => {
+    if (playing && !videos.some((v) => v.id === playing.id)) {
+      setPlaying(null)
+    }
+  }, [videos, playing])
+
+  // Oynatılan video değişince imzalı izleme adresi al. Listede değil burada:
+  // imzalı adresin süresi üretildiği anda işlemeye başlıyor.
+  useEffect(() => {
+    if (!playing) {
+      setLinks(null)
+      setLinksError(null)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const result = await videosApi.links(playing.id)
+        if (!cancelled) {
+          setLinks(result)
+          setLinksError(null)
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setLinksError(e instanceof ApiError ? e.message : 'İzleme adresi alınamadı.')
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [playing])
+
+  // Oynatılan video listede değişmiş olabilir (durum güncellenmiş); en
+  // taze halini tut.
+  const playingCurrent = playing ? videos.find((v) => v.id === playing.id) ?? playing : null
 
   async function remove(video: VideoDto) {
     if (!confirm(`"${video.title}" ve dosyası kalıcı olarak silinecek. Emin misiniz?`)) return
@@ -127,7 +176,121 @@ export function VideosPage() {
             {search ? `"${search}" ile eşleşen video yok.` : 'Kütüphane boş.'}
           </p>
         </div>
+      ) : playingCurrent ? (
+        // YouTube tarzı: solda oynatıcı + başlık/açıklama, sağda liste.
+        <div className="flex flex-col gap-6 lg:flex-row">
+          <div className="min-w-0 flex-1">
+            <div className="aspect-video overflow-hidden rounded-xl bg-black">
+              {linksError ? (
+                <div className="grid size-full place-items-center p-4 text-center text-sm text-status-error">
+                  {linksError}
+                </div>
+              ) : links ? (
+                // key: adres degisince oynatici yeniden kurulmali.
+                <video
+                  key={links.stream}
+                  src={links.stream}
+                  controls
+                  autoPlay
+                  className="size-full"
+                />
+              ) : (
+                <div className="grid size-full place-items-center">
+                  <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
+                </div>
+              )}
+            </div>
+
+            <h2 className="mt-3 text-xl font-semibold tracking-tight">{playingCurrent.title}</h2>
+
+            {/* YouTube tarzi: basligin altinda "X görüntülenme · tarih" —
+                ayrinti (süre, çözünürlük, boyut) ikinci satirda, soluk. */}
+            <div className="mt-0.5 text-sm text-muted-foreground">
+              {formatViews(playingCurrent.viewCount)}
+              {playingCurrent.createdAt && (
+                <span> · {new Date(playingCurrent.createdAt).toLocaleDateString('tr')}</span>
+              )}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>{formatDuration(playingCurrent.durationSeconds)}</span>
+              {playingCurrent.width ? (
+                <span>· {playingCurrent.width}x{playingCurrent.height}</span>
+              ) : null}
+              <span>· {formatBytes(playingCurrent.sizeBytes)}</span>
+              {playingCurrent.uploadedBy ? <span>· {playingCurrent.uploadedBy}</span> : null}
+              <StatusBadge video={playingCurrent} />
+            </div>
+
+            <div className="mt-3 flex items-center gap-2">
+              {links && (
+                <Button variant="outline" asChild>
+                  <a href={links.download} download={links.fileName}>
+                    <DownloadIcon />
+                    İndir
+                  </a>
+                </Button>
+              )}
+              {yazabilir &&
+                (hasRole('Yönetici') || playingCurrent.uploadedBy === session?.username) && (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => setEditing(playingCurrent)}
+                      disabled={playingCurrent.status === 'YUKLENIYOR'}
+                    >
+                      <PencilIcon />
+                      Düzenle
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => void remove(playingCurrent)}
+                      disabled={
+                        pending.has(playingCurrent.id) || playingCurrent.status === 'ISLENIYOR'
+                      }
+                    >
+                      {pending.has(playingCurrent.id) ? (
+                        <Loader2Icon className="animate-spin" />
+                      ) : (
+                        <Trash2Icon />
+                      )}
+                      Sil
+                    </Button>
+                  </>
+                )}
+              <Button variant="ghost" onClick={() => setPlaying(null)}>
+                Listeye dön
+              </Button>
+            </div>
+
+            {playingCurrent.description && (
+              <p className="mt-3 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border bg-card p-3 text-sm text-muted-foreground">
+                {playingCurrent.description}
+              </p>
+            )}
+
+            {playingCurrent.status === 'HATA' && playingCurrent.error && (
+              <p className="mt-2 text-sm text-status-error">{playingCurrent.error}</p>
+            )}
+          </div>
+
+          {/* Sağdaki oynatma listesi — tarih sırasına göre (backend zaten
+              createdAt desc döndürüyor). Tıklayınca oynatıcı değişir. */}
+          <aside className="flex w-full shrink-0 flex-col gap-2 lg:w-80">
+            <h3 className="text-sm font-medium text-muted-foreground">Oynatma listesi</h3>
+            <div className="flex flex-col gap-2">
+              {videos.map((video) => (
+                <ListItem
+                  key={video.id}
+                  video={video}
+                  active={video.id === playingCurrent.id}
+                  onPlay={() => setPlaying(video)}
+                />
+              ))}
+            </div>
+          </aside>
+        </div>
       ) : (
+        // Boş durum: video seçilmemiş — ızgara.
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {videos.map((video) => (
             <VideoCard
@@ -135,9 +298,6 @@ export function VideosPage() {
               video={video}
               busy={pending.has(video.id)}
               onPlay={() => setPlaying(video)}
-              // Kütüphaneyi herkes görür ama düzenleme/silme sahibine özel;
-              // yönetici tümüne dokunabilir. Moderatör başkasının videosunda
-              // düğmeleri görseydi 403 alırdı.
               yazabilir={
                 yazabilir && (hasRole('Yönetici') || video.uploadedBy === session?.username)
               }
@@ -152,11 +312,6 @@ export function VideosPage() {
         open={uploadOpen}
         onOpenChange={setUploadOpen}
         onUploaded={() => void load(search)}
-      />
-      <VideoPlayerDialog
-        video={playing}
-        open={playing !== null}
-        onOpenChange={(open) => !open && setPlaying(null)}
       />
       <VideoEditDialog
         video={editing}
@@ -293,6 +448,9 @@ function VideoCard({
           {video.title}
         </div>
         <div className="text-xs text-muted-foreground">
+          {formatViews(video.viewCount)}
+        </div>
+        <div className="text-xs text-muted-foreground">
           {formatBytes(video.sizeBytes)}
           {video.width ? ` · ${video.width}x${video.height}` : ''}
           {video.uploadedBy ? ` · ${video.uploadedBy}` : ''}
@@ -334,6 +492,60 @@ function VideoCard({
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * Sağdaki oynatma listesindeki tek satır — YouTube'un "Up next" listesi gibi.
+ * Küçük resim sol, başlık ve meta sağda; oynatılan video vurgulanır.
+ */
+function ListItem({
+  video,
+  active,
+  onPlay,
+}: {
+  video: VideoDto
+  active: boolean
+  onPlay: () => void
+}) {
+  const playable = video.status === 'HAZIR'
+  return (
+    <button
+      type="button"
+      onClick={onPlay}
+      disabled={!playable}
+      className={cn(
+        'flex gap-2 rounded-lg p-1.5 text-left transition-colors',
+        active ? 'bg-accent' : 'hover:bg-accent/50',
+        !playable && 'cursor-default opacity-70',
+      )}
+    >
+      <div className="relative aspect-video w-28 shrink-0 overflow-hidden rounded-md bg-black">
+        {video.thumbnailUrl ? (
+          <img src={video.thumbnailUrl} alt="" className="size-full object-cover" />
+        ) : (
+          <div className="grid size-full place-items-center">
+            <FilmIcon className="size-4 text-muted-foreground" />
+          </div>
+        )}
+        {video.durationSeconds != null && (
+          <span className="absolute bottom-0.5 right-0.5 rounded bg-black/75 px-1 text-[10px] font-medium text-white">
+            {formatDuration(video.durationSeconds)}
+          </span>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="line-clamp-2 text-xs font-medium" title={video.title}>
+          {video.title}
+        </div>
+        <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+          {video.uploadedBy ?? '—'}
+        </div>
+        <div className="text-[11px] text-muted-foreground">
+          {formatViews(video.viewCount)}
+        </div>
+      </div>
+    </button>
   )
 }
 

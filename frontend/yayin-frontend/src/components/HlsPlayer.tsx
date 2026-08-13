@@ -83,6 +83,10 @@ export function HlsPlayer({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
+  // Hata kurtarma deneme sayısı. Sınırsız bırakılırsa her hata yeni segment
+  // isteği açıp MediaMTX'te reader (izleyici) sayısının sürekli artmasına
+  // yol açıyor — eskileri kapanmadan yenisi açılıyor.
+  const retryRef = useRef(0)
   const [status, setStatus] = useState<Status>('loading')
   const [detail, setDetail] = useState<string | null>(null)
   const [behindLive, setBehindLive] = useState(false)
@@ -141,8 +145,18 @@ export function HlsPlayer({
     const video = videoRef.current
     if (!video) return
 
+    // Oncelikle eski hls varsa tamamen yok et — birakilan hls arka planda
+    // segment indirmeye devam eder ve MediaMTX'te reader (izleyici) birikir.
+    if (hlsRef.current) {
+      hlsRef.current.destroy()
+      hlsRef.current = null
+    }
+    video.removeAttribute('src')
+    video.load()
+
     setStatus('loading')
     setDetail(null)
+    retryRef.current = 0
 
     // Safari HLS'i yerel olarak oynatır; hls.js'i araya sokmak gereksiz
     // ve Safari'de daha kötü sonuç verir.
@@ -189,15 +203,37 @@ export function HlsPlayer({
 
     hls.on(Hls.Events.ERROR, (_event, data) => {
       if (!data.fatal) return
-      // Ölümcül hatalarda hls.js kendini toparlayabiliyor. Canlı yayında
-      // kaynak birkaç saniye kesilip geri gelebildiği için önce kurtarmayı
-      // deniyoruz; hemen hata göstermek yanıltıcı olurdu.
-      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-        hls.startLoad()
-        return
-      }
-      if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-        hls.recoverMediaError()
+      // Ölümcül hatalarda hls.js'in startLoad/recoverMediaError kurtarması
+      // her çağrıda yeni segment isteği açıyor; eskileri tam kapanmıyor ve
+      // MediaMTX her birini ayrı reader (izleyici) sayıyor. Bunun yerine
+      // tamamen yok edip temiz bir bağlantıyla yeniden kuruyoruz.
+      if (retryRef.current < 3) {
+        retryRef.current += 1
+        hls.destroy()
+        setTimeout(() => {
+          if (hlsRef.current !== hls) return // arada baska kurulmus
+          const video2 = videoRef.current
+          if (!video2) return
+          const fresh = new Hls({
+            lowLatencyMode: true,
+            capLevelToPlayerSize: true,
+            maxBufferLength: 10,
+            liveSyncDurationCount: hlsGerideOku(),
+          })
+          fresh.on(Hls.Events.MANIFEST_PARSED, () => {
+            setStatus('playing')
+            video2.play().catch(() => {})
+          })
+          fresh.on(Hls.Events.ERROR, (_e2, d2) => {
+            if (!d2.fatal) return
+            setStatus('error')
+            setDetail(d2.details)
+            fresh.destroy()
+          })
+          hlsRef.current = fresh
+          fresh.loadSource(src)
+          fresh.attachMedia(video2)
+        }, 1000)
         return
       }
       setStatus('error')
@@ -211,6 +247,7 @@ export function HlsPlayer({
 
     return () => {
       hlsRef.current = null
+      retryRef.current = 0
       hls.destroy()
     }
   }, [src])

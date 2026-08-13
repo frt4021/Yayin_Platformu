@@ -17,6 +17,8 @@ volumes:
   postgres_data:
   keycloak_postgres_data:
   minio_data:
+  prometheus_data:
+  grafana_data:
 
 services:
 
@@ -190,6 +192,7 @@ services:
       # Komutu backend uretiyor ama KODLAMA mediamtx konteynerinde calisiyor;
       # bu yuzden deger oradaki donanima gore secilmeli.
       CHANNELS_ENCODER: ${CHANNELS_ENCODER:-VAAPI}
+      CHANNELS_MAX_ACTIVE: ${CHANNELS_MAX_ACTIVE:-16}
 
       MINIO_ENDPOINT: http://minio:9000
       # Imzali indirme adresleri tarayicida acilir; S3 imzasi Host basligini
@@ -337,6 +340,11 @@ services:
       VAD_OVERLAP_MS: ${VAD_OVERLAP_MS:-800}
       STT_URL: ${STT_URL:-http://stt-worker:8100}
       VAD_STT_ENABLED: ${VAD_STT_ENABLED:-true}
+      # AYNI degisken stt-worker'a da gidiyor (asagida) -- Java gonderici
+      # havuzu ile Python'un Semaphore'u ELLE senkron tutulmasin diye tek
+      # kaynak. Biri artip digeri unutulursa biri bosa GPU'ya istek yigar,
+      # digeri kuyrukta bekletir.
+      STT_MAX_CONCURRENCY: ${STT_MAX_CONCURRENCY:-2}
       MEDIAMTX_RTSP_URL: ${MEDIAMTX_RTSP_URL:-rtsp://mediamtx:8554}
 
       # DVR kaydi BURADA: ffmpeg gerektiriyor ve backend imajinda ffmpeg yok.
@@ -392,5 +400,69 @@ services:
       - backend
     ports:
       - "${PORT_FRONTEND:-3000}:80"
+    networks:
+      - yayin-merkezi
+
+  # --- İzleme: GPU donanım metrikleri ---
+  #
+  # NVIDIA'nin kendi exporter'i -- STT_MAX_CONCURRENCY gibi ayarlarin GPU'yu
+  # gercekten ne kadar doldurdugunu (util, VRAM, SM occupancy) Prometheus'a
+  # tasir. GPU yoksa (CONTAINER_RUNTIME=runc) bu servis anlamsiz -- yine de
+  # ayakta kalir, /metrics bos/hatali doner, Prometheus hedefi "down" gosterir.
+  #
+  # SM occupancy/profiling alanlari (DCGM_FI_PROF_*) bazi tuketici kartlarda
+  # (GeForce) hic raporlanmayabilir -- bu, DCGM'in surucu/kart sinirlamasi,
+  # buradaki yapilandirmanin degil.
+  dcgm-exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04
+    container_name: dcgm-exporter
+    restart: unless-stopped
+    runtime: ${CONTAINER_RUNTIME:-runc}
+    cap_add:
+      - SYS_ADMIN
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-}
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-}
+    ports:
+      - "${PORT_DCGM:-9400}:9400"
+    networks:
+      - yayin-merkezi
+
+  # --- İzleme: altyazı kuyruğu metrikleri ---
+  #
+  # Backend ve video-worker AYNI jar oldugu icin ikisi de /q/metrics acar;
+  # gercek kuyruk degerleri (VadService) yalnizca video-worker'da olusuyor.
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - ./src/main/docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PORT_PROMETHEUS:-9090}:9090"
+    depends_on:
+      - backend
+      - video-worker
+      - dcgm-exporter
+    networks:
+      - yayin-merkezi
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Ilk acilista sifre degistirme istemesin -- yerel/kurum ici kullanim.
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./src/main/docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "${PORT_GRAFANA:-3001}:3000"
+    depends_on:
+      - prometheus
     networks:
       - yayin-merkezi

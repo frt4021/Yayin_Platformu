@@ -243,7 +243,12 @@ public class VideoService {
      * <p>Listede değil ayrı bir uçta: her video için imza hesaplamak
      * gereksiz olurdu ve kullanıcı listeye bakarken adreslerin süresi
      * işlemeye başlardı.
+     *
+     * <p>İzlenme sayısı burada artırılıyor — kullanıcı "Oynat" düğmesine
+     * bastığında. Gerçek oynatma başlamamış olabilir ama izlenme niyetini
+     * yeterince yansıtıyor.
      */
+    @Transactional
     public VideoLinks links(UUID id, String keycloakId, boolean isAdmin) {
         // Izleme ve indirme adresleri de herkese acik.
         Video video = require(id);
@@ -251,6 +256,8 @@ public class VideoService {
             throw AppException.badRequest(
                 "Video henüz hazır değil (durum: " + video.status + ").");
         }
+        // Sayaci artir: bu, kullanici oynat düğmesine bastiginda gerceklesiyor.
+        video.viewCount++;
         String name = downloadNameOf(video);
         return new VideoLinks(
             storage.streamUrl(video.objectKey),
@@ -504,6 +511,7 @@ public class VideoService {
             video.previewKey == null ? null : storage.thumbnailUrl(video.previewKey),
             video.thumbnailIsUpload,
             video.thumbnailAtSeconds,
+            video.viewCount,
             video.uploadedBy == null ? null : video.uploadedBy.username,
             video.createdAt,
             video.completedAt

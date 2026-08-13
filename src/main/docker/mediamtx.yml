@@ -31,6 +31,23 @@ hlsDirectory: /hls
 # manifest'i CORS hatasıyla reddeder.
 hlsAllowOrigins: ['*']
 
+# Bir HLS oturumu (readers listesindeki her giris) son istekten sonra bu
+# sure boyunca acik tutuluyor -- kisa bir kesintide izleyici sifirdan
+# arabellek doldurmasin diye. Varsayilan 60s: kanal/radyo "kac kisi izliyor"
+# sayaci (ChannelService/RadioService toDto -> readers().size()) bu yuzden
+# gercek ayrilmadan dakikaya yakin yuksek gorunuyordu.
+#
+# OLCULDU: master playlist'e her yeni istek (her "src degisti" -> hls.js
+# yeniden baglanma) MediaMTX'te ayri bir hlsSession aciyor; eskisi hemen
+# kapanmiyor, varsayilan 60s'lik bu sure gecene kadar readers'ta kaliyor.
+# Bes kez ac/kapa dongusunde reader sayisi 5'e kadar cikti, hicbir istek
+# olmadan ~70s sonra kendiliginden 0'a dustu (kod degisikligi olmadan).
+#
+# 10s'e dusuruldu: sayac gerceğe çok daha yakin takip eder. Cok kisa
+# tutulmamali -- bir izleyici bu sureden uzun donarsa (agir buffering)
+# oturumu MediaMTX kapatir ve bir sonraki istek sifirdan yeni oturum acar.
+hlsMuxerCloseAfter: 10s
+
 ###############################################
 # Kimlik doğrulama
 ###############################################

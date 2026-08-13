@@ -1,0 +1,24 @@
+# Yayın Merkezi — altyazı kuyruğu metrikleri.
+#
+# Backend ve video-worker AYNI jar, ama VadService (ve onun kuyruk
+# metrikleri) yalnızca video-worker'da gerçek değer üretiyor -- VAD_ENABLED
+# backend'de kapalı. Backend de tarandığı için diğer standart JVM/HTTP
+# metrikleri de görünür oluyor, kazancı buradan.
+global:
+  scrape_interval: 10s
+
+scrape_configs:
+  - job_name: backend
+    metrics_path: /q/metrics
+    static_configs:
+      - targets: ["backend:8081"]
+
+  - job_name: video-worker
+    metrics_path: /q/metrics
+    static_configs:
+      - targets: ["video-worker:8082"]
+
+  - job_name: dcgm-exporter
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["dcgm-exporter:9400"]

@@ -19,6 +19,7 @@ import logging
 import threading
 import time
 
+import anyio
 from fastapi import FastAPI, HTTPException, Query, Request
 
 from .config import BYTES_PER_SAMPLE, SAMPLE_RATE, SETTINGS
@@ -133,7 +134,16 @@ async def transcribe(
     started = time.perf_counter()
 
     try:
-        text, language, confidence = transcriber.transcribe(pcm)
+        # KRITIK: transcribe() senkron/blocking (model.transcribe CPU/GPU'da
+        # calisirken Python thread'i tutuyor). Dogrudan cagrilirsa uvicorn'un
+        # tek event loop'unu bloklar -- "async def" olmasina ragmen istekler
+        # TEK TEK islenir (olculdu: Asama 0 testinde 6 paralel istek, art arda
+        # ~1,5-2sn arayla sirayla bitti, aralarinda ORTUSME yoktu).
+        # to_thread.run_sync bunu ayri bir thread'e atip event loop'u serbest
+        # birakir -- STT_MAX_CONCURRENCY'nin (Semaphore) etkili olabilmesi
+        # icin bu SART, semafor tek basina yetmiyor.
+        text, language, confidence = await anyio.to_thread.run_sync(
+            transcriber.transcribe, pcm)
     except Exception as e:
         metrics.record_failure()
         log.exception("Çözümleme başarısız: channel=%s %s", channel, start)
@@ -142,7 +152,11 @@ async def transcribe(
     translation_started = time.perf_counter()
     # Ceviri hatasi TUM sonucu dusurmemeli: Ingilizce metin zaten uretildi ve
     # tek basina degerli. Eksik diller sonucta yer almiyor.
-    translations = translator.translate(text)
+    #
+    # translate() kendi icinde artik async: 3 dili ayri thread'lere dagitip
+    # asyncio ile bekliyor (bkz. translate.py) -- sirali cagrilsaydi 3 dilin
+    # suresi toplanirdi.
+    translations = await translator.translate(text)
     translation_ms = int((time.perf_counter() - translation_started) * 1000)
 
     processing_ms = int((time.perf_counter() - started) * 1000)

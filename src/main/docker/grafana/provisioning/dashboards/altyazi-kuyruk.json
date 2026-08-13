@@ -1,0 +1,229 @@
+{
+  "title": "Altyazı Kuyruğu",
+  "uid": "altyazi-kuyruk",
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Aktif kanal sayısı",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "altyazi_aktif_kanal", "legendFormat": "aktif kanal" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" } } }
+    },
+    {
+      "id": 2,
+      "title": "Toplam bekleyen bölüt (tüm kanallar)",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        { "expr": "sum(altyazi_kuyruk_derinlik)", "legendFormat": "toplam bekleyen" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Son 5 dakikada düşme oranı (bölüt/sn)",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(altyazi_bolut_dusme_toplam[5m]))", "legendFormat": "düşme/sn" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.01 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Drop olan kanal sayısı (son 5dk) — sağlıklıysa 0",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "description": "10-16 kanallık bir kurulumda bu sayı 0 OLMALI. 1 veya daha fazlaysa en az bir kanal GPU/kuyruk kapasitesine yetişemiyor demektir — acil kırmızı bayrak.",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        {
+          "expr": "count(sum by (kanal) (increase(altyazi_bolut_dusme_toplam[5m])) > 0) OR on() vector(0)",
+          "legendFormat": "drop olan kanal"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Kanal başına kuyruk derinliği (canlı)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
+      "description": "Her kanalın o an kuyruğunda bekleyen, henüz çözümlenmemiş bölüt sayısı. Kapasite 4 -- bir kanal sürekli 4'te takılıyorsa GPU'ya yetişemiyor demektir.",
+      "targets": [
+        {
+          "expr": "altyazi_kuyruk_derinlik",
+          "legendFormat": "{{kanal}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineInterpolation": "stepAfter", "fillOpacity": 10 },
+          "min": 0,
+          "max": 4
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Kuyruk büyüme eğilimi (bölüt/dk)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
+      "description": "Pozitif = kuyruk büyüyor (GPU yetişemiyor). Negatif/sıfıra yakın = kuyruk boşalıyor ya da dengede. Kapasite (4) tavanına çarpan bir kanalda bu eğilim yanıltıcı düzleşir -- derinlik grafiğiyle BİRLİKTE okunmalı.",
+      "targets": [
+        {
+          "expr": "deriv(altyazi_kuyruk_derinlik[5m]) * 60",
+          "legendFormat": "{{kanal}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 5,
+            "thresholdsStyle": { "mode": "line" }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Üretim gecikmesi — p95, kanal başına",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "description": "Eski 'ALTYAZI KAPSAMA' log satırındaki p95 değerinin metrik karşılığı. Kırmızı çizgi bütçe (ALTYAZI_BUTCE_MS, varsayılan 8000ms) -- p95 bu çizginin üstündeyse izleyicilerin çoğu o kanalın altyazısını GÖRMÜYOR.",
+      "targets": [
+        {
+          "expr": "altyazi_gecikme_ms{istatistik=\"p95\"}",
+          "legendFormat": "{{kanal}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "drawStyle": "line", "fillOpacity": 5, "thresholdsStyle": { "mode": "line" } },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 8000 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Kapsama % — kanal başına",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "description": "Bölütlerin yüzde kaçı bütçe içinde yayınlandı, yani izleyici tarafından görülebilecek kadar hızlı üretildi. %100 hedef; sürekli %0 o kanalın altyazısının hiç görünmediği anlamına gelir.",
+      "targets": [
+        {
+          "expr": "altyazi_kapsama_yuzde",
+          "legendFormat": "{{kanal}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": { "drawStyle": "line", "fillOpacity": 10 }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "En çok düşen kanallar — sebep bazında (son 15 dk toplam)",
+      "type": "bargauge",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 21 },
+      "description": "sebep=yas -> bütçeyi (ALTYAZI_BUTCE_MS) aşmış, kuyruğa hiç alınmadı. sebep=kapasite -> kanalın kendi kuyruğu doluydu, en eski atıldı.",
+      "targets": [
+        {
+          "expr": "sum by (kanal, sebep) (increase(altyazi_bolut_dusme_toplam[15m]))",
+          "legendFormat": "{{kanal}} — {{sebep}}"
+        }
+      ],
+      "options": { "orientation": "horizontal", "displayMode": "gradient" }
+    },
+    {
+      "id": 10,
+      "title": "GPU kullanımı (%)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 29 },
+      "description": "DCGM_FI_DEV_GPU_UTIL. Sürekli %100 ise darboğaz GPU hesap gücü -- concurrency/kanal sayısı ayarları burada etkisiz kalır.",
+      "targets": [
+        { "expr": "DCGM_FI_DEV_GPU_UTIL", "legendFormat": "GPU {{gpu}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
+    },
+    {
+      "id": 11,
+      "title": "VRAM kullanımı (MB)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 29 },
+      "description": "DCGM_FI_DEV_FB_USED. Bu kartta (6 GB) tavan ~6000 MB.",
+      "targets": [
+        { "expr": "DCGM_FI_DEV_FB_USED", "legendFormat": "GPU {{gpu}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "decmbytes" } }
+    },
+    {
+      "id": 12,
+      "title": "SM Occupancy / Activity",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 29 },
+      "description": "DCGM_FI_PROF_SM_OCCUPANCY ve DCGM_FI_PROF_SM_ACTIVE -- GPU_UTIL'den daha ince: kartın hesap birimlerinin (SM) ne kadarı gerçekten dolu. UYARI: bu profiling alanları bazı GeForce/tüketici kartlarında hiç raporlanmaz -- panel boş kalırsa bu, yapılandırma hatası değil, DCGM'in donanım/sürücü sınırlaması.",
+      "targets": [
+        { "expr": "DCGM_FI_PROF_SM_OCCUPANCY", "legendFormat": "SM occupancy — GPU {{gpu}}" },
+        { "expr": "DCGM_FI_PROF_SM_ACTIVE", "legendFormat": "SM active — GPU {{gpu}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } }
+    }
+  ]
+}

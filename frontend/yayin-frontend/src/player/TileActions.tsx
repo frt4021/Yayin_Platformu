@@ -90,6 +90,11 @@ export function TileActions({
       onRecordingChanged()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Kayıt işlemi başarısız.')
+      // Hata durumunda kayıt listesini tazele: "zaten kayıt var" hatası
+      // alındıysa recording prop hâlâ null olabilir (liste eski) ve düğme
+      // yanlış durumda kalır. Sayfa değişip geri dönüldüğünde de aynı
+      // durum oluşur — periyodik yoklama olsa da anında düzelmeyebilir.
+      onRecordingChanged()
     } finally {
       setBusy(false)
     }

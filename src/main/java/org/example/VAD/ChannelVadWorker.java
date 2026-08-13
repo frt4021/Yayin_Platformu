@@ -168,4 +168,8 @@ public final class ChannelVadWorker implements Runnable, AutoCloseable {
     public String mediamtxPath() {
         return mediamtxPath;
     }
+
+    public String channelName() {
+        return channelName;
+    }
 }

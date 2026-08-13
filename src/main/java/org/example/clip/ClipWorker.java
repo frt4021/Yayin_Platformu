@@ -235,6 +235,18 @@ ClipWorker {
         if (clip == null) {
             return null;
         }
+        // Kanal silinmis olabilir (V21: ON DELETE SET NULL). clip.channel null
+        // iken mediamtxPath ya da id'ye erismek NPE atardi ve is sessizce
+        // HATA'ya dusup "clip.channel null" mesajiyla gorunurdu.
+        //
+        // Kanal yokken DVR'den de okunamiyor (segmentler kanal id'sine gore);
+        // bu durum zaten geri dondurulemez. Yine de NPE yerine acik bir hata
+        // veriyoruz — channelName hâlâ duruyor, klibin nereden geldigi
+        // bilinebiliyor.
+        if (clip.channel == null) {
+            throw AppException.notFound(
+                "Kanal silinmiş; bu klibin kaynağı artık erişilemez: " + clip.channelName);
+        }
         // <kullanici>/<kanal>/<id>.mp4 -- icerik zaten kullaniciya ozel,
         // klasor duzeni de onu yansitiyor.
         String key = org.example.storage.StoragePaths.channelFile(

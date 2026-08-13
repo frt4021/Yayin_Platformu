@@ -17,15 +17,19 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -71,6 +75,9 @@ public class VadService {
     @Inject
     com.fasterxml.jackson.databind.ObjectMapper json;
 
+    @Inject
+    io.micrometer.core.instrument.MeterRegistry meterRegistry;
+
     @ConfigProperty(name = "vad.enabled")
     boolean enabled;
 
@@ -87,8 +94,27 @@ public class VadService {
     @ConfigProperty(name = "vad.stt-enabled")
     boolean sttEnabled;
 
+    /**
+     * Kuyruktan aynı anda kaç "stt-gonderici" thread'i STT'ye istek
+     * gönderebilir. {@code STT_MAX_CONCURRENCY} ile AYNI env değişkeninden
+     * okunuyor — stt-worker'daki Semaphore ile elle senkron tutulmaya
+     * gerek kalmasın diye tek kaynak.
+     */
+    @ConfigProperty(name = "vad.stt-gonderici-sayisi")
+    int sttGondericiSayisi;
+
     @ConfigProperty(name = "mediamtx.rtsp-url")
     String rtspBase;
+
+    /**
+     * Altyazı bütçesi — {@code SubtitleLagMetrics}'in kapsama yüzdesini
+     * hesapladığı aynı değer. Burada farklı bir amaçla kullanılıyor: bir
+     * bölüt kuyruğa girmeden önce bu bütçeyi ÇOKTAN aşmışsa, işlenmiş olsa
+     * bile izleyiciye asla ulaşmayacak (bkz. SubtitleOverlay'deki mutlak
+     * zaman damgası eşleşmesi) — o yüzden hiç kuyruğa alınmıyor.
+     */
+    @ConfigProperty(name = "altyazi.butce-ms")
+    long butceMs;
 
     private final Map<UUID, ChannelVadWorker> workers = new ConcurrentHashMap<>();
     private ExecutorService pool;
@@ -101,13 +127,44 @@ public class VadService {
      * süre boyunca dururdu; ffmpeg borusu dolar, sonraki kareler kaybolur ve
      * ses akışı bozulurdu.
      *
-     * <p>Kuyruk <b>sınırlı ve dolduğunda bölüt düşürülüyor</b>. Sınırsız
-     * olsaydı STT yetişemediğinde bellek sessizce büyür ve sonunda süreç
-     * ölürdü; beklemek ise yakalamayı durdurmak demek — canlı yayında
-     * geçmişi bekletemezsin.
+     * <h2>Neden kanal başına ayrı kuyruk</h2>
+     * Tek paylaşımlı kuyrukta konuşkan bir kanal kapasitenin tamamını
+     * doldurabiliyordu — sessiz kanalların taze bölütleri de aynı kapıda
+     * reddediliyordu ("head-of-line blocking"). Kanal başına küçük, ayrı bir
+     * kuyruk bu haksızlığı kapatıyor: bir kanalın tavanı diğerini etkilemez.
+     *
+     * <h2>Neden en eski düşürülüyor, en yeni değil</h2>
+     * Kuyruk dolduğunda önceki tasarım YENİ gelen bölütü reddediyordu
+     * (Java'nın {@code offer()}'ı), ama tüketim hep EN ESKİDEN yapılıyordu
+     * ({@code take()}) — kuyruk bir kez dolunca içi kalıcı olarak bayat
+     * kalıyordu. Şimdi tam tersi: dolunca en eski atılır, taze olan girer.
+     * Canlı altyazıda izleyici "şimdi ne söyleniyor"u önemser, dakikalar önce
+     * kuyruğa girmiş bir cümleyi değil.
      */
-    private final BlockingQueue<SpeechSegment> queue = new ArrayBlockingQueue<>(64);
+    private static final int KANAL_KUYRUK_KAPASITESI = 4;
+
+    /** Kanal başına bekleyen bölütler — kapasitesi {@link #KANAL_KUYRUK_KAPASITESI}. */
+    private final Map<UUID, Deque<SpeechSegment>> bekleyen = new ConcurrentHashMap<>();
+
+    /**
+     * İşlenmeyi bekleyen bölütü olan kanallar — round-robin sırayla.
+     *
+     * <p>Bir kanal aynı anda en fazla bir kez burada: iş bitince kuyrukta
+     * başka bölütü kaldıysa sıranın SONUNA yeniden ekleniyor, böylece
+     * ardışık iki bölüt aynı kanaldan gelse de diğer kanallar aradan
+     * geçebiliyor.
+     */
+    private final BlockingQueue<UUID> hazir = new LinkedBlockingQueue<>();
+
+    /** Kanal başına kayıtlı derinlik gauge'u — durunca kaydı silinsin diye tutuluyor. */
+    private final Map<UUID, io.micrometer.core.instrument.Gauge> kuyrukGaugeleri = new ConcurrentHashMap<>();
+
     private ExecutorService sttPool;
+
+    @jakarta.annotation.PostConstruct
+    void metrikleriKaydet() {
+        meterRegistry.gauge("altyazi_aktif_kanal", workers, Map::size);
+    }
 
     /**
      * Yayında olan kanallarla aktif işçileri eşitler.
@@ -169,12 +226,12 @@ public class VadService {
         if (sttPool != null || !sttEnabled) {
             return;
         }
-        sttPool = Executors.newFixedThreadPool(2, r -> {
+        sttPool = Executors.newFixedThreadPool(sttGondericiSayisi, r -> {
             Thread t = new Thread(r, "stt-gonderici");
             t.setDaemon(true);
             return t;
         });
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < sttGondericiSayisi; i++) {
             sttPool.submit(this::sttDongusu);
         }
     }
@@ -182,7 +239,11 @@ public class VadService {
     private void sttDongusu() {
         while (!Thread.currentThread().isInterrupted()) {
             try {
-                SpeechSegment segment = queue.take();
+                UUID channelId = hazir.take();
+                SpeechSegment segment = kanaldanAl(channelId);
+                if (segment == null) {
+                    continue;
+                }
                 String cevap = stt.transcribe(segment);
                 if (cevap != null) {
                     kaydet(segment, cevap);
@@ -193,6 +254,26 @@ public class VadService {
                 LOG.warnf("Çözümleme kuyruğunda hata: %s", e.getMessage());
             }
         }
+    }
+
+    /**
+     * Kanalın kuyruğundan en eski bölütü alır; kuyrukta başka bölüt
+     * kaldıysa kanalı {@link #hazir} sırasının SONUNA yeniden ekler —
+     * round-robin adilliği burada sağlanıyor.
+     */
+    private SpeechSegment kanaldanAl(UUID channelId) {
+        Deque<SpeechSegment> kanalKuyrugu = bekleyen.get(channelId);
+        if (kanalKuyrugu == null) {
+            return null;
+        }
+        SpeechSegment segment;
+        synchronized (kanalKuyrugu) {
+            segment = kanalKuyrugu.pollFirst();
+            if (!kanalKuyrugu.isEmpty()) {
+                hazir.add(channelId);
+            }
+        }
+        return segment;
     }
 
     /**
@@ -262,6 +343,20 @@ public class VadService {
             rtspBase, modelPath, this::onSegment);
         workers.put(channel.id, worker);
         pool.submit(worker);
+
+        // Grafana'da "şu an hangi kanalın kuyruğu ne kadar dolu" sorusuna
+        // cevap veren gauge. Kanal adı etiket: birden fazla kanalın aynı
+        // adı taşımaması channels.name'in UNIQUE olmasıyla garanti.
+        var gauge = io.micrometer.core.instrument.Gauge
+            .builder("altyazi_kuyruk_derinlik", () -> {
+                Deque<SpeechSegment> kanalKuyrugu = bekleyen.get(channel.id);
+                return kanalKuyrugu == null ? 0 : kanalKuyrugu.size();
+            })
+            .tag("kanal", channel.name)
+            .description("O an kanal kuyruğunda bekleyen, henüz çözümlenmemiş bölüt sayısı")
+            .register(meterRegistry);
+        kuyrukGaugeleri.put(channel.id, gauge);
+
         LOG.infof("VAD başladı: %s (%s)", channel.name, channel.mediamtxPath);
     }
 
@@ -270,6 +365,31 @@ public class VadService {
         if (worker != null) {
             worker.close();
             LOG.infof("VAD durduruldu: %s", worker.mediamtxPath());
+        }
+        // Kanal kapanınca bekleyen bölütleri de düşür: yayından çıkmış bir
+        // kanalın eski sesini çözümlemenin kimseye faydası yok, üstüne
+        // bellekte sonsuza dek dolu bir kuyruk olarak kalmasın.
+        bekleyen.remove(channelId);
+
+        // Gauge'u da kaydı da sil -- yoksa Prometheus'ta artık var olmayan
+        // kanallar icin sonsuza dek "0" degerinde olu seriler birikir.
+        var eskiGauge = kuyrukGaugeleri.remove(channelId);
+        if (eskiGauge != null) {
+            meterRegistry.remove(eskiGauge);
+        }
+
+        // Dusme sayaci (Counter) ad-hoc kaydediliyor (bkz. kuyrugaEkle) ve
+        // gauge gibi tek bir referansi yok -- kanal silinen/pasife alinan
+        // her kanal icin registry'de "sebep" bazinda arayip kaldiriyoruz.
+        // SubtitleLagMetrics'in kendi gauge'lari (gecikme/kapsama) da ayni
+        // sekilde: kanal ismini bilmeden temizlenemez. Isim yalnizca worker
+        // uzerinden erisiliyor -- bu yuzden worker null ise (senkron disi
+        // bir cagri) atlaniyor.
+        if (worker != null) {
+            String kanalAdi = worker.channelName();
+            meterRegistry.find("altyazi_bolut_dusme_toplam").tag("kanal", kanalAdi)
+                .meters().forEach(meterRegistry::remove);
+            lag.temizle(channelId, kanalAdi);
         }
     }
 
@@ -311,11 +431,49 @@ public class VadService {
             LOG.warnf("Bölüt yazılamadı: %s", e.getMessage());
         }
 
-        if (sttEnabled && !queue.offer(segment)) {
-            // Sessizce dusurmek, altyazinin neden eksik oldugunu hicbir
-            // yerde gostermezdi. STT yetismiyorsa bunun gorunmesi sart.
-            LOG.warnf("Çözümleme kuyruğu dolu, bölüt düşürüldü: %s [%s]",
-                segment.channelName(), segment.startedAt());
+        if (sttEnabled) {
+            kuyrugaEkle(segment);
+        }
+    }
+
+    /**
+     * Bölütü kanalının kuyruğuna ekler.
+     *
+     * <p>İki eleme, bu sırayla: önce YAŞ — {@code butceMs}'i çoktan aşmışsa
+     * hiç kuyruğa girmiyor, çünkü işlense de izleyiciye asla ulaşmayacak
+     * (mutlak zaman damgası eşleşmesi geçmişte kalmış bir pencereyi bir daha
+     * hiç yakalamaz). Sonra KAPASİTE — kanalın kendi kuyruğu doluysa en
+     * eskisi atılır, yenisi girer.
+     *
+     * <p>Sessizce düşürmek, altyazının neden eksik olduğunu hiçbir yerde
+     * göstermezdi. STT yetişmiyorsa bunun görünmesi şart.
+     */
+    private void kuyrugaEkle(SpeechSegment segment) {
+        long yasMs = Duration.between(segment.endedAt(), Instant.now()).toMillis();
+        if (yasMs > butceMs) {
+            meterRegistry.counter("altyazi_bolut_dusme_toplam",
+                "sebep", "yas", "kanal", segment.channelName()).increment();
+            LOG.warnf("Bölüt bütçeyi (%d ms) aşmış, kuyruğa alınmadan düşürüldü: %s [%s, %d ms geride]",
+                butceMs, segment.channelName(), segment.startedAt(), yasMs);
+            return;
+        }
+
+        Deque<SpeechSegment> kanalKuyrugu =
+            bekleyen.computeIfAbsent(segment.channelId(), id -> new ArrayDeque<>());
+        boolean yeniSinyal;
+        synchronized (kanalKuyrugu) {
+            if (kanalKuyrugu.size() >= KANAL_KUYRUK_KAPASITESI) {
+                SpeechSegment atilan = kanalKuyrugu.pollFirst();
+                meterRegistry.counter("altyazi_bolut_dusme_toplam",
+                    "sebep", "kapasite", "kanal", segment.channelName()).increment();
+                LOG.warnf("Kanal kuyruğu dolu, en eski bölüt düşürüldü: %s [%s]",
+                    segment.channelName(), atilan != null ? atilan.startedAt() : null);
+            }
+            yeniSinyal = kanalKuyrugu.isEmpty();
+            kanalKuyrugu.addLast(segment);
+        }
+        if (yeniSinyal) {
+            hazir.add(segment.channelId());
         }
     }
 

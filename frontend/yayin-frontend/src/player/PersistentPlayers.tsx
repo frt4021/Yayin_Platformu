@@ -73,6 +73,15 @@ export function PersistentPlayers() {
 
   useEffect(() => {
     void loadRecordings()
+    // Kayit durumu periyodik tazeleniyor: kullanici kaydi baslatip baska
+    // sayfaya gectiginde geri dondugunde dugmenin durumu guncel olmali,
+    // yoksa "durdur" yerine "baslat" gorup tekrar baslatmaya calisir ya da
+    // tam tersi — olmayan kaydi durdurmaya kalkar. Sayfa degisince bu
+    // katman unmount olmuyor (AppLayout icinde, Outlet disinda) ama yine
+    // de periyodik yoklama olmadan kaydin bittigi (ust sinira ulasti)
+    // haberdar olunamiyor.
+    const timer = setInterval(() => void loadRecordings(), 10_000)
+    return () => clearInterval(timer)
   }, [loadRecordings])
 
   // openIds sırası korunuyor; kanal listesi tazelenince karolar yer değiştirmesin.
@@ -353,12 +362,15 @@ function Tile({
           adresini çalışırken değiştiremiyor. */}
       {rewindUrl ? (
         // Geri sarılan bölüm düz bir mp4; HLS oynatıcıya gerek yok.
+        // Bittiğinde otomatik canlı yayına dönülüyor — kullanıcı "Canlı"
+        // düğmesine basmak zorunda kalmasın.
         <video
           key={rewindUrl}
           ref={setVideoEl}
           src={rewindUrl}
           autoPlay
           muted={!hasAudio}
+          onEnded={backToLive}
           className="size-full bg-black object-contain"
         />
       ) : (
@@ -507,10 +519,10 @@ function Tile({
         </div>
       </div>
 
-      {/* Uzun geri sarma (30 sn / 1 dk / 5 dk) DVR'dan geliyor ve denetim
-          çubuğundaki ±10 sn'den ayrı bir şey: çubuk yalnızca atlanabilir
-          aralıkta gezinir, bu ise kaynağı DVR kaydına çevirir. Çubuğun
-          ÜSTÜNDE duruyor, yoksa üst üste binerdi. */}
+      {/* DVR çubuğu — kayıtlı aralıklarda serbest gezmeyi sağlar. Denetim
+          çubuğundaki ±10 sn'den ayrı: o yalnızca atlanabilir aralıkta
+          gezinir, bu kaynağı DVR kaydına çevirir. Çubuğun ÜSTÜNDE
+          duruyor, yoksa üst üste binerdi. */}
       {showControls && !compact && (
         <div className="pointer-events-none absolute inset-x-0 bottom-24 flex justify-center">
           <div className="rounded-full bg-black/70 px-2 py-1">

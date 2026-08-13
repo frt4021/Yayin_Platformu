@@ -38,6 +38,10 @@ export function PersistentRadio({
 }) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const hlsRef = useRef<Hls | null>(null)
+  // Hata kurtarma deneme sayısı. Sınırsız bırakılırsa her hata yeni segment
+  // isteği açıp MediaMTX'te reader (dinleyici) sayısının sürekli artmasına
+  // yol açıyor — eskileri kapanmadan yenisi açılıyor.
+  const retryRef = useRef(0)
 
   const [radios, setRadios] = useState<RadioDto[]>([])
   const [status, setStatus] = useState<Status>('loading')
@@ -60,11 +64,30 @@ export function PersistentRadio({
 
   // Yayını bağla. Yalnızca adres değiştiğinde çalışır — duraklatma ve ses
   // seviyesi ayrı efektlerde, yoksa her düğmeye basışta yayın yeniden kurulurdu.
+  //
+  // hls.js her açılışta MediaMTX'e bağlanır ve segmentler için ayrı HTTP
+  // istekleri açar. Bu istekler tam kapanmadan yenileri açılırsa MediaMTX
+  // her birini ayrı reader (dinleyici) sayıyor ve sayaç artıyor. Bu yüzden:
+  //   1) Yalnızca src değişince yeniden kur — her render'da değil.
+  //   2) Kurulumdan ÖNCE eski hls'i tamamen yok et (destroy).
+  //   3) Hata kurtarmada startLoad yerine tamamen yeniden kur.
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !src) return
 
+    // Oncelikle eski hls varsa tamamen yok et — birakilan hls arka planda
+    // segment indirmeye devam eder ve MediaMTX'te reader birikir.
+    if (hlsRef.current) {
+      hlsRef.current.destroy()
+      hlsRef.current = null
+    }
+    // audio elementinin src'ini de temizle: Safari yerel HLS'inde eski
+    // baglanti kapanmadan yenisi kurulabilir.
+    audio.removeAttribute('src')
+    audio.load()
+
     setStatus('loading')
+    retryRef.current = 0
 
     // Safari HLS'i yerel oynatır; hls.js'i araya sokmak orada daha kötü sonuç verir.
     if (!Hls.isSupported()) {
@@ -90,14 +113,31 @@ export function PersistentRadio({
 
     hls.on(Hls.Events.ERROR, (_event, data) => {
       if (!data.fatal) return
-      // Icecast bağlantıları düşüp geri gelebiliyor; hemen hata göstermek
-      // yanıltıcı olurdu. Önce hls.js'in kendi kurtarmasını deniyoruz.
-      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-        hls.startLoad()
-        return
-      }
-      if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-        hls.recoverMediaError()
+      // Icecast bağlantıları düşüp geri gelebiliyor. Ancak startLoad/
+      // recoverMediaError her çağrıda yeni segment isteği açıp eskileri
+      // kapatmıyor — MediaMTX reader birikiyor. Bunun yerine tamamen
+      // yok edip yeniden kuruyoruz: tek bir temiz bağlantı.
+      if (retryRef.current < 3) {
+        retryRef.current += 1
+        hls.destroy()
+        // Kissa bir bekleme sonra yeniden kur — ayni anda kurmak yine
+        // iki baglanti acardi.
+        setTimeout(() => {
+          if (hlsRef.current === hls) return // arada baska kurulmus
+          const fresh = new Hls({ lowLatencyMode: true, maxBufferLength: 15 })
+          fresh.on(Hls.Events.MANIFEST_PARSED, () => {
+            setStatus('playing')
+            void audio.play().catch(() => {})
+          })
+          fresh.on(Hls.Events.ERROR, (_e2, d2) => {
+            if (!d2.fatal) return
+            setStatus('error')
+            fresh.destroy()
+          })
+          hlsRef.current = fresh
+          fresh.loadSource(src)
+          fresh.attachMedia(audio)
+        }, 1000)
         return
       }
       setStatus('error')
@@ -110,6 +150,7 @@ export function PersistentRadio({
 
     return () => {
       hlsRef.current = null
+      retryRef.current = 0
       hls.destroy()
     }
   }, [src])

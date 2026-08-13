@@ -58,3 +58,5 @@ notlar.md
 
 # VAD dogrulama bolutleri — depoya girmiyor.
 vad-bolutler/
+jdk_kur.sh
+nvidia_toolkit_kur.sh

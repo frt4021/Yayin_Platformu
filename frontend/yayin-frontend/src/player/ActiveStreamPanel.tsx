@@ -129,16 +129,19 @@ function KanalSatiri({
 /**
  * Kanal adının altındaki satır.
  *
- * <p>Kaynak çözünürlüğü biliniyorsa o gösteriliyor — kullanıcının kanalları
- * ayırt etmesine gerçekten yarayan tek ek bilgi bu. Bilinmiyorsa izleyici
- * sayısına, o da yoksa yol adına düşülüyor.
+ * <p>Çözünürlük ve izleyici sayısı MediaMTX'ten anlık okunuyor
+ * ({@code ChannelService.toDto} — readers().size(), birikimli değil, o anki
+ * durum). İkisi de varsa yan yana gösteriliyor; hiçbiri yoksa yol adına
+ * düşülüyor.
  */
 function ikinciSatir(channel: ChannelDto): string {
+  const parcalar: string[] = []
   if (channel.sourceWidth && channel.sourceHeight) {
-    return `${channel.sourceWidth}×${channel.sourceHeight}`
+    parcalar.push(`${channel.sourceWidth}×${channel.sourceHeight}`)
   }
   if (channel.viewers != null) {
-    return `${channel.viewers} izleyici`
+    parcalar.push(`${channel.viewers} izleyici`)
   }
-  return channel.mediamtxPath
+  if (parcalar.length === 0) return channel.mediamtxPath
+  return parcalar.join(' · ')
 }

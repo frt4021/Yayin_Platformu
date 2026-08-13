@@ -220,6 +220,8 @@ export interface VideoDto {
    */
   thumbnailIsUpload: boolean
   thumbnailAtSeconds: number | null
+  /** İzlenme sayısı — "Oynat" düğmesine basıldığında artar. */
+  viewCount: number
   uploadedBy: string | null
   createdAt: string | null
   completedAt: string | null

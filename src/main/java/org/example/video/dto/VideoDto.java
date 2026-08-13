@@ -49,6 +49,8 @@ public record VideoDto(
     String previewUrl,
     boolean thumbnailIsUpload,
     Integer thumbnailAtSeconds,
+    /** İzlenme sayısı — {@code /links} her çağrıldığında artar. */
+    long viewCount,
     String uploadedBy,
     Instant createdAt,
     Instant completedAt

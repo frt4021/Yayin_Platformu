@@ -127,6 +127,12 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-arc</artifactId>
         </dependency>
+        <!-- Grafana/Prometheus icin: /q/metrics ucunu acar. VadService'teki
+             kuyruk metrikleri (derinlik, dusme) bunun uzerinden yayinlanir. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-micrometer-registry-prometheus</artifactId>
+        </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-hibernate-orm</artifactId>

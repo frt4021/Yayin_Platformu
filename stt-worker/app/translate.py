@@ -5,9 +5,9 @@ Whisper pivotu sağladığı için burada yalnızca `EN → X` yönleri var. Kay
 dil kümesi genişlese bile bu set **sabit kalıyor**; çevrimdışı kısıt altında
 belirleyici kazanç bu.
 
-Çeviri **CPU'da** çalışıyor. GPU'yu Whisper'a bırakmak bilinçli: 20 kanal
-hedefinde GPU en kıt kaynak, metin çevirisi ise cümle başına birkaç on
-milisaniye ve 8 çekirdek 60 metin akışını rahat taşıyor.
+Çeviri Whisper ile AYNI cihazda çalışır (`STT_DEVICE`). CPU'da ölçülen tavan
+4,39x idi — üç dil tek kilitle seri çalıştığı için Whisper'ı GPU'ya alsan
+bile çeviri darboğaz oluyordu.
 """
 
 import logging
@@ -33,7 +33,10 @@ class Translator:
 
     def __init__(self) -> None:
         self._models: dict[str, tuple] = {}
-        self._lock = threading.Lock()
+        # Dil basina AYRI kilit: TR cevirisi DE'yi bloklamasin. Ayni dilin
+        # ardisik cagrilari hala seri -- ayni model nesnesine es zamanli
+        # generate() cagrisi guvenli sayilmiyor.
+        self._locks: dict[str, threading.Lock] = {}
 
     def load(self) -> None:
         """
@@ -47,22 +50,31 @@ class Translator:
 
         for language in SETTINGS.target_languages:
             path = SETTINGS.translation_path(language)
-            log.info("Çeviri modeli yükleniyor: EN → %s (%s)", language.upper(), path)
+            log.info("Çeviri modeli yükleniyor: EN → %s (%s, %s)",
+                     language.upper(), path, SETTINGS.device)
             # local_files_only=True SART -- kapali agda indirmeye kalkmasin.
             tokenizer = MarianTokenizer.from_pretrained(path, local_files_only=True)
             model = MarianMTModel.from_pretrained(path, local_files_only=True)
             model.eval()
+            model.to(SETTINGS.device)
             self._models[language] = (tokenizer, model)
+            self._locks[language] = threading.Lock()
 
     def loaded_languages(self) -> list[str]:
         return sorted(self._models.keys())
 
-    def translate(self, english: str) -> dict[str, str]:
+    async def translate(self, english: str) -> dict[str, str]:
         """
         İngilizce metni hedef dillere çevirir.
 
         İngilizce'nin kendisi **çeviri istemiyor** — Whisper'ın çıktısı zaten
         o; çağıran onu doğrudan kullanıyor.
+
+        <p>Üç dil AYRI thread'lere dağıtılıp eşzamanlı çalıştırılıyor
+        (anyio.to_thread + asyncio.gather) — sıralı çağrıldığında (eski
+        davranış) üç dilin süresi toplanıyordu. Dil başına ayrı kilit
+        (bkz. _translate_one) olduğu için bu güvenli: bir dilin çevirisi
+        diğerini bloklamıyor.
 
         :return: dil kodundan metne. Bir dil başarısız olursa o dil sonuçta
                  **yer almaz**; diğerleri üretilir.
@@ -71,28 +83,43 @@ class Translator:
             return {}
 
         sentences = self._split(english)
-        result: dict[str, str] = {}
 
-        for language, (tokenizer, model) in self._models.items():
+        import anyio
+
+        async def bir_dili_cevir(language, tokenizer, model):
             try:
-                result[language] = self._translate_one(tokenizer, model, sentences)
+                metin = await anyio.to_thread.run_sync(
+                    self._translate_one, language, tokenizer, model, sentences)
+                return language, metin
             except Exception as e:
                 # Tek dilin hatasi TUM altyaziyi dusurmemeli: diger diller
                 # uretilsin, eksik olan gorunsun.
                 log.warning("Çeviri başarısız (EN → %s): %s", language.upper(), e)
-        return result
+                return language, None
+
+        async with anyio.create_task_group() as tg:
+            sonuclar: list[tuple[str, str | None]] = []
+
+            async def calistir(language, tokenizer, model):
+                sonuclar.append(await bir_dili_cevir(language, tokenizer, model))
+
+            for language, (tokenizer, model) in self._models.items():
+                tg.start_soon(calistir, language, tokenizer, model)
+
+        return {lang: metin for lang, metin in sonuclar if metin is not None}
 
     # ------------------------------------------------------------------
 
-    def _translate_one(self, tokenizer, model, sentences: list[str]) -> str:
+    def _translate_one(self, language: str, tokenizer, model, sentences: list[str]) -> str:
         import torch
 
         # Cumleler TEK YIGINDA: tek tek cevirmek her cumle icin ayri bir
         # ileri gecis demek ve kisa cumlelerde ek yuk isin kendisinden
         # buyuk oluyor.
-        with self._lock, torch.no_grad():
+        with self._locks[language], torch.no_grad():
             batch = tokenizer(sentences, return_tensors="pt",
                               padding=True, truncation=True, max_length=512)
+            batch = batch.to(SETTINGS.device)
             generated = model.generate(**batch, max_length=512, num_beams=1)
             parts = tokenizer.batch_decode(generated, skip_special_tokens=True)
         return " ".join(p.strip() for p in parts if p.strip())
