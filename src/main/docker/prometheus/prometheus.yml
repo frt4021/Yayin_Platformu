@@ -22,3 +22,13 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ["dcgm-exporter:9400"]
+
+  # Triton'un kendi urettigi nv_inference_*/nv_cache_*/nv_gpu_memory_*
+  # metrikleri -- container'in ic portu (8002), disari acilan PORT_TRITON_METRICS
+  # host port'u degil (docker network'te servisler birbirine container adi +
+  # ic port ile konusuyor). stt-worker'in eski job'unun (stt_batch_boyutu vb.)
+  # yerini aldi -- stt-worker artik calismiyor.
+  - job_name: triton
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["triton:8002"]

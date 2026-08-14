@@ -1,0 +1,24 @@
+name: "marian_en_ru"
+backend: "python"
+max_batch_size: 16
+
+input [
+  { name: "SOURCE_TEXT", data_type: TYPE_STRING, dims: [ 1 ] }
+]
+output [
+  { name: "TRANSLATED_TEXT", data_type: TYPE_STRING, dims: [ 1 ] }
+]
+
+dynamic_batching {
+  preferred_batch_size: [ 4, 8, 16 ]
+  max_queue_delay_microseconds: 50000
+}
+
+instance_group [
+  { count: ${MARIAN_RU_INSTANCES}, kind: KIND_GPU, gpus: [ 0 ] }
+  # entrypoint.sh'de envsubst ile .env'deki MARIAN_RU_INSTANCES'a gore doldurulur.
+]
+
+response_cache {
+  enable: true
+}

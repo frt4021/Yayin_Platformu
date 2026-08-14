@@ -186,26 +186,26 @@ baslat() {
   ip="$(grep -m1 '^MINIO_PUBLIC_URL=' "$ENV_DOSYASI" | sed 's|.*//||;s|:.*||')"
   alan="$(grep -m1 '^PUBLIC_HOST=' "$ENV_DOSYASI" | cut -d= -f2- || true)"
 
-  # --- stt-worker saglik denetimi ---
+  # --- triton saglik denetimi ---
   #
-  # En sik ariza: model bellege sigmiyor ve konteyner yeniden baslama
+  # En sik ariza: model(ler) bellege sigmiyor ve konteyner yeniden baslama
   # dongusune giriyor. Belirtisi "restarting" durumu; sebebi log'un
   # icinde OOM olarak gorunmeyebiliyor cunku surec cekirdek tarafindan
   # oldurulyor. Sessiz kalmak yerine dogrudan cozumu gosteriyoruz.
-  local stt_durum
-  stt_durum="$(docker inspect -f '{{.State.Status}}' stt-worker 2>/dev/null || echo yok)"
-  if [ "$stt_durum" = "restarting" ]; then
+  local triton_durum
+  triton_durum="$(docker inspect -f '{{.State.Status}}' triton 2>/dev/null || echo yok)"
+  if [ "$triton_durum" = "restarting" ]; then
     echo
-    sari "  ! stt-worker yeniden başlama döngüsünde."
-    gri  "    En olası sebep: model belleğe sığmıyor."
-    gri  "    GPU'da  -> VRAM yetmiyor. Daha küçük model ya da daha düşük hassasiyet:"
-    gri  "               STT_MODEL=medium   ya da   STT_COMPUTE_TYPE=int8"
-    gri  "    CPU'da  -> RAM yetmiyor. large-v3 int8 ile ~2 GB, float16 ile ~3 GB ister."
-    gri  "    Değişiklik sonrası imaj YENİDEN KURULMALI (model imaja gömülü):"
-    gri  "               docker compose build stt-worker"
+    sari "  ! triton yeniden başlama döngüsünde."
+    gri  "    En olası sebep: model(ler) belleğe sığmıyor (whisper + 3 marian)."
+    gri  "    GPU'da  -> VRAM yetmiyor. WHISPER_INSTANCES/MARIAN_*_INSTANCES'i"
+    gri  "               düşürün (.env, sadece 'docker compose up -d triton' yeter,"
+    gri  "               REBUILD gerekmez) ya da STT_MODEL=medium / STT_COMPUTE_TYPE=int8."
+    gri  "    Model/dil degisikligi sonrasi imaj YENİDEN KURULMALI (agirliklar imaja gömülü):"
+    gri  "               docker compose build triton"
     echo
     gri  "    Son loglar:"
-    docker logs stt-worker --tail 5 2>&1 | sed 's/^/      /'
+    docker logs triton --tail 5 2>&1 | sed 's/^/      /'
     echo
   fi
 
@@ -238,6 +238,9 @@ baslat() {
   echo
   gri "  İlk giriş: Keycloak'ta tanımlı kullanıcı, şifre 12345678"
   gri "  Loglar   : docker compose -f $COMPOSE logs -f backend"
+  local imaj_etiketi
+  imaj_etiketi="$(grep -m1 '^IMAGE_TAG=' "$ENV_DOSYASI" 2>/dev/null | cut -d= -f2-)"
+  gri "  İmaj etiketi (backend/frontend/video-worker/triton): ${imaj_etiketi:-latest}"
   echo
 }
 

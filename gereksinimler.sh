@@ -211,13 +211,14 @@ denetle_kapasite() {
 
   gri "  · çekirdek: $cekirdek   RAM: ${ram_gb:-?} GB   boş disk: ${bos_gb:-?} GB"
 
-  # Imajlar: backend 1,37 GB + video-worker 1,37 GB + stt-worker ~9,8 GB
-  # + mediamtx 921 MB + altyapi. Olculdu.
+  # Imajlar: backend 1,37 GB + video-worker 1,37 GB + mediamtx 921 MB +
+  # altyapi + triton (Whisper + 3 Marian + Triton taban imaji -- boyutu
+  # HENUZ OLCULMEDI, stt-worker'in eski ~9,8 GB'inden buyuk olmasi beklenir).
   if [ -n "$bos_gb" ] && [ "$bos_gb" -lt 25 ]; then
-    zayif "disk — ${bos_gb} GB boş; yalnızca imajlar ~15 GB (stt-worker tek başına 9,8 GB)"
+    zayif "disk — ${bos_gb} GB boş; imajlar (triton dahil) ~15-20 GB olabilir, ölçülmedi"
   fi
   if [ -n "$ram_gb" ] && [ "$ram_gb" -lt 8 ]; then
-    zayif "ram — ${ram_gb} GB; stt-worker modelleri yükleyemeden yeniden başlar"
+    zayif "ram — ${ram_gb} GB; triton modelleri yükleyemeden yeniden başlar"
   fi
 }
 

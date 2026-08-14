@@ -56,6 +56,13 @@ dist/
 # Ertelenen isler — kisisel calisma notu, depoya girmiyor.
 notlar.md
 
+# Planlama/oturum notlari — depoya girmiyor, tek kaynak README.md.
+docs/
+*.pdf
+/ölçekleme.md
+/altyazı-ölçekleme.md
+/triton-uygulama.md
+
 # VAD dogrulama bolutleri — depoya girmiyor.
 vad-bolutler/
 jdk_kur.sh

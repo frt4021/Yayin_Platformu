@@ -20,34 +20,50 @@ public class SubtitleService {
     private static final Logger LOG = Logger.getLogger(SubtitleService.class);
 
     /**
-     * Çözümlenmiş bir bölütü kaydeder.
+     * Bir bölütün bir veya birden fazla dilini kaydeder/birleştirir.
      *
-     * <p>Aynı bölüt iki kez gelirse <b>sessizce atlanıyor</b>: STT yeniden
-     * denenirse ya da işçi iki kez açılırsa çift kayıt oluşur ve arayüz
-     * altyazıyı çift gösterirdi.
+     * <p>Triton'a geçişle pivot (İngilizce) ve her çeviri AYRI AYRI, kendi
+     * hazır olduğu anda gelir ("anında yayınla" deseni — bir dil geç kalırsa
+     * diğerleri onu beklemez). Aynı {@code (channelId, baslangic)} için ilk
+     * çağrı satırı OLUŞTURUR, sonrakiler VAR OLAN satırın {@code metinler}
+     * haritasına EKLER — üzerine yazmaz, birleştirir.
+     *
+     * @return o an için GÜNCEL (birleşmiş) metinler haritası — çağıran taraf
+     *         bunu olduğu gibi yayınlar, böylece izleyici o ana kadar hazır
+     *         olan TÜM dilleri görür.
      */
     @Transactional
-    public void kaydet(UUID channelId, Instant baslangic, Instant bitis,
-                       String kaynakDil, Float guven,
-                       Map<String, String> metinler, boolean kesik) {
-        if (Subtitle.exists(channelId, baslangic)) {
-            return;
+    public Map<String, String> kaydetVeyaBirlestir(UUID channelId, Instant baslangic, Instant bitis,
+                                                    String kaynakDil, Float guven,
+                                                    Map<String, String> yeniMetinler, boolean kesik) {
+        Subtitle s = Subtitle.bul(channelId, baslangic);
+        if (s == null) {
+            Channel channel = Channel.findById(channelId);
+            if (channel == null) {
+                // Kanal silinmis: altyazinin tutunacagi bir sey yok.
+                return yeniMetinler;
+            }
+            s = new Subtitle();
+            s.channel = channel;
+            s.baslangic = baslangic;
+            s.bitis = bitis;
+            s.kaynakDil = kaynakDil;
+            s.guven = guven;
+            s.metinler = new java.util.HashMap<>(yeniMetinler);
+            s.kesik = kesik;
+            s.persist();
+            LOG.debugf("Altyazı oluşturuldu: %s [%s] +%s", channel.name, baslangic, yeniMetinler.keySet());
+            return s.metinler;
         }
-        Channel channel = Channel.findById(channelId);
-        if (channel == null) {
-            // Kanal silinmis: altyazinin tutunacagi bir sey yok.
-            return;
-        }
-        Subtitle s = new Subtitle();
-        s.channel = channel;
-        s.baslangic = baslangic;
-        s.bitis = bitis;
-        s.kaynakDil = kaynakDil;
-        s.guven = guven;
-        s.metinler = metinler;
-        s.kesik = kesik;
-        s.persist();
-        LOG.debugf("Altyazı kaydedildi: %s [%s]", channel.name, baslangic);
+
+        // Var olan satira YENI dilleri ekle -- yonetilen entity'nin alanina
+        // YENI bir Map atamak sart, mevcut Map'i yerinde degistirmek
+        // Hibernate'in JSON kolon icin dirty-check'ini tetiklemeyebilir.
+        Map<String, String> guncel = new java.util.HashMap<>(s.metinler);
+        guncel.putAll(yeniMetinler);
+        s.metinler = guncel;
+        LOG.debugf("Altyazı güncellendi: %s [%s] +%s", s.channel.name, baslangic, yeniMetinler.keySet());
+        return s.metinler;
     }
 
     /**

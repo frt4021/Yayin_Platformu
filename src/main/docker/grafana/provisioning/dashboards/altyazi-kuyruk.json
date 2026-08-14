@@ -34,7 +34,7 @@
       "datasource": "Prometheus",
       "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
       "targets": [
-        { "expr": "sum(rate(altyazi_bolut_dusme_toplam[5m]))", "legendFormat": "düşme/sn" }
+        { "expr": "sum(rate(altyazi_bolut_dusme_toplam_total[5m]))", "legendFormat": "düşme/sn" }
       ],
       "fieldConfig": {
         "defaults": {
@@ -57,7 +57,7 @@
       "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
       "targets": [
         {
-          "expr": "count(sum by (kanal) (increase(altyazi_bolut_dusme_toplam[5m])) > 0) OR on() vector(0)",
+          "expr": "count(sum by (kanal) (increase(altyazi_bolut_dusme_toplam_total[5m])) > 0) OR on() vector(0)",
           "legendFormat": "drop olan kanal"
         }
       ],
@@ -126,15 +126,23 @@
     },
     {
       "id": 8,
-      "title": "Üretim gecikmesi — p95, kanal başına",
+      "title": "Üretim gecikmesi — ortalama/p50/p95, kanal başına",
       "type": "timeseries",
       "datasource": "Prometheus",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
-      "description": "Eski 'ALTYAZI KAPSAMA' log satırındaki p95 değerinin metrik karşılığı. Kırmızı çizgi bütçe (ALTYAZI_BUTCE_MS, varsayılan 8000ms) -- p95 bu çizginin üstündeyse izleyicilerin çoğu o kanalın altyazısını GÖRMÜYOR.",
+      "description": "Eski 'ALTYAZI KAPSAMA' log satırındaki değerlerin metrik karşılığı. Üçü de aynı SubtitleLagMetrics penceresinden (ortalama/p50/p95 zaten hesaplanıyordu, panel önceden sadece p95'i çiziyordu). Kırmızı çizgi bütçe (ALTYAZI_BUTCE_MS, varsayılan 8000ms) -- p95 bu çizginin üstündeyse izleyicilerin çoğu o kanalın altyazısını GÖRMÜYOR. Ortalama ile p95 arasındaki fark büyükse (bkz. p50/p95 açıklaması) sistem dengesiz demektir -- çoğu bölüt hızlı ama bir azınlık ciddi takılıyor.",
       "targets": [
         {
+          "expr": "altyazi_gecikme_ms{istatistik=\"ortalama\"}",
+          "legendFormat": "{{kanal}} — ortalama"
+        },
+        {
+          "expr": "altyazi_gecikme_ms{istatistik=\"p50\"}",
+          "legendFormat": "{{kanal}} — p50"
+        },
+        {
           "expr": "altyazi_gecikme_ms{istatistik=\"p95\"}",
-          "legendFormat": "{{kanal}}"
+          "legendFormat": "{{kanal}} — p95"
         }
       ],
       "fieldConfig": {
@@ -182,7 +190,7 @@
       "description": "sebep=yas -> bütçeyi (ALTYAZI_BUTCE_MS) aşmış, kuyruğa hiç alınmadı. sebep=kapasite -> kanalın kendi kuyruğu doluydu, en eski atıldı.",
       "targets": [
         {
-          "expr": "sum by (kanal, sebep) (increase(altyazi_bolut_dusme_toplam[15m]))",
+          "expr": "sum by (kanal, sebep) (increase(altyazi_bolut_dusme_toplam_total[15m]))",
           "legendFormat": "{{kanal}} — {{sebep}}"
         }
       ],
@@ -213,17 +221,23 @@
       "fieldConfig": { "defaults": { "unit": "decmbytes" } }
     },
     {
-      "id": 12,
-      "title": "SM Occupancy / Activity",
+      "id": 13,
+      "title": "Çeviri gecikmesi — dil başına EK süre (pivot yayınından itibaren)",
       "type": "timeseries",
       "datasource": "Prometheus",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 29 },
-      "description": "DCGM_FI_PROF_SM_OCCUPANCY ve DCGM_FI_PROF_SM_ACTIVE -- GPU_UTIL'den daha ince: kartın hesap birimlerinin (SM) ne kadarı gerçekten dolu. UYARI: bu profiling alanları bazı GeForce/tüketici kartlarında hiç raporlanmaz -- panel boş kalırsa bu, yapılandırma hatası değil, DCGM'in donanım/sürücü sınırlaması.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 37 },
+      "description": "İngilizce (pivot) her zaman ilk yayınlanan dil -- bu panel her hedef dilin (tr/de/ru) pivottan NE KADAR SONRA yayınlandığını gösterir, toplam üretim gecikmesini değil (o, 'Üretim gecikmesi' panelinde). Bir dil sürekli diğerlerinden yavaşsa (örn. marian_en_tr tc-big modeli) o modelin instance sayısı (MARIAN_TR_INSTANCES vb.) artırılması gerekebilir.",
       "targets": [
-        { "expr": "DCGM_FI_PROF_SM_OCCUPANCY", "legendFormat": "SM occupancy — GPU {{gpu}}" },
-        { "expr": "DCGM_FI_PROF_SM_ACTIVE", "legendFormat": "SM active — GPU {{gpu}}" }
+        {
+          "expr": "altyazi_ceviri_gecikme_ms{istatistik=\"ortalama\"}",
+          "legendFormat": "{{kanal}} — {{dil}} ortalama"
+        },
+        {
+          "expr": "altyazi_ceviri_gecikme_ms{istatistik=\"p95\"}",
+          "legendFormat": "{{kanal}} — {{dil}} p95"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } }
+      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "fillOpacity": 5 } } }
     }
   ]
 }

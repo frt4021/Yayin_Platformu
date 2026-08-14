@@ -101,7 +101,7 @@ env_uret() {
   # mimariyi dogrulamaya yeter.
   local stt_device="cpu" stt_runtime="runc" stt_model="small" stt_compute="int8"
   # Gecikme degerleri: CPU varsayilanlari. NVENC dalinda eziliyor.
-  local vad_segment_ms=6000 stt_batch=8 stt_concurrency=2
+  local vad_segment_ms=6000 stt_concurrency=2
   # Izleyicinin canli kenardan kac bolut geriden izleyecegi = ALTYAZININ
   # BUTCESI. CPU'da uretim gecikmesi buyuk (olculdu: p95 ~23 sn), bu yuzden
   # yuksek. GPU dalinda dusuruluyor.
@@ -115,7 +115,7 @@ env_uret() {
       # makinede video NVENC'e gecer ama STT sessizce CPU'da kalirdi --
       # large-v3 CPU'da ~0,3-0,5x gercek zaman, yani tek kanali bile
       # tasimaz ve sebebi hicbir yerde gorunmezdi.
-      stt_device="cuda"; stt_runtime="nvidia"; stt_model="large-v3"
+      stt_device="cuda"; stt_runtime="nvidia"; stt_model="small"
       stt_compute="int8_float16"
       # Gecikmeyi belirleyen degerler de GPU'ya gore. Bunlar CPU'da
       # birakilirsa GPU alinmis ama gecikme CPU ayarinda kalmis olur:
@@ -124,7 +124,7 @@ env_uret() {
       #   maliyeti dusuk ve gecikmenin en buyuk parcasi bu.
       # DIKKAT: bunlar OLCULMUS degil, baslangic noktasi.
       # Bkz. docs/altyazi-gpu-olcum.md
-      vad_segment_ms=4000; stt_batch=16; stt_concurrency=4
+      vad_segment_ms=4000; stt_concurrency=4
       # Butce de dusuruluyor: GPU'da uretim hizlanmazsa zaten sorun var,
       # hizlanirsa 24 saniye geriden izlemenin anlami yok. OLCTUKTEN SONRA
       # ayarlayin -- kural: butce >= p95 gecikme.
@@ -168,6 +168,13 @@ env_uret() {
 # Değiştirdikten sonra ./baslat.sh ile başlatın.
 
 QUARKUS_PROFILE=prod
+
+# Kendi kurdugumuz imajlarin (backend/frontend/video-worker/triton) etiketi.
+# Varsayilan "latest" -- surum takibi istiyorsan (rollback icin) burayi
+# tarih ya da git kisa hash'i gibi sabit bir degere cevirip
+# \`docker compose build\` yap; her build eskisini EZMEZ, ayri bir etiket
+# olarak durur.
+IMAGE_TAG=latest
 
 # --- Veritabanı ---
 # ÜRETİMDE DEĞİŞTİRİN. İlk açılışta oluşturulur; sonradan değiştirmek için
@@ -298,18 +305,31 @@ STT_DEVICE=$stt_device
 STT_COMPUTE_TYPE=$stt_compute
 
 STT_BEAM_SIZE=5
-# Yigin cozumleme: pencereler tek tek gonderilirse GPU surekli bosta bekler.
-STT_BATCH_SIZE=$stt_batch
-# Es zamanli cozumleme. GPU'da VRAM'e bagli -- olcerek artirin.
+# Java gonderici thread sayisi. Triton'a gecisle asil eszamanlilik/batching
+# WHISPER_INSTANCES + config.pbtxt'teki dynamic_batching ile Triton icinde
+# yonetiliyor -- bu sadece Java tarafi.
 STT_MAX_CONCURRENCY=$stt_concurrency
 
 # Hedef diller. Whisper pivotu sagladigi icin yalnizca EN->X modelleri
 # gerekiyor; kaynak dil kumesi genislese bile bu set SABIT kalir.
 STT_TARGET_LANGS=tr,de,ru
 
-STT_URL=http://stt-worker:8100
 VAD_STT_ENABLED=true
-PORT_STT=8100
+
+# Triton'un adresi ve host'tan erisim portlari. Container-ici port HER ZAMAN
+# 8000/8002 -- bu port degiskenleri sadece host makineden erisim icin.
+TRITON_URL=http://triton:8000
+PORT_TRITON_HTTP=8100
+PORT_TRITON_METRICS=8002
+
+# instance_group.count -- HER BIRI ayri container YENIDEN BASLATMAYLA
+# (rebuild GEREKMEZ) degisir. 6GB kartta whisper darbogaz oldugu icin
+# 2 ile basliyoruz; Marian modelleri cok daha ucuz, ayri artirilabilir.
+# VRAM tepe degeri her degisiklikte OLCULMELI, tahmin, dogrulanmadi.
+WHISPER_INSTANCES=2
+MARIAN_TR_INSTANCES=1
+MARIAN_DE_INSTANCES=1
+MARIAN_RU_INSTANCES=1
 
 # GPU'ya gecerken IKISI BIRDEN degismeli:
 #   STT_DEVICE=cuda    -> taban imaj ve torch surumu bundan turuyor (build)

@@ -169,6 +169,7 @@ services:
     build:
       context: .
       dockerfile: src/main/docker/Dockerfile.jvm
+    image: yayin/backend:${IMAGE_TAG:-latest}
     container_name: backend
     restart: unless-stopped
     environment:
@@ -244,46 +245,57 @@ services:
   # Backend ile AYNI jar, ustune ffmpeg eklenmis imaj. Ayri olmasinin sebebi
   # ffmpeg'in backend imajini ~300 MB buyutmesi ve REST surecinin onu hic
   # kullanmamasi. Sorumluluk ayrimi ortam degiskenleriyle yapiliyor.
-  # STT — AYRI SERVIS. Gerekcesi: faster-whisper + CUDA calisma zamani +
+
+  # --- Triton (Whisper + Marian) ---
+  # AYRI SERVIS. Gerekcesi: faster-whisper/optimum + CUDA calisma zamani +
   # modeller ~5-6 GB eder ve GPU yalnizca buraya gerekiyor. video-worker'i bu
   # boyuta cikarmanin ve onu GPU'ya baglamanin anlami yok.
   #
-  # Varsayilan CPU ve `small` model: bu makinede GPU yok ve mimari CPU'da
-  # dogrulanabiliyor. Uretimde GPU icin .env'de:
+  # Varsayilan CPU: bu makinede GPU yoksa mimari CPU'da dogrulanabiliyor.
+  # Uretimde GPU icin .env'de:
   #   STT_DEVICE=cuda        <- taban imaj ve torch bundan turuyor
   #   STT_RUNTIME=nvidia     <- GPU'yu konteynere acar
   #   STT_MODEL=large-v3
   #   STT_COMPUTE_TYPE=int8_float16
-  stt-worker:
+  # stt-worker'in (bkz. git gecmisi) yerini aldi -- triton-uygulama.md +
+  # bu oturumda netlesen kararlar: VAD Java'da kaliyor, sequence_batching
+  # YOK (Whisper stateless), Marian ONNX+optimum ile Python backend'de.
+  #
+  # instance_group.count'lar BUILD ARG DEGIL, calisma zamani env degiskeni:
+  # entrypoint.sh container acilirken config.pbtxt'lere envsubst ile
+  # yaziyor. Yani WHISPER_INSTANCES/MARIAN_*_INSTANCES'i .env'de degistirip
+  # sadece `docker compose up -d triton` (REBUILD GEREKMEZ) yeterli.
+  triton:
     build:
-      context: ./stt-worker
+      context: ./triton
       args:
-        # TEK degisken: taban imaj ve torch indeksi Dockerfile'da bundan
-        # turetiliyor. Ayri ayri verilseydi (taban CUDA ama torch CPU gibi)
-        # sessizce CPU'da calisan bir GPU kurulumu cikardi.
-        STT_DEVICE: ${STT_DEVICE:-cpu}
         STT_MODEL: ${STT_MODEL:-small}
         STT_TARGET_LANGS: ${STT_TARGET_LANGS:-tr,de,ru}
-    image: yayin/stt-worker:latest
-    container_name: stt-worker
+    image: yayin/triton:${IMAGE_TAG:-latest}
+    container_name: triton
     restart: unless-stopped
     environment:
-      STT_MODEL: ${STT_MODEL:-small}
       STT_DEVICE: ${STT_DEVICE:-cpu}
       STT_COMPUTE_TYPE: ${STT_COMPUTE_TYPE:-int8}
       STT_BEAM_SIZE: ${STT_BEAM_SIZE:-5}
-      STT_BATCH_SIZE: ${STT_BATCH_SIZE:-8}
-      STT_MAX_CONCURRENCY: ${STT_MAX_CONCURRENCY:-2}
-      STT_TARGET_LANGS: ${STT_TARGET_LANGS:-tr,de,ru}
-      STT_LOG_LEVEL: ${STT_LOG_LEVEL:-INFO}
-    # STT_DEVICE=cuda ise burasi da nvidia olmali. Ikisi AYRI kavram:
-    #   imaj  -> CUDA kutuphanelerini ICERIR   (build zamani)
-    #   runtime -> GPU'yu konteynere ACAR      (calisma zamani)
-    # Yalnizca biri degistirilirse GPU ya gorunmez ya kullanilamaz.
-    # yapilandir.sh ikisini birlikte yaziyor.
+      # 6GB kartta whisper darbogaz oldugu icin varsayilan 2 -- Marian
+      # modelleri (ozellikle en_de/en_ru) daha ucuz, ayri ayri artirilabilir.
+      # VRAM tepe degeri her degisiklikte OLCULMELI (docs/triton gecis plani,
+      # Bolum 7 -- tahmin, dogrulanmadi).
+      WHISPER_INSTANCES: ${WHISPER_INSTANCES:-2}
+      MARIAN_TR_INSTANCES: ${MARIAN_TR_INSTANCES:-1}
+      MARIAN_DE_INSTANCES: ${MARIAN_DE_INSTANCES:-1}
+      MARIAN_RU_INSTANCES: ${MARIAN_RU_INSTANCES:-1}
     runtime: ${STT_RUNTIME:-runc}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v2/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
     ports:
-      - "127.0.0.1:${PORT_STT:-8100}:8100"
+      - "127.0.0.1:${PORT_TRITON_HTTP:-8100}:8000"
+      - "127.0.0.1:${PORT_TRITON_METRICS:-8002}:8002"
     networks:
       - yayin-merkezi
 
@@ -291,7 +303,7 @@ services:
     build:
       context: .
       dockerfile: src/main/docker/Dockerfile.worker
-    image: yayin/video-worker:latest
+    image: yayin/video-worker:${IMAGE_TAG:-latest}
     container_name: video-worker
     restart: unless-stopped
     environment:
@@ -338,12 +350,14 @@ services:
       VAD_MIN_SILENCE_MS: ${VAD_MIN_SILENCE_MS:-400}
       VAD_MIN_EMIT_MS: ${VAD_MIN_EMIT_MS:-0}
       VAD_OVERLAP_MS: ${VAD_OVERLAP_MS:-800}
-      STT_URL: ${STT_URL:-http://stt-worker:8100}
+      # Container-ici port HER ZAMAN 8000 -- yukaridaki PORT_TRITON_HTTP
+      # sadece HOST makineden erisim icin, servisler arasi trafik container
+      # adi + ic port ile gidiyor.
+      TRITON_URL: ${TRITON_URL:-http://triton:8000}
       VAD_STT_ENABLED: ${VAD_STT_ENABLED:-true}
-      # AYNI degisken stt-worker'a da gidiyor (asagida) -- Java gonderici
-      # havuzu ile Python'un Semaphore'u ELLE senkron tutulmasin diye tek
-      # kaynak. Biri artip digeri unutulursa biri bosa GPU'ya istek yigar,
-      # digeri kuyrukta bekletir.
+      # Triton'a gecisle asil eszamanlilik/batching instance_group+
+      # dynamic_batching ile Triton icinde yonetiliyor -- bu deger artik
+      # yalnizca Java tarafindaki gonderici thread sayisini sinirliyor.
       STT_MAX_CONCURRENCY: ${STT_MAX_CONCURRENCY:-2}
       MEDIAMTX_RTSP_URL: ${MEDIAMTX_RTSP_URL:-rtsp://mediamtx:8554}
 
@@ -394,6 +408,7 @@ services:
   frontend:
     build:
       context: ./frontend/yayin-frontend
+    image: yayin/frontend:${IMAGE_TAG:-latest}
     container_name: frontend
     restart: unless-stopped
     depends_on:

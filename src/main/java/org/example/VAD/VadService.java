@@ -61,7 +61,7 @@ public class VadService {
     MediaMtxService mediaMtx;
 
     @Inject
-    SttClient stt;
+    TritonClient triton;
 
     @Inject
     org.example.subtitle.SubtitleService subtitles;
@@ -71,9 +71,6 @@ public class VadService {
 
     @Inject
     org.example.subtitle.SubtitleLagMetrics lag;
-
-    @Inject
-    com.fasterxml.jackson.databind.ObjectMapper json;
 
     @Inject
     io.micrometer.core.instrument.MeterRegistry meterRegistry;
@@ -95,10 +92,10 @@ public class VadService {
     boolean sttEnabled;
 
     /**
-     * Kuyruktan aynı anda kaç "stt-gonderici" thread'i STT'ye istek
-     * gönderebilir. {@code STT_MAX_CONCURRENCY} ile AYNI env değişkeninden
-     * okunuyor — stt-worker'daki Semaphore ile elle senkron tutulmaya
-     * gerek kalmasın diye tek kaynak.
+     * Kuyruktan aynı anda kaç "stt-gonderici" thread'i Triton'a istek
+     * gönderebilir. Asıl eşzamanlılık/batching artık Triton içinde
+     * ({@code instance_group} + {@code dynamic_batching}) yönetiliyor — bu
+     * değer yalnızca Java tarafındaki gönderici thread sayısını sınırlıyor.
      */
     @ConfigProperty(name = "vad.stt-gonderici-sayisi")
     int sttGondericiSayisi;
@@ -160,6 +157,24 @@ public class VadService {
     private final Map<UUID, io.micrometer.core.instrument.Gauge> kuyrukGaugeleri = new ConcurrentHashMap<>();
 
     private ExecutorService sttPool;
+
+    /**
+     * Çevirileri dağıtan havuz — {@code sttPool}'dan AYRI: sttPool
+     * thread'leri sürekli {@link #hazir} kuyruğundan almalı, bir bölütün 3
+     * dilinin ağ cevabını beklerken tıkanmamalı.
+     */
+    private ExecutorService ceviriPool;
+
+    /**
+     * Triton'daki hedef dil → model adı eşlemesi. stt-worker/app/config.py'deki
+     * {@code TRANSLATION_MODELS} ile AYNI küme — orada da belirtildiği gibi
+     * SABİT, Whisper pivotu sağladığı için sadece {@code EN → X} yönleri var.
+     */
+    private static final Map<String, String> DIL_MODELLERI = Map.of(
+        "tr", "marian_en_tr",
+        "de", "marian_en_de",
+        "ru", "marian_en_ru"
+    );
 
     @jakarta.annotation.PostConstruct
     void metrikleriKaydet() {
@@ -234,6 +249,11 @@ public class VadService {
         for (int i = 0; i < sttGondericiSayisi; i++) {
             sttPool.submit(this::sttDongusu);
         }
+        ceviriPool = Executors.newCachedThreadPool(r -> {
+            Thread t = new Thread(r, "ceviri-gonderici");
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     private void sttDongusu() {
@@ -244,9 +264,9 @@ public class VadService {
                 if (segment == null) {
                     continue;
                 }
-                String cevap = stt.transcribe(segment);
-                if (cevap != null) {
-                    kaydet(segment, cevap);
+                TritonClient.TranscribeResult sonuc = triton.transcribe(segment);
+                if (sonuc != null && !sonuc.pivotText().isBlank()) {
+                    islePivot(segment, sonuc);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -254,6 +274,49 @@ public class VadService {
                 LOG.warnf("Çözümleme kuyruğunda hata: %s", e.getMessage());
             }
         }
+    }
+
+    /**
+     * Pivot (İngilizce) metin hazır olur olmaz kaydedip yayınlar, SONRA 3
+     * dile PARALEL çeviri isteği başlatır — "anında yayınla" deseni: bir
+     * dilin çevirisi geç kalırsa diğerleri onu beklemeden yayınlanır.
+     *
+     * <p>Ölçüm ({@code lag.kaydet}) burada, pivot anında alınıyor: arayüz
+     * altyazıyı ilk bu anda görür, çeviriler gecikse de "görünür" sayılır.
+     */
+    private void islePivot(SpeechSegment segment, TritonClient.TranscribeResult sonuc) {
+        kaydetVeYayinla(segment, sonuc.sourceLanguage(), sonuc.confidence(),
+            Map.of("en", sonuc.pivotText()));
+
+        lag.kaydet(segment.channelId(), segment.channelName(),
+            segment.endedAt(), segment.durationMs());
+
+        LOG.infof("ALTYAZI %s [%s] %s → %s",
+            segment.channelName(), segment.startedAt(),
+            sonuc.sourceLanguage() == null ? "?" : sonuc.sourceLanguage(),
+            sonuc.pivotText().length() > 80
+                ? sonuc.pivotText().substring(0, 80) + "…" : sonuc.pivotText());
+
+        // Pivot'un yayinlandigi an -- her dilin kendi EK gecikmesini
+        // (pivottan o dilin yayinina kadar) olcmek icin baslangic noktasi.
+        Instant pivotYayinAni = Instant.now();
+
+        DIL_MODELLERI.forEach((dil, model) ->
+            java.util.concurrent.CompletableFuture
+                .supplyAsync(() -> triton.translate(model, sonuc.pivotText()), ceviriPool)
+                .thenAccept(ceviri -> {
+                    if (ceviri != null && !ceviri.isBlank()) {
+                        kaydetVeYayinla(segment, sonuc.sourceLanguage(), sonuc.confidence(),
+                            Map.of(dil, ceviri));
+                        lag.ceviriKaydet(segment.channelName(), dil,
+                            Duration.between(pivotYayinAni, Instant.now()).toMillis());
+                    }
+                })
+                .exceptionally(e -> {
+                    LOG.warnf("Çeviri hata: kanal=%s dil=%s hata=%s",
+                        segment.channelName(), dil, e.getMessage());
+                    return null;
+                }));
     }
 
     /**
@@ -277,55 +340,30 @@ public class VadService {
     }
 
     /**
-     * STT yanıtını altyazı olarak kaydeder.
+     * Bir bölütün bir veya birden fazla dilini kaydedip yayınlar.
      *
-     * <p>İngilizce metin ({@code text}) ve çeviriler ({@code translations})
-     * <b>tek haritada</b> birleştiriliyor: İngilizce de bir hedef dil ve
-     * ayrı tutulması arayüzde iki farklı yoldan okumayı gerektirirdi.
+     * <p>Triton'a geçişle pivot ve her çeviri AYRI çağrılarla, kendi hazır
+     * olduğu anda gelir — bu yüzden burası tek seferlik değil, aynı bölüt
+     * için BİRDEN FAZLA kez (önce {@code {"en": ...}}, sonra sırayla
+     * {@code {"tr": ...}}, {@code {"de": ...}}, {@code {"ru": ...}})
+     * çağrılabiliyor. {@link SubtitleService#kaydetVeyaBirlestir} bunları
+     * aynı satırda birleştirip GÜNCEL haritayı döndürüyor.
      */
-    private void kaydet(SpeechSegment segment, String cevap) {
+    private void kaydetVeYayinla(SpeechSegment segment, String kaynakDil, Float guven,
+                                  Map<String, String> yeniMetinler) {
         try {
-            var kok = json.readTree(cevap);
-            String ingilizce = kok.path("text").asText("");
-            if (ingilizce.isBlank()) {
-                // Bos cozumleme: sessizlik ya da anlasilmayan ses. Kaydetmek
-                // arayuzde bos altyazi kutusu gostermek olurdu.
-                return;
-            }
-
-            Map<String, String> metinler = new HashMap<>();
-            metinler.put("en", ingilizce);
-            var ceviriler = kok.path("translations");
-            ceviriler.fieldNames().forEachRemaining(
-                dil -> metinler.put(dil, ceviriler.path(dil).asText("")));
-
-            Float guven = kok.has("source_language_confidence")
-                ? (float) kok.path("source_language_confidence").asDouble() : null;
-
-            String kaynakDil = kok.path("source_language").asText(null);
-            subtitles.kaydet(segment.channelId(), segment.startedAt(), segment.endedAt(),
-                kaynakDil, guven, metinler, segment.forceCut());
+            Map<String, String> guncelMetinler = subtitles.kaydetVeyaBirlestir(
+                segment.channelId(), segment.startedAt(), segment.endedAt(),
+                kaynakDil, guven, yeniMetinler, segment.forceCut());
 
             // Once veritabani, SONRA yayin. Ters sirada olsaydi izleyici
             // altyaziyi gorur ama sayfayi yenilediginde kaybolurdu.
             broadcaster.publish(new org.example.subtitle.SubtitleEvent(
                 segment.channelId(), segment.startedAt(), segment.endedAt(),
-                kaynakDil, metinler, segment.forceCut()));
-
-            // Olcum YAYINDAN HEMEN SONRA: arayuz altyaziyi zaman damgasina
-            // gore esledigi icin gec kalan bolut gec gosterilmez, HIC
-            // gosterilmez. Kac bolutun yetisemedigi baska hicbir yerde
-            // gorunmuyordu.
-            lag.kaydet(segment.channelId(), segment.channelName(),
-                segment.endedAt(), segment.durationMs());
-
-            LOG.infof("ALTYAZI %s [%s] %s → %s",
-                segment.channelName(), segment.startedAt(),
-                kok.path("source_language").asText("?"),
-                ingilizce.length() > 80 ? ingilizce.substring(0, 80) + "…" : ingilizce);
+                kaynakDil, guncelMetinler, segment.forceCut()));
 
         } catch (Exception e) {
-            // Tek bolutun kaybi hatti durdurmamali.
+            // Tek bolutun/dilin kaybi hatti durdurmamali.
             LOG.warnf("Altyazı kaydedilemedi: %s — %s", segment.channelName(), e.getMessage());
         }
     }
@@ -483,6 +521,9 @@ public class VadService {
         workers.clear();
         if (sttPool != null) {
             sttPool.shutdownNow();
+        }
+        if (ceviriPool != null) {
+            ceviriPool.shutdownNow();
         }
         if (pool != null) {
             pool.shutdown();

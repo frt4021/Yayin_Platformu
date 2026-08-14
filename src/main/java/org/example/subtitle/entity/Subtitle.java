@@ -84,8 +84,14 @@ public class Subtitle extends PanacheEntityBase {
             channelId, from, to);
     }
 
-    /** Aynı bölüt iki kez yazılmasın — STT yeniden denenirse çift kayıt olurdu. */
-    public static boolean exists(UUID channelId, Instant baslangic) {
-        return count("channel.id = ?1 and baslangic = ?2", channelId, baslangic) > 0;
+    /**
+     * Aynı bölütün satırını bulur — varsa.
+     *
+     * <p>Triton'a geçişle pivot (en) ve her çeviri AYRI AYRI, kendi hazır
+     * olduğu anda gelip aynı satırı günceller ("anında yayınla" deseni);
+     * bu yüzden artık sadece var/yok kontrolü değil, satırın kendisi lazım.
+     */
+    public static Subtitle bul(UUID channelId, Instant baslangic) {
+        return find("channel.id = ?1 and baslangic = ?2", channelId, baslangic).firstResult();
     }
 }

@@ -1,0 +1,27 @@
+name: "marian_en_tr"
+backend: "python"
+max_batch_size: 16
+
+input [
+  { name: "SOURCE_TEXT", data_type: TYPE_STRING, dims: [ 1 ] }
+]
+output [
+  { name: "TRANSLATED_TEXT", data_type: TYPE_STRING, dims: [ 1 ] }
+]
+
+dynamic_batching {
+  preferred_batch_size: [ 4, 8, 16 ]
+  max_queue_delay_microseconds: 50000
+}
+
+instance_group [
+  { count: ${MARIAN_TR_INSTANCES}, kind: KIND_GPU, gpus: [ 0 ] }
+  # entrypoint.sh'de envsubst ile .env'deki MARIAN_TR_INSTANCES'a gore doldurulur.
+]
+
+response_cache {
+  enable: true
+  # Haber kanallarindaki tekrarlayan anons/kalip cumleler (jingle, "haberlerin
+  # devaminda..." gibi) icin gercek hit potansiyeli var -- whisper'da
+  # AYNI ayar yok cunku ses byte'lari neredeyse hic birebir ayni olmuyor.
+}
