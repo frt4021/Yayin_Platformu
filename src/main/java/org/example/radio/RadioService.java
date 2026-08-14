@@ -33,6 +33,9 @@ public class RadioService {
     @Inject
     MediaMtxService mediaMtx;
 
+    @Inject
+    org.example.viewer.ViewerPresence viewerPresence;
+
     @ConfigProperty(name = "mediamtx.hls-base-url")
     String hlsBaseUrl;
 
@@ -253,7 +256,8 @@ public class RadioService {
             radio.sortOrder,
             hlsBaseUrl + "/" + radio.mediamtxPath + "/index.m3u8",
             state == null ? null : state.ready(),
-            state == null ? null : state.hlsReaderCount(),
+            // MediaMTX'in reader sayisi DEGIL -- sekme bazli, bkz. ViewerPresence.
+            viewerPresence.sayisi(radio.id),
             radio.createdBy == null ? null : radio.createdBy.username,
             radio.createdAt
         );

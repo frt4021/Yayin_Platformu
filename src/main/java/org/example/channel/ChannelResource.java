@@ -52,6 +52,9 @@ public class ChannelResource {
     @Inject
     ChannelService channelService;
 
+    @Inject
+    org.example.viewer.ViewerPresence viewerPresence;
+
     @GET
     @Operation(summary = "Kanalları listele",
         description = "streaming ve viewers alanları MediaMTX'ten anlık okunur.")
@@ -72,6 +75,27 @@ public class ChannelResource {
     @Operation(summary = "Kanal detayı")
     public ChannelDto get(@PathParam("id") UUID id) {
         return channelService.get(id);
+    }
+
+    /**
+     * İzleme nabzı — sekme kanalı açık tuttuğu sürece periyodik çağrılır.
+     *
+     * <p>Aynı {@code tabId} kaç kez çağrılırsa çağrılsın {@code viewers}
+     * sayısına yalnızca BİR ekliyor — bkz. {@link org.example.viewer.ViewerPresence}.
+     */
+    @PUT
+    @jakarta.ws.rs.Path("/{id}/izleyici/{tabId}")
+    @Operation(summary = "İzleme nabzı", description = "Sekme kanalı izlerken periyodik çağırır.")
+    public void izlemeNabzi(@PathParam("id") UUID id, @PathParam("tabId") String tabId) {
+        viewerPresence.nabiz(id, tabId);
+    }
+
+    /** Sekme kanalı kapatırken çağırır — izleyici sayısı ANINDA düşer. */
+    @DELETE
+    @jakarta.ws.rs.Path("/{id}/izleyici/{tabId}")
+    @Operation(summary = "İzlemeyi bırak")
+    public void izlemeyiBirak(@PathParam("id") UUID id, @PathParam("tabId") String tabId) {
+        viewerPresence.ayril(id, tabId);
     }
 
     @POST

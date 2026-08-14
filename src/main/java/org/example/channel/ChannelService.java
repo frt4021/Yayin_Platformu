@@ -44,6 +44,9 @@ public class ChannelService {
     @Inject
     SourceProbe sourceProbe;
 
+    @Inject
+    org.example.viewer.ViewerPresence viewerPresence;
+
     /** @param active şu an yayında olan kanal sayısı */
     public record Capacity(long active, int max) {
     }
@@ -339,7 +342,8 @@ public class ChannelService {
             channel.sourceHeight,
             hlsBaseUrl + "/" + channel.mediamtxPath + "/index.m3u8",
             state == null ? null : state.ready(),
-            state == null ? null : state.hlsReaderCount(),
+            // MediaMTX'in reader sayisi DEGIL -- sekme bazli, bkz. ViewerPresence.
+            viewerPresence.sayisi(channel.id),
             channel.createdBy == null ? null : channel.createdBy.username,
             channel.createdAt
         );

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Hls from 'hls.js'
 import { cn } from '@/lib/utils'
 import { hlsGerideOku } from '@/player/oynaticiAyarlari'
+import { usePresence } from '@/player/usePresence'
 
 type Status = 'loading' | 'playing' | 'error'
 
@@ -46,6 +47,7 @@ export interface CaptureHandle {
 
 export function HlsPlayer({
   src,
+  channelId,
   muted = true,
   controls = false,
   className,
@@ -55,6 +57,8 @@ export function HlsPlayer({
   showLiveBadge = true,
 }: {
   src: string
+  /** İzleyici sayısının sekme bazlı sayılması için, bkz. usePresence. */
+  channelId: string
   muted?: boolean
   /** Doldurulursa kare yakalama tutamağı buraya yazılır. */
   captureRef?: { current: CaptureHandle | null }
@@ -90,6 +94,8 @@ export function HlsPlayer({
   const [status, setStatus] = useState<Status>('loading')
   const [detail, setDetail] = useState<string | null>(null)
   const [behindLive, setBehindLive] = useState(false)
+
+  usePresence('channels', channelId)
 
   useEffect(() => {
     onStatusChange?.(status)

@@ -5,6 +5,7 @@ import type { RadioDto } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { Loader2Icon, PauseIcon, PlayIcon, RadioIcon, Volume2Icon, XIcon } from 'lucide-react'
+import { usePresence } from './usePresence'
 
 type Status = 'loading' | 'playing' | 'error'
 
@@ -46,6 +47,10 @@ export function PersistentRadio({
   const [radios, setRadios] = useState<RadioDto[]>([])
   const [status, setStatus] = useState<Status>('loading')
   const [volume, setVolume] = useState(1)
+
+  // Duraklatılsa bile sekme hâlâ "dinliyor" sayılıyor; yalnızca radioId
+  // null olunca (kapatınca) nabız kesiliyor.
+  usePresence('radios', radioId)
 
   const load = useCallback(async () => {
     try {

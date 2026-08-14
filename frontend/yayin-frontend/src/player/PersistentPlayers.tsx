@@ -376,6 +376,7 @@ function Tile({
       ) : (
       <HlsPlayer
         key={selected.hlsUrl}
+        channelId={channel.id}
         captureRef={captureRef}
         onVideo={setVideoEl}
         src={selected.hlsUrl}

@@ -46,6 +46,9 @@ public class RadioResource {
     @Inject
     RadioService radioService;
 
+    @Inject
+    org.example.viewer.ViewerPresence viewerPresence;
+
     @GET
     @Operation(summary = "Radyoları listele",
         description = "streaming ve listeners alanları MediaMTX'ten anlık okunur.")
@@ -66,6 +69,25 @@ public class RadioResource {
     @Operation(summary = "Radyo detayı")
     public RadioDto get(@PathParam("id") UUID id) {
         return radioService.get(id);
+    }
+
+    /**
+     * Dinleme nabzı — sekme radyoyu açık tuttuğu sürece periyodik çağrılır.
+     * Aynı gerekçe kanallardaki ile birebir, bkz. {@code ChannelResource}.
+     */
+    @PUT
+    @jakarta.ws.rs.Path("/{id}/izleyici/{tabId}")
+    @Operation(summary = "Dinleme nabzı", description = "Sekme radyoyu dinlerken periyodik çağırır.")
+    public void dinlemeNabzi(@PathParam("id") UUID id, @PathParam("tabId") String tabId) {
+        viewerPresence.nabiz(id, tabId);
+    }
+
+    /** Sekme radyoyu kapatırken çağırır — dinleyici sayısı ANINDA düşer. */
+    @DELETE
+    @jakarta.ws.rs.Path("/{id}/izleyici/{tabId}")
+    @Operation(summary = "Dinlemeyi bırak")
+    public void dinlemeyiBirak(@PathParam("id") UUID id, @PathParam("tabId") String tabId) {
+        viewerPresence.ayril(id, tabId);
     }
 
     @POST

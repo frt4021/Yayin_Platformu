@@ -117,6 +117,9 @@ class Transcriber:
                 pad_or_trim(model.feature_extractor(audio)[..., :-1])
                 for audio in arrays
             ])
+            log.info("BATCH boyutu=%d ozellik_tensoru=%.2f MB (kesit basina %.2f MB)",
+                      len(pcm_list), features.nbytes / (1024 * 1024),
+                      features.nbytes / (1024 * 1024) / len(pcm_list))
 
             # Dil placeholder'i: generate_segment_batched multilingual=True'da
             # bunu OGE BASINA gercek tespit edilen dille degistiriyor -- ilk

@@ -135,6 +135,9 @@ class Translator:
             batch = tokenizer(duz_cumleler, return_tensors="pt",
                               padding=True, truncation=True, max_length=512)
             batch = batch.to(SETTINGS.device)
+            girdi_mb = batch["input_ids"].element_size() * batch["input_ids"].nelement() / (1024 * 1024)
+            log.info("CEVIRI BATCH dil=%s metin=%d cumle=%d girdi_tensoru=%.4f MB",
+                      language, len(tumu), len(duz_cumleler), girdi_mb)
             generated = model.generate(**batch, max_length=512, num_beams=1)
             parts = tokenizer.batch_decode(generated, skip_special_tokens=True)
 
