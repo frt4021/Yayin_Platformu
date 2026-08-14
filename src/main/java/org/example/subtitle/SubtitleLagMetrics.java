@@ -101,6 +101,33 @@ public class SubtitleLagMetrics {
     private final Set<UUID> gaugeKayitli = ConcurrentHashMap.newKeySet();
 
     /**
+     * Çeviri gecikmesi penceresi — kanal+dil başına, anahtar
+     * {@code "<channelName>|<dil>"}. Pivot (İngilizce) yayınlandığı andan o
+     * dilin yayınlandığı ana kadar geçen süreyi tutuyor; "anında yayınla"
+     * deseninde İngilizce hep önce çıktığı için (bkz. VadService.islePivot)
+     * her dilin kendi EK gecikmesini görebilmek amacıyla ayrı ölçülüyor —
+     * {@link #kaydet} zaten toplam üretim gecikmesini (segment bitişinden
+     * pivot yayınına) ölçüyor, bu ikinci bir katman.
+     */
+    private final Map<String, CeviriPencere> ceviriPencereleri = new ConcurrentHashMap<>();
+    private final Map<String, double[]> ceviriSonRapor = new ConcurrentHashMap<>();
+    private final Set<String> ceviriGaugeKayitli = ConcurrentHashMap.newKeySet();
+
+    /**
+     * Bir dilin çevirisinin pivottan ne kadar geç yayınlandığını kaydeder.
+     *
+     * @param ms pivot yayınından bu dilin yayınına kadar geçen süre
+     */
+    public void ceviriKaydet(String channelName, String dil, long ms) {
+        try {
+            String anahtar = channelName + "|" + dil;
+            ceviriPencereleri.computeIfAbsent(anahtar, k -> new CeviriPencere(channelName, dil)).ekle(ms);
+        } catch (RuntimeException e) {
+            LOG.debugf("Çeviri gecikmesi ölçülemedi: %s — %s", channelName, e.getMessage());
+        }
+    }
+
+    /**
      * İzleyicilerin bildirdiği <b>gerçek</b> HLS gecikmesi, kanal başına.
      *
      * <p>{@code altyazi.butce-ms} yalnızca bir <b>varsayım</b>: sunucu
@@ -181,6 +208,13 @@ public class SubtitleLagMetrics {
     @Scheduled(every = "{altyazi.rapor-araligi}",
                concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     void rapor() {
+        for (String anahtar : List.copyOf(ceviriPencereleri.keySet())) {
+            CeviriPencere p = ceviriPencereleri.remove(anahtar);
+            if (p == null || p.adet == 0) {
+                continue;
+            }
+            ceviriMetrikGuncelle(anahtar, p.ozetle());
+        }
         for (UUID id : List.copyOf(pencereler.keySet())) {
             Pencere p = pencereler.remove(id);
             if (p == null || p.adet == 0) {
@@ -244,6 +278,32 @@ public class SubtitleLagMetrics {
     }
 
     /**
+     * Çeviri gecikmesi rapor değerlerini Grafana'nın okuyabileceği
+     * gauge'lara yazar — {@link #metrikGuncelle} ile aynı desen, kanal
+     * yerine kanal+dil anahtarıyla.
+     */
+    private void ceviriMetrikGuncelle(String anahtar, CeviriOzet o) {
+        double[] deger = ceviriSonRapor.computeIfAbsent(anahtar, k -> new double[3]);
+        deger[0] = o.ortalama();
+        deger[1] = o.p50();
+        deger[2] = o.p95();
+
+        if (ceviriGaugeKayitli.add(anahtar)) {
+            for (var istatistik : java.util.List.of(
+                    java.util.Map.entry("ortalama", 0), java.util.Map.entry("p50", 1),
+                    java.util.Map.entry("p95", 2))) {
+                int idx = istatistik.getValue();
+                Gauge.builder("altyazi_ceviri_gecikme_ms", deger, d -> d[idx])
+                    .tag("kanal", o.kanal())
+                    .tag("dil", o.dil())
+                    .tag("istatistik", istatistik.getKey())
+                    .description("Pivot (İngilizce) yayınından bu dilin yayınına kadar geçen EK süre, rapor penceresi özeti")
+                    .register(meterRegistry);
+            }
+        }
+    }
+
+    /**
      * Kanal kapandığında çağrılır — kayıtlı gauge'ları ve biriken durumu siler.
      *
      * <p>{@code metrikGuncelle} gauge'ları {@code gaugeKayitli} korumasıyla
@@ -256,10 +316,19 @@ public class SubtitleLagMetrics {
             .meters().forEach(meterRegistry::remove);
         meterRegistry.find("altyazi_kapsama_yuzde").tag("kanal", channelName)
             .meters().forEach(meterRegistry::remove);
+        meterRegistry.find("altyazi_ceviri_gecikme_ms").tag("kanal", channelName)
+            .meters().forEach(meterRegistry::remove);
         gaugeKayitli.remove(channelId);
         sonRapor.remove(channelId);
         pencereler.remove(channelId);
         hlsGecikmeleri.remove(channelId);
+
+        // Ceviri pencereleri "kanal|dil" anahtariyla tutuluyor -- kanal adi
+        // onekiyle eslesen HER dili (kac dil oldugunu bilmeden) temizler.
+        String onek = channelName + "|";
+        ceviriPencereleri.keySet().removeIf(k -> k.startsWith(onek));
+        ceviriSonRapor.keySet().removeIf(k -> k.startsWith(onek));
+        ceviriGaugeKayitli.removeIf(k -> k.startsWith(onek));
     }
 
     /** Son raporlanmamış pencerelerin özeti — testler ve teşhis için. */
@@ -342,6 +411,51 @@ public class SubtitleLagMetrics {
             return new Ozet(kanal, adet, gecKalan, kismiGorunen, toplam / adet,
                 yuzdelik(sirali, 50), yuzdelik(sirali, 95), enKotu,
                 butceToplam / adet, butceOlculdu);
+        }
+
+        private static long yuzdelik(List<Long> sirali, int yuzde) {
+            if (sirali.isEmpty()) {
+                return 0;
+            }
+            int i = (int) Math.ceil(yuzde / 100.0 * sirali.size()) - 1;
+            return sirali.get(Math.min(Math.max(i, 0), sirali.size() - 1));
+        }
+    }
+
+    /** Bir kanal+dilin çeviri gecikmesi rapor penceresi özeti. */
+    private record CeviriOzet(String kanal, String dil, long ortalama, long p50, long p95) {}
+
+    /**
+     * Tek bir kanal+dilin biriken çeviri gecikmesi ölçümleri.
+     *
+     * <p>{@link Pencere} ile aynı fikir (gerçek değerler, histogram
+     * kovası yok) ama bütçe/kapsama kavramı olmadan — çevirinin "yetişip
+     * yetişmediği" diye bir eşiği yok, yalnızca pivota göre ne kadar EK
+     * süre aldığı ilgi çekici.
+     */
+    private static final class CeviriPencere {
+        private final String kanal;
+        private final String dil;
+        private final List<Long> gecikmeler = new ArrayList<>();
+        private int adet;
+        private long toplam;
+
+        CeviriPencere(String kanal, String dil) {
+            this.kanal = kanal;
+            this.dil = dil;
+        }
+
+        synchronized void ekle(long gecikme) {
+            adet++;
+            toplam += gecikme;
+            gecikmeler.add(gecikme);
+        }
+
+        synchronized CeviriOzet ozetle() {
+            List<Long> sirali = new ArrayList<>(gecikmeler);
+            sirali.sort(null);
+            return new CeviriOzet(kanal, dil, toplam / adet,
+                yuzdelik(sirali, 50), yuzdelik(sirali, 95));
         }
 
         private static long yuzdelik(List<Long> sirali, int yuzde) {
