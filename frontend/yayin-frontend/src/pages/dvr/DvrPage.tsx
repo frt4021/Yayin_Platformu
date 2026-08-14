@@ -21,9 +21,10 @@ const WINDOWS = [
 
 /**
  * Önizleme bölümü belleğe indirildiği için üst sınır şart: 2 saatlik bir
- * seçim 6 Mbps'te ~5 GB eder ve tarayıcıyı düşürür.
+ * seçim 6 Mbps'te ~5 GB eder ve tarayıcıyı düşürür. 30 dakika (~1,35 GB)
+ * bu riski taşımadan önceki 180 saniyeden çok daha kullanışlı bir üst sınır.
  */
-const PREVIEW_MAX_SECONDS = 180
+const PREVIEW_MAX_SECONDS = 30 * 60
 
 /** Çizelgeye tıklandığında yüklenen bölüm. */
 const PREVIEW_DEFAULT_SECONDS = 60

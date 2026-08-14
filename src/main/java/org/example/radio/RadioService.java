@@ -13,6 +13,7 @@ import org.example.radio.dto.RadioDto;
 import org.example.radio.dto.UpdateRadioRequest;
 import org.example.radio.entity.Radio;
 import org.example.user.entity.AppUser;
+import org.example.viewer.ViewerPresence;
 import org.jboss.logging.Logger;
 
 import java.util.List;
@@ -32,6 +33,9 @@ public class RadioService {
 
     @Inject
     MediaMtxService mediaMtx;
+
+    @Inject
+    ViewerPresence viewerPresence;
 
     @ConfigProperty(name = "mediamtx.hls-base-url")
     String hlsBaseUrl;
@@ -253,7 +257,8 @@ public class RadioService {
             radio.sortOrder,
             hlsBaseUrl + "/" + radio.mediamtxPath + "/index.m3u8",
             state == null ? null : state.ready(),
-            state == null || state.readers() == null ? null : state.readers().size(),
+            // MediaMTX'in reader sayisi DEGIL -- bkz. ViewerPresence javadoc.
+            viewerPresence.sayisi(radio.id),
             radio.createdBy == null ? null : radio.createdBy.username,
             radio.createdAt
         );

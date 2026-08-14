@@ -23,6 +23,7 @@ import org.example.radio.dto.CreateRadioRequest;
 import org.example.radio.dto.RadioDto;
 import org.example.radio.dto.UpdateRadioRequest;
 import org.example.user.Roles;
+import org.example.viewer.ViewerPresence;
 
 import java.util.List;
 import java.util.UUID;
@@ -46,6 +47,9 @@ public class RadioResource {
     @Inject
     RadioService radioService;
 
+    @Inject
+    ViewerPresence viewerPresence;
+
     @GET
     @Operation(summary = "Radyoları listele",
         description = "streaming ve listeners alanları MediaMTX'ten anlık okunur.")
@@ -66,6 +70,22 @@ public class RadioResource {
     @Operation(summary = "Radyo detayı")
     public RadioDto get(@PathParam("id") UUID id) {
         return radioService.get(id);
+    }
+
+    @PUT
+    @jakarta.ws.rs.Path("/{id}/izleyici/{tabId}")
+    @Operation(summary = "Dinleme nabzı",
+        description = "Tarayıcı sekmesi periyodik çağırır; bu sekmenin hâlâ dinlediğini bildirir.")
+    public void dinlemeNabzi(@PathParam("id") UUID id, @PathParam("tabId") String tabId) {
+        viewerPresence.nabiz(id, tabId);
+    }
+
+    @DELETE
+    @jakarta.ws.rs.Path("/{id}/izleyici/{tabId}")
+    @Operation(summary = "Dinlemeyi bırak",
+        description = "Sekme kapanırken/sayfadan ayrılırken çağrılır.")
+    public void dinlemeyiBirak(@PathParam("id") UUID id, @PathParam("tabId") String tabId) {
+        viewerPresence.ayril(id, tabId);
     }
 
     @POST

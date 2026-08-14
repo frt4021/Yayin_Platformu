@@ -16,8 +16,10 @@ import java.util.UUID;
  *                  köprüsü ayağa kalkamadıysa {@code active=true} iken
  *                  {@code streaming=false} olur. MediaMTX'e ulaşılamadıysa
  *                  {@code null}.
- * @param listeners o an dinleyen oturum sayısı; MediaMTX'e ulaşılamadığında
- *                  {@code null}.
+ * @param listeners o an dinleyen SEKME sayısı ({@code ViewerPresence}, tarayıcı
+ *                  heartbeat'i) — MediaMTX'in reader sayısı DEĞİL, o yeniden
+ *                  bağlanmalarda çok sayıyordu. Artık her zaman gerçek bir
+ *                  sayı, {@code null} olmaz.
  */
 public record RadioDto(
     UUID id,

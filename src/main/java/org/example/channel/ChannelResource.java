@@ -24,6 +24,7 @@ import org.example.channel.dto.ChannelDto;
 import org.example.channel.dto.CreateChannelRequest;
 import org.example.channel.dto.UpdateChannelRequest;
 import org.example.user.Roles;
+import org.example.viewer.ViewerPresence;
 
 import java.util.List;
 import java.util.UUID;
@@ -51,6 +52,9 @@ public class ChannelResource {
 
     @Inject
     ChannelService channelService;
+
+    @Inject
+    ViewerPresence viewerPresence;
 
     @GET
     @Operation(summary = "Kanalları listele",
@@ -92,6 +96,24 @@ public class ChannelResource {
     @Operation(summary = "Kanalı güncelle")
     public ChannelDto update(@PathParam("id") UUID id, @Valid UpdateChannelRequest request) {
         return channelService.update(id, request);
+    }
+
+    @PUT
+    @jakarta.ws.rs.Path("/{id}/izleyici/{tabId}")
+    @Operation(summary = "İzleme nabzı",
+        description = "Tarayıcı sekmesi periyodik çağırır; bu sekmenin hâlâ izlediğini bildirir. "
+            + "MediaMTX reader sayısı yerine viewers alanı bu nabızlardan hesaplanır.")
+    public void izlemeNabzi(@PathParam("id") UUID id, @PathParam("tabId") String tabId) {
+        viewerPresence.nabiz(id, tabId);
+    }
+
+    @DELETE
+    @jakarta.ws.rs.Path("/{id}/izleyici/{tabId}")
+    @Operation(summary = "İzlemeyi bırak",
+        description = "Sekme kapanırken/sayfadan ayrılırken çağrılır. Çağrılmazsa (çökme, "
+            + "ağ kaybı) sekme en geç 40 sn içinde süpürücüyle düşer.")
+    public void izlemeyiBirak(@PathParam("id") UUID id, @PathParam("tabId") String tabId) {
+        viewerPresence.ayril(id, tabId);
     }
 
     @GET

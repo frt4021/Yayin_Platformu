@@ -5,6 +5,7 @@ import type { RadioDto } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { Loader2Icon, PauseIcon, PlayIcon, RadioIcon, Volume2Icon, XIcon } from 'lucide-react'
+import { usePresence } from './usePresence'
 
 type Status = 'loading' | 'playing' | 'error'
 
@@ -61,6 +62,10 @@ export function PersistentRadio({
 
   const radio = radios.find((r) => r.id === radioId) ?? null
   const src = radio?.hlsUrl ?? null
+
+  // MediaMTX'in reader sayısı DEĞİL: bu sekmenin gerçekten dinlediğini
+  // periyodik bildirir, backend'deki dinleyici sayısı bundan hesaplanır.
+  usePresence('radios', radioId)
 
   // Yayını bağla. Yalnızca adres değiştiğinde çalışır — duraklatma ve ses
   // seviyesi ayrı efektlerde, yoksa her düğmeye basışta yayın yeniden kurulurdu.

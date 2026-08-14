@@ -12,6 +12,7 @@ import org.example.channel.entity.Channel;
 import org.example.exception.AppException;
 import org.example.radio.entity.Radio;
 import org.example.user.entity.AppUser;
+import org.example.viewer.ViewerPresence;
 import org.jboss.logging.Logger;
 
 import java.util.List;
@@ -43,6 +44,9 @@ public class ChannelService {
 
     @Inject
     SourceProbe sourceProbe;
+
+    @Inject
+    ViewerPresence viewerPresence;
 
     /** @param active şu an yayında olan kanal sayısı */
     public record Capacity(long active, int max) {
@@ -339,7 +343,10 @@ public class ChannelService {
             channel.sourceHeight,
             hlsBaseUrl + "/" + channel.mediamtxPath + "/index.m3u8",
             state == null ? null : state.ready(),
-            state == null || state.readers() == null ? null : state.readers().size(),
+            // MediaMTX'in reader sayısı DEGIL: yeniden baglanmalarda cok
+            // sayiyordu (bkz. ViewerPresence javadoc). Kaynak artik
+            // tarayicinin sekme bazli heartbeat'i.
+            viewerPresence.sayisi(channel.id),
             channel.createdBy == null ? null : channel.createdBy.username,
             channel.createdAt
         );

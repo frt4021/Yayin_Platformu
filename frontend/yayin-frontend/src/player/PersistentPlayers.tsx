@@ -10,13 +10,22 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { MAX_TILES, usePlayers } from './PlayerContext'
 import { qualitiesOf } from '@/lib/renditions'
-import { LiveRewind } from './LiveRewind'
+import { LiveRewind, type LiveRewindHandle } from './LiveRewind'
 import { PlayerControls } from './PlayerControls'
+import { usePresence } from './usePresence'
 import { useEffect as useEffectReact, useState as useStateReact } from 'react'
-import { MinimizeIcon, SearchIcon, SettingsIcon, Volume2Icon, VolumeXIcon, XIcon } from 'lucide-react'
+import { SearchIcon, SettingsIcon, Volume2Icon, VolumeXIcon, XIcon } from 'lucide-react'
 
 /** İzleme sayfasının yolu; katman bu yolda içerik alanını kaplar, diğerlerinde mini olur. */
 export const WATCH_PATH = '/izle'
+
+/**
+ * Zincirleme geri sarmada ("-10 sn" ile bir DVR parçasının da başına
+ * gelince) bir sonraki parçanın kaç saniyelik olacağı — LiveRewind'deki
+ * CHUNK_SECONDS ile aynı fikir, burada da tekrarlanıyor çünkü Tile,
+ * LiveRewind'in iç sabitine erişemiyor.
+ */
+const CHAIN_STEP_SECONDS = 120
 
 /** Karo sayısına göre sütun sayısı — 16 kanal 4x4'e oturur. */
 function columnsFor(count: number) {
@@ -308,8 +317,21 @@ function Tile({
   // Seçili kalite kanaldan kaldırılmış olabilir; o durumda kaynağa düş.
   const selected = qualities.find((q) => q.suffix === quality) ?? qualities[0]
 
+  // MediaMTX'in reader sayısı DEĞİL: bu sekmenin gerçekten izlediğini
+  // periyodik bildirir, backend'deki izleyici sayısı bundan hesaplanır.
+  // Karo gizliyken de (mozaikte görünmeyen ama DOM'da kalıp çalmaya devam
+  // eden) çağrılıyor -- o da gerçekten izlenen bir sekme.
+  usePresence('channels', channel.id)
+
   /** Kare yakalama için oynatıcının video elementine erişim. */
   const captureRef = useRef<CaptureHandle | null>(null)
+
+  /**
+   * {@link LiveRewind}'in DVR'a geçiş komutuna erişim — canlı oynatıcının
+   * kendi "-10 sn" düğmesi, HLS tamponu tükenince bunu çağırıyor (bkz.
+   * {@code onBufferExceeded} altında).
+   */
+  const liveRewindRef = useRef<LiveRewindHandle | null>(null)
 
   /**
    * Altyazı dili. `kapali` = gösterme.
@@ -321,6 +343,17 @@ function Tile({
 
   /** Geri sarılan bölümün blob adresi; null ise canlı akış oynuyor. */
   const [rewindUrl, setRewindUrl] = useStateReact<string | null>(null)
+
+  /**
+   * Şu an oynayan geri sarılmış parçanın BAŞLADIĞI mutlak an.
+   *
+   * <p>Kullanıcı bu parçanın da başına gelip "-10 sn" ile daha geriye
+   * gitmeye çalışırsa ({@link handleBufferExceeded}), bir sonraki DVR
+   * parçasının nereden isteneceğini buradan biliyoruz -- yoksa zincirleme
+   * geri sarma yalnızca canlıdan İLK DVR parçasına geçerken çalışırdı,
+   * parçadan parçaya devam edemezdi.
+   */
+  const [rewindStart, setRewindStart] = useStateReact<Date | null>(null)
 
   /**
    * Denetim çubuğunun bağlanacağı video elementi.
@@ -345,6 +378,35 @@ function Tile({
   function backToLive() {
     if (rewindUrl) URL.revokeObjectURL(rewindUrl)
     setRewindUrl(null)
+    setRewindStart(null)
+  }
+
+  /** {@code onRewind}: her yeni parça yüklendiğinde başlangıcını da sakla. */
+  function onRewind(objectUrl: string, start: Date) {
+    if (rewindUrl) URL.revokeObjectURL(rewindUrl)
+    setRewindUrl(objectUrl)
+    setRewindStart(start)
+  }
+
+  /**
+   * Denetim çubuğundaki "-10 sn" tamponun (canlı ya da o an oynayan DVR
+   * parçasının) dışına taştığında çağrılır.
+   *
+   * <p><b>İki durum:</b> hâlâ canlıysa ({@code rewindStart} yok),
+   * {@code secondsBehindLive} canlı kenardan ne kadar geride kalındığını
+   * söylüyor -- oradan DVR'a ilk geçişi yapıyoruz. Zaten geri sarılmış bir
+   * parça izleniyorsa, o parçanın kendi başlangıcından bir öncekine
+   * ZİNCİRLİYORUZ -- kullanıcı ne kadar art arda tıklarsa tıklasın DVR
+   * kaydı bittiği (ya da 2 saatlik pencere sonu) yere kadar geriye
+   * gidebilsin.
+   */
+  function handleBufferExceeded(secondsBehindLive: number) {
+    if (rewindStart) {
+      const hedef = new Date(rewindStart.getTime() - CHAIN_STEP_SECONDS * 1000)
+      void liveRewindRef.current?.seekTo(hedef, CHAIN_STEP_SECONDS + 10)
+    } else {
+      void liveRewindRef.current?.seekTo(new Date(Date.now() - secondsBehindLive * 1000))
+    }
   }
 
   return (
@@ -399,6 +461,7 @@ function Tile({
           container={tileEl}
           liveEdge={rewindUrl ? undefined : () => captureRef.current?.liveEdge() ?? null}
           onGoLive={() => captureRef.current?.goLive()}
+          onBufferExceeded={handleBufferExceeded}
         />
       )}
 
@@ -496,17 +559,6 @@ function Tile({
           >
             {hasAudio ? <Volume2Icon /> : <VolumeXIcon />}
           </Button>
-          {expanded && (
-            <Button
-              variant="secondary"
-              size="icon"
-              className="size-7"
-              title="Küçült"
-              onClick={onToggleExpand}
-            >
-              <MinimizeIcon />
-            </Button>
-          )}
           <Button
             variant="secondary"
             size="icon"
@@ -527,9 +579,10 @@ function Tile({
         <div className="pointer-events-none absolute inset-x-0 bottom-24 flex justify-center">
           <div className="rounded-full bg-black/70 px-2 py-1">
             <LiveRewind
+              ref={liveRewindRef}
               channel={channel}
               rewound={rewindUrl !== null}
-              onRewind={setRewindUrl}
+              onRewind={onRewind}
               onLive={backToLive}
             />
           </div>

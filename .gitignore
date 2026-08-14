@@ -67,3 +67,7 @@ docs/
 vad-bolutler/
 jdk_kur.sh
 nvidia_toolkit_kur.sh
+.claude
+claude.md
+docs
+

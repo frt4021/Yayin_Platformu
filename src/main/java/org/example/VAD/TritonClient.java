@@ -137,7 +137,11 @@ public class TritonClient {
             Map<String, Object> requestBody = Map.of(
                 "inputs", List.of(Map.of(
                     "name", "SOURCE_TEXT",
-                    "shape", List.of(1),
+                    // [1, 1]: max_batch_size>0 oldugu icin Triton, config.pbtxt'teki
+                    // dims:[1]'in ONUNE batch boyutunu da istiyor -- yalnizca [1]
+                    // gonderilince "Expected [-1,1], got [1]" ile reddediyordu
+                    // (whisper'daki 3-vs-4 boyut hatasiyla ayni kok neden).
+                    "shape", List.of(1, 1),
                     "datatype", "BYTES",
                     "data", List.of(text)
                 )),

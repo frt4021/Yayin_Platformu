@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { dvrApi } from '@/api/endpoints'
 import { readTokens } from '@/api/tokens'
@@ -29,40 +29,57 @@ const DVR_WINDOW_HOURS = 2
 const CHUNK_SECONDS = 120
 
 /**
+ * Sürükleyerek seçilen aralığın belleğe (blob) indirilebilecek en uzun
+ * hâli. Whole-blob indirme yaklaşımı aynı `DvrPage.tsx`'teki gibi: çok uzun
+ * bir seçim tarayıcıyı düşürebilir. 30 dakika ~1,35 GB (6 Mbps) eder --
+ * güvenli ve pratikte yeterli bir başlangıç, gerekirse ayarlanabilir.
+ */
+const MAX_RANGE_SECONDS = 30 * 60
+
+/** {@link LiveRewind}'in dışarı açtığı komut — canlı oynatıcının kendi
+ *  "geri git" düğmesi, canlı HLS tamponu (~14 sn) tükenince DEVRALMASI için.
+ *  {@code durationSeconds} verilmezse {@link CHUNK_SECONDS} kullanılır. */
+export type LiveRewindHandle = {
+  seekTo: (time: Date, durationSeconds?: number) => Promise<void>
+}
+
+/**
  * Canlı yayında geri sarma.
  *
  * <p>Canlı HLS'te gerçek geri sarma yok — playlist yalnızca son birkaç
  * segmenti taşıyor (bizde 7 × 1.96 sn ≈ 14 sn). Daha geriye gitmek DVR
  * kaydından okumayı gerektirir.
  *
- * <p><b>İki yol var:</b> sabit 30sn/3dk/5dk düğmeleri "az önce ne oldu"yu
- * tek tıkla karşılıyor. Yanındaki DVR çubuğu ise kayıtlı aralıkları gösteren
- * bir zaman çizelgesi — kullanıcı çubuğun herhangi bir yerine tıklayıp daha
- * hassas/uzak bir ana gidebilir. İkisi de aynı {@code seekTo}'ya çıkıyor:
- * tıklanan/seçilen an kayıtlıysa DVR'den bölüm çekilir ve oynatıcıya
- * verilir, değilse uyarı verilir.
+ * <p><b>Üç yol var:</b> sabit 30sn/3dk/5dk düğmeleri "az önce ne oldu"yu tek
+ * tıkla karşılıyor (o kadarlık sürenin TAMAMI getirilir). Yanındaki DVR
+ * çubuğuna <b>tıklamak</b> o andan varsayılan bir süre oynatır;
+ * <b>sürüklemek</b> ise seçilen ARALIĞIN TAMAMINI getirir — bittiğinde
+ * otomatik canlıya dönülür. Üçü de aynı {@code seekTo}'ya çıkıyor:
+ * istenen an kayıtlıysa DVR'den bölüm çekilir ve oynatıcıya verilir,
+ * değilse uyarı verilir.
  *
  * <p>Kanalda DVR kapalıysa hiç gösterilmiyor: kayıt yoksa geri sarılacak
  * bir şey de yok.
  */
-export function LiveRewind({
-  channel,
-  onRewind,
-  onLive,
-  rewound,
-}: {
+export const LiveRewind = forwardRef<LiveRewindHandle, {
   channel: ChannelDto
-  /** Geri sarılan bölümün oynatılabilir adresi (blob). */
-  onRewind: (objectUrl: string) => void
+  /**
+   * Geri sarılan bölümün oynatılabilir adresi (blob) ve o bölümün
+   * BAŞLADIĞI mutlak an. İkincisi olmadan, bu parçanın da başına
+   * gelindiğinde ("daha da geriye git") bir sonraki parçayı nereden
+   * isteyeceğimizi bilemezdik — bkz. PersistentPlayers'taki zincirleme.
+   */
+  onRewind: (objectUrl: string, start: Date) => void
   onLive: () => void
   rewound: boolean
-}) {
+}>(function LiveRewind({ channel, onRewind, onLive, rewound }, ref) {
   const [spans, setSpans] = useState<TimelineSpan[]>([])
   const [busy, setBusy] = useState(false)
   const [hoverRatio, setHoverRatio] = useState<number | null>(null)
+  /** Sürüklenerek seçilen aralığın uçları (oran, 0-1) — sürükleme sırasında dolu. */
+  const [dragStart, setDragStart] = useState<number | null>(null)
+  const [dragNow, setDragNow] = useState<number | null>(null)
   const barRef = useRef<HTMLDivElement>(null)
-
-  if (!channel.dvrEnabled) return null
 
   // Kayıtlı aralıkları yükle ve periyodik tazele — segmentler sürekli yazılıyor.
   useEffect(() => {
@@ -101,8 +118,30 @@ export function LiveRewind({
     )
   }
 
-  async function seekTo(time: Date) {
-    if (!isRecorded(time)) {
+  async function seekTo(time: Date, durationSeconds: number = CHUNK_SECONDS) {
+    if (!channel.dvrEnabled) return
+
+    let recorded = isRecorded(time)
+    if (!recorded) {
+      // spans en fazla 60 sn'de bir tazeleniyor (yukarıdaki useEffect).
+      // "Az önce" bir ana gitmeyi isteyen kısa adımlar (30 sn) tam bu
+      // bayatlık penceresine denk düşebiliyor -- sunucuda kayıt artık
+      // hazır olabilir ama istemcideki spans henüz haberdar değildir.
+      // Vazgeçmeden önce dar bir aralıkla TAZE bir sorgu at.
+      try {
+        const taze = await dvrApi.timeline(
+          channel.id,
+          new Date(time.getTime() - 5_000),
+          new Date(time.getTime() + 5_000),
+        )
+        recorded = taze.some(
+          (s) => new Date(s.start).getTime() <= time.getTime() && time.getTime() < new Date(s.end).getTime(),
+        )
+      } catch {
+        // Tazeleme başarısız olursa asagidaki hata zaten gösterilecek.
+      }
+    }
+    if (!recorded) {
       toast.error('Bu aralıkta kayıt yok.', {
         description: 'Çubukta dolu bir bölgeye tıklayın.',
       })
@@ -114,11 +153,11 @@ export function LiveRewind({
     try {
       // İstenen andan biraz önce başla — paketleme gecikmesi için pay.
       const start = new Date(time.getTime() - 2000)
-      const response = await fetch(dvrApi.streamUrl(channel.id, start, CHUNK_SECONDS), {
+      const response = await fetch(dvrApi.streamUrl(channel.id, start, durationSeconds), {
         headers: { Authorization: `Bearer ${tokens.accessToken}` },
       })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      onRewind(URL.createObjectURL(await response.blob()))
+      onRewind(URL.createObjectURL(await response.blob()), start)
     } catch {
       toast.error('Geri sarılamadı.', {
         description: 'O aralıkta kayıt bulunmuyor olabilir.',
@@ -128,18 +167,77 @@ export function LiveRewind({
     }
   }
 
-  function handleClick(e: React.MouseEvent) {
-    if (busy || !barRef.current) return
-    const rect = barRef.current.getBoundingClientRect()
-    const ratio = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1)
-    void seekTo(ratioToTime(ratio))
+  /** Çubuktaki bir X koordinatını 0-1 orana çevirir. */
+  function ratioAt(clientX: number): number {
+    const rect = barRef.current!.getBoundingClientRect()
+    return Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1)
   }
 
-  function handleHover(e: React.MouseEvent) {
-    if (!barRef.current) return
-    const rect = barRef.current.getBoundingClientRect()
-    setHoverRatio(Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1))
+  /**
+   * Sürüklemeyi başlatır. {@link handlePointerUp}, sürüklenen mesafe küçükse
+   * bunu düz bir tıklama sayıp tek noktadan normal süreyle oynatıyor;
+   * büyükse SEÇİLEN ARALIĞIN TAMAMINI DVR'dan çekip oynatıyor.
+   */
+  function handlePointerDown(e: React.PointerEvent) {
+    if (busy || !barRef.current) return
+    const ratio = ratioAt(e.clientX)
+    setDragStart(ratio)
+    setDragNow(ratio)
+    barRef.current.setPointerCapture(e.pointerId)
   }
+
+  function handlePointerMove(e: React.PointerEvent) {
+    if (!barRef.current) return
+    const ratio = ratioAt(e.clientX)
+    setHoverRatio(ratio)
+    if (dragStart != null) setDragNow(ratio)
+  }
+
+  /** MIN_DRAG_MS'den kısa sürüklemeler fiili bir tıklama sayılır. */
+  const MIN_DRAG_MS = 2000
+
+  function handlePointerUp() {
+    if (dragStart == null) return
+    const bas = Math.min(dragStart, dragNow ?? dragStart)
+    const son = Math.max(dragStart, dragNow ?? dragStart)
+    setDragStart(null)
+    setDragNow(null)
+
+    const basAn = ratioToTime(bas)
+    const sonAn = ratioToTime(son)
+    const surenMs = sonAn.getTime() - basAn.getTime()
+
+    if (surenMs < MIN_DRAG_MS) {
+      // Fiili bir tiklama -- tek noktadan varsayilan sureyle oynat.
+      void seekTo(basAn)
+      return
+    }
+
+    const istenenSn = Math.round(surenMs / 1000)
+    if (istenenSn > MAX_RANGE_SECONDS) {
+      toast.error(`Seçim ${Math.round(istenenSn / 60)} dk; en fazla ${MAX_RANGE_SECONDS / 60} dk oynatılabiliyor.`, {
+        description: 'Başından itibaren üst sınıra kadar oynatılıyor.',
+      })
+    }
+    // Secilen araligin TAMAMINI getir (30 dk'ya kadar) -- yalnizca
+    // baslangicindan degil.
+    void seekTo(basAn, Math.max(5, Math.min(istenenSn, MAX_RANGE_SECONDS)))
+  }
+
+  function handlePointerLeave() {
+    setHoverRatio(null)
+    // Sürüklerken çubuktan çıkılırsa (imleç hızlı hareket etti) seçim
+    // tamamen kaybolmasın -- pointer capture zaten hareketi izlemeye
+    // devam ediyor, yalnızca hover göstergesini gizliyoruz.
+  }
+
+  // Canlı oynatıcının kendi "-10 sn" düğmesi, HLS'in ~14 sn'lik tamponu
+  // tükenince BUNU çağırıyor (bkz. PlayerControls onBufferExceeded) --
+  // böylece kullanıcı ne kadar art arda tıklarsa tıklasın DVR'a sorunsuzca
+  // devrediliyor, tamponun kenarında takılıp canlıya sıçramıyor.
+  useImperativeHandle(ref, () => ({ seekTo }))
+
+  if (!channel.dvrEnabled) return null
 
   const hoverTime = hoverRatio != null ? ratioToTime(hoverRatio) : null
 
@@ -160,23 +258,31 @@ export function LiveRewind({
               variant="secondary"
               className="h-7 px-2 text-xs"
               disabled={busy}
-              onClick={() => void seekTo(new Date(Date.now() - s.seconds * 1000))}
+              // durationSeconds = s.seconds + pay: yalnızca CHUNK_SECONDS
+              // (2 dk) değil, TAM olarak o kadar geriden şimdiye kadarki
+              // bütün bölümü getirsin -- "5 dk" tıklayınca 2 dakikada
+              // bitip canlıya dönmesin, gerçekten 5 dakikanın tamamını
+              // izleyebilsin.
+              onClick={() => void seekTo(new Date(Date.now() - s.seconds * 1000), s.seconds + 10)}
               title={`${s.label} geri sar`}
             >
               {s.label}
             </Button>
           ))}
 
+          {/* Tıkla: o andan varsayılan süreyle oynat. Sürükle: seçilen
+              ARALIĞIN TAMAMINI oynat, bitince canlıya döner. */}
           <span className="text-xs font-medium text-white/70">DVR</span>
           <div
             ref={barRef}
             className={cn(
-              'relative h-7 w-56 cursor-pointer rounded-lg border bg-secondary/50',
+              'relative h-7 w-56 cursor-pointer touch-none select-none rounded-lg border bg-secondary/50',
               busy && 'pointer-events-none opacity-60',
             )}
-            onClick={handleClick}
-            onMouseMove={handleHover}
-            onMouseLeave={() => setHoverRatio(null)}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={handlePointerLeave}
           >
             {/* Kayıtlı aralıklar — dolu bölgeleri gösterir. */}
             {spans.map((span, i) => {
@@ -192,6 +298,17 @@ export function LiveRewind({
                 />
               )
             })}
+
+            {/* Sürüklenerek seçilen aralık. */}
+            {dragStart != null && dragNow != null && (
+              <div
+                className="absolute inset-y-0.5 rounded bg-white/30"
+                style={{
+                  left: `${Math.min(dragStart, dragNow) * 100}%`,
+                  width: `${Math.abs(dragNow - dragStart) * 100}%`,
+                }}
+              />
+            )}
 
             {/* Şimdi işareti — çubuğun sağ ucu. */}
             <div className="absolute inset-y-0 right-0 w-0.5 bg-status-live" />
@@ -231,4 +348,4 @@ export function LiveRewind({
       )}
     </div>
   )
-}
+})

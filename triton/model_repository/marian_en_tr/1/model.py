@@ -69,8 +69,15 @@ class TritonPythonModel:
         # local_files_only=True SART -- kapali agda indirmeye kalkmasin
         # (translate.py ile ayni gerekce).
         self._tokenizer = MarianTokenizer.from_pretrained(onnx_path, local_files_only=True)
+        # use_io_binding=False: optimum'un CUDA'da varsayilan IOBinding'i,
+        # encoder/decoder/decoder_with_past oturumlari arasinda past_key_values
+        # GPU tensor'larini elle (async senkronizasyon riskiyle) tasiyor --
+        # gercek, degisken boyutlu batch trafiginde "illegal memory access"
+        # (CUDA cudaErrorIllegalAddress, Mul node) cokmesine yol acti. Bu
+        # bayrak standart, kopyalama tabanli yola donduruyor.
         self._model = ORTModelForSeq2SeqLM.from_pretrained(
             onnx_path, provider=provider, local_files_only=True,
+            use_io_binding=False,
         )
 
     def execute(self, requests):

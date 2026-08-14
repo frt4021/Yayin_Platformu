@@ -18,8 +18,10 @@ import java.util.UUID;
  *                  kaynak erişilemiyorsa {@code active=true} iken
  *                  {@code streaming=false} olur. MediaMTX'e ulaşılamadıysa
  *                  {@code null}.
- * @param viewers   o an izleyen oturum sayısı; {@code streaming} gibi
- *                  MediaMTX'e ulaşılamadığında {@code null}.
+ * @param viewers   o an izleyen SEKME sayısı ({@code ViewerPresence}, tarayıcı
+ *                  heartbeat'i) — MediaMTX'in reader sayısı DEĞİL, o yeniden
+ *                  bağlanmalarda çok sayıyordu. MediaMTX'ten bağımsız olduğu
+ *                  için artık her zaman gerçek bir sayı, {@code null} olmaz.
  */
 public record ChannelDto(
     UUID id,

@@ -40,6 +40,7 @@ export function PlayerControls({
   container,
   liveEdge,
   onGoLive,
+  onBufferExceeded,
   className,
 }: {
   /** Denetlenecek element. Hazır değilse çubuk çizilmiyor. */
@@ -58,6 +59,15 @@ export function PlayerControls({
    */
   liveEdge?: () => number | null
   onGoLive?: () => void
+  /**
+   * Canlı HLS tamponu (`video.seekable`, ~14 sn) tükenip daha geriye
+   * gidilemediğinde çağrılır — parametre, canlı kenardan o ana kadar kaç
+   * saniye geriye gidilmiş olduğu. Çağıran taraf bunu DVR'dan devam
+   * ettirmek için kullanabilir ({@link LiveRewind}'in {@code seekTo}'su
+   * gibi) — aksi halde kullanıcı art arda tıkladıkça tamponun kenarında
+   * takılı kalır.
+   */
+  onBufferExceeded?: (secondsBehindLive: number) => void
   className?: string
 }) {
   const [paused, setPaused] = useState(true)
@@ -107,9 +117,27 @@ export function PlayerControls({
 
   function atla(saniye: number) {
     if (!video || !range) return
+    const hedef = video.currentTime + saniye
+
+    // Geri giderken tamponun (seekable.start) DIŞINA taşıyorsa -- canlı
+    // HLS'te bu yalnızca ~14 sn, geri sarılmış bir DVR parçasında da o
+    // parçanın kendi süresi kadar -- burada durup "gidemiyorsun" demek
+    // yerine DVR'a devrediyoruz/zincirliyoruz. canli null OLABİLİR (zaten
+    // geri sarılmış bir parça izlenirken -- liveEdge o durumda undefined
+    // geçiliyor): bu durumda parametre 0 gidiyor, çağıran taraf (Tile)
+    // kendi izlediği parçanın başlangıcından devam ediyor. Bunu YALNIZCA
+    // canlıdayken engellemek, kullanıcının art arda tıkladıkça tamponun
+    // kenarına kilitlenip (Math.max ile hep aynı noktaya clamp'lenip)
+    // hls.js'in canlı-senkron kurtarmasıyla "şimdi"ye sıçramasına yol
+    // açıyordu -- ölçülen/bildirilen hata buydu.
+    if (hedef < range.start && onBufferExceeded) {
+      onBufferExceeded(canli != null ? canli - range.start : 0)
+      return
+    }
+
     // Atlama seekable aralığın DIŞINA taşmamalı: canlı kenarın ötesine
     // gitmek oynatmayı durduruyor, başlangıcın gerisi ise hata veriyor.
-    video.currentTime = Math.min(Math.max(video.currentTime + saniye, range.start), range.end)
+    video.currentTime = Math.min(Math.max(hedef, range.start), range.end)
   }
 
   function konumla(e: React.MouseEvent<HTMLDivElement>) {
