@@ -14,3 +14,7 @@ sentencepiece==0.2.0
 # Dockerfile'da secilior.
 
 numpy==2.2.1
+
+# Prometheus metrikleri -- batch boyutu/VRAM ilişkisini tek seferlik log
+# yerine surekli, Grafana'da GPU panelleriyle yan yana izlemek icin.
+prometheus-client==0.21.1

@@ -17,6 +17,7 @@ import threading
 import numpy as np
 
 from .config import SETTINGS
+from .metrics import BATCH_BOYUTU, BATCH_TENSOR_MB
 
 log = logging.getLogger(__name__)
 
@@ -117,9 +118,8 @@ class Transcriber:
                 pad_or_trim(model.feature_extractor(audio)[..., :-1])
                 for audio in arrays
             ])
-            log.info("BATCH boyutu=%d ozellik_tensoru=%.2f MB (kesit basina %.2f MB)",
-                      len(pcm_list), features.nbytes / (1024 * 1024),
-                      features.nbytes / (1024 * 1024) / len(pcm_list))
+            BATCH_BOYUTU.observe(len(pcm_list))
+            BATCH_TENSOR_MB.observe(features.nbytes / (1024 * 1024))
 
             # Dil placeholder'i: generate_segment_batched multilingual=True'da
             # bunu OGE BASINA gercek tespit edilen dille degistiriyor -- ilk

@@ -3,7 +3,10 @@
   "uid": "altyazi-kuyruk",
   "timezone": "browser",
   "refresh": "10s",
-  "time": { "from": "now-30m", "to": "now" },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
   "schemaVersion": 39,
   "panels": [
     {
@@ -11,20 +14,42 @@
       "title": "Aktif kanal sayısı",
       "type": "stat",
       "datasource": "Prometheus",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
       "targets": [
-        { "expr": "altyazi_aktif_kanal", "legendFormat": "aktif kanal" }
+        {
+          "expr": "altyazi_aktif_kanal{job=\"video-worker\"}",
+          "legendFormat": "aktif kanal"
+        }
       ],
-      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" } } }
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      }
     },
     {
       "id": 2,
       "title": "Toplam bekleyen bölüt (tüm kanallar)",
       "type": "stat",
       "datasource": "Prometheus",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
       "targets": [
-        { "expr": "sum(altyazi_kuyruk_derinlik)", "legendFormat": "toplam bekleyen" }
+        {
+          "expr": "sum(altyazi_kuyruk_derinlik)",
+          "legendFormat": "toplam bekleyen"
+        }
       ]
     },
     {
@@ -32,17 +57,31 @@
       "title": "Son 5 dakikada düşme oranı (bölüt/sn)",
       "type": "stat",
       "datasource": "Prometheus",
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
       "targets": [
-        { "expr": "sum(rate(altyazi_bolut_dusme_toplam[5m]))", "legendFormat": "düşme/sn" }
+        {
+          "expr": "sum(rate(altyazi_bolut_dusme_toplam_total[5m]))",
+          "legendFormat": "düşme/sn"
+        }
       ],
       "fieldConfig": {
         "defaults": {
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 0.01 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.01
+              }
             ]
           }
         }
@@ -54,10 +93,15 @@
       "type": "stat",
       "datasource": "Prometheus",
       "description": "10-16 kanallık bir kurulumda bu sayı 0 OLMALI. 1 veya daha fazlaysa en az bir kanal GPU/kuyruk kapasitesine yetişemiyor demektir — acil kırmızı bayrak.",
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
       "targets": [
         {
-          "expr": "count(sum by (kanal) (increase(altyazi_bolut_dusme_toplam[5m])) > 0) OR on() vector(0)",
+          "expr": "count(sum by (kanal) (increase(altyazi_bolut_dusme_toplam_total[5m])) > 0) OR on() vector(0)",
           "legendFormat": "drop olan kanal"
         }
       ],
@@ -66,8 +110,14 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
             ]
           }
         }
@@ -78,7 +128,12 @@
       "title": "Kanal başına kuyruk derinliği (canlı)",
       "type": "timeseries",
       "datasource": "Prometheus",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
       "description": "Her kanalın o an kuyruğunda bekleyen, henüz çözümlenmemiş bölüt sayısı. Kapasite 4 -- bir kanal sürekli 4'te takılıyorsa GPU'ya yetişemiyor demektir.",
       "targets": [
         {
@@ -88,7 +143,11 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "custom": { "drawStyle": "line", "lineInterpolation": "stepAfter", "fillOpacity": 10 },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "fillOpacity": 10
+          },
           "min": 0,
           "max": 4
         }
@@ -99,7 +158,12 @@
       "title": "Kuyruk büyüme eğilimi (bölüt/dk)",
       "type": "timeseries",
       "datasource": "Prometheus",
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
       "description": "Pozitif = kuyruk büyüyor (GPU yetişemiyor). Negatif/sıfıra yakın = kuyruk boşalıyor ya da dengede. Kapasite (4) tavanına çarpan bir kanalda bu eğilim yanıltıcı düzleşir -- derinlik grafiğiyle BİRLİKTE okunmalı.",
       "targets": [
         {
@@ -112,13 +176,21 @@
           "custom": {
             "drawStyle": "line",
             "fillOpacity": 5,
-            "thresholdsStyle": { "mode": "line" }
+            "thresholdsStyle": {
+              "mode": "line"
+            }
           },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 0 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
             ]
           }
         }
@@ -129,7 +201,12 @@
       "title": "Üretim gecikmesi — p95, kanal başına",
       "type": "timeseries",
       "datasource": "Prometheus",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
       "description": "Eski 'ALTYAZI KAPSAMA' log satırındaki p95 değerinin metrik karşılığı. Kırmızı çizgi bütçe (ALTYAZI_BUTCE_MS, varsayılan 8000ms) -- p95 bu çizginin üstündeyse izleyicilerin çoğu o kanalın altyazısını GÖRMÜYOR.",
       "targets": [
         {
@@ -140,12 +217,24 @@
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
-          "custom": { "drawStyle": "line", "fillOpacity": 5, "thresholdsStyle": { "mode": "line" } },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 5,
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 8000 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 8000
+              }
             ]
           }
         }
@@ -156,7 +245,12 @@
       "title": "Kapsama % — kanal başına",
       "type": "timeseries",
       "datasource": "Prometheus",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
       "description": "Bölütlerin yüzde kaçı bütçe içinde yayınlandı, yani izleyici tarafından görülebilecek kadar hızlı üretildi. %100 hedef; sürekli %0 o kanalın altyazısının hiç görünmediği anlamına gelir.",
       "targets": [
         {
@@ -169,7 +263,10 @@
           "unit": "percent",
           "min": 0,
           "max": 100,
-          "custom": { "drawStyle": "line", "fillOpacity": 10 }
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
         }
       }
     },
@@ -178,52 +275,161 @@
       "title": "En çok düşen kanallar — sebep bazında (son 15 dk toplam)",
       "type": "bargauge",
       "datasource": "Prometheus",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 21 },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
       "description": "sebep=yas -> bütçeyi (ALTYAZI_BUTCE_MS) aşmış, kuyruğa hiç alınmadı. sebep=kapasite -> kanalın kendi kuyruğu doluydu, en eski atıldı.",
       "targets": [
         {
-          "expr": "sum by (kanal, sebep) (increase(altyazi_bolut_dusme_toplam[15m]))",
+          "expr": "sum by (kanal, sebep) (increase(altyazi_bolut_dusme_toplam_total[15m]))",
           "legendFormat": "{{kanal}} — {{sebep}}"
         }
       ],
-      "options": { "orientation": "horizontal", "displayMode": "gradient" }
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient"
+      }
     },
     {
       "id": 10,
       "title": "GPU kullanımı (%)",
       "type": "timeseries",
       "datasource": "Prometheus",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 29 },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 29
+      },
       "description": "DCGM_FI_DEV_GPU_UTIL. Sürekli %100 ise darboğaz GPU hesap gücü -- concurrency/kanal sayısı ayarları burada etkisiz kalır.",
       "targets": [
-        { "expr": "DCGM_FI_DEV_GPU_UTIL", "legendFormat": "GPU {{gpu}}" }
+        {
+          "expr": "DCGM_FI_DEV_GPU_UTIL",
+          "legendFormat": "GPU {{gpu}}"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      }
     },
     {
       "id": 11,
       "title": "VRAM kullanımı (MB)",
       "type": "timeseries",
       "datasource": "Prometheus",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 29 },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 29
+      },
       "description": "DCGM_FI_DEV_FB_USED. Bu kartta (6 GB) tavan ~6000 MB.",
       "targets": [
-        { "expr": "DCGM_FI_DEV_FB_USED", "legendFormat": "GPU {{gpu}}" }
+        {
+          "expr": "DCGM_FI_DEV_FB_USED",
+          "legendFormat": "GPU {{gpu}}"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "decmbytes" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decmbytes"
+        }
+      }
     },
     {
       "id": 12,
       "title": "SM Occupancy / Activity",
       "type": "timeseries",
       "datasource": "Prometheus",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 29 },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 29
+      },
       "description": "DCGM_FI_PROF_SM_OCCUPANCY ve DCGM_FI_PROF_SM_ACTIVE -- GPU_UTIL'den daha ince: kartın hesap birimlerinin (SM) ne kadarı gerçekten dolu (GPU_UTIL yalnızca \"meşgul mü\" der, bunlar \"ne kadar dolu\" der). ÖLÇÜLDÜ: panel bu makinede boş -- sebep donanım/GeForce kısıtı DEĞİL, host'un NVIDIA sürücüsünde RmProfilingAdminOnly=1 ayarı (görmek için: cat /proc/driver/nvidia/params | grep Restrict). Düzeltmesi: /etc/modprobe.d'ye 'options nvidia NVreg_RestrictProfilingToAdminUsers=0' eklenip nvidia modülü yeniden yüklenmeli -- bu modül kullanımdayken (Xorg + tüm konteynerler) değişmiyor, host reboot gerekiyor.",
       "targets": [
-        { "expr": "DCGM_FI_PROF_SM_OCCUPANCY", "legendFormat": "SM occupancy — GPU {{gpu}}" },
-        { "expr": "DCGM_FI_PROF_SM_ACTIVE", "legendFormat": "SM active — GPU {{gpu}}" }
+        {
+          "expr": "DCGM_FI_PROF_SM_OCCUPANCY",
+          "legendFormat": "SM occupancy — GPU {{gpu}}"
+        },
+        {
+          "expr": "DCGM_FI_PROF_SM_ACTIVE",
+          "legendFormat": "SM active — GPU {{gpu}}"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        }
+      }
+    },
+    {
+      "id": 13,
+      "title": "Whisper batch boyutu (p50/p95) — VRAM panelinin hemen altı, ayni zaman ekseni",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 37
+      },
+      "description": "stt_batch_boyutu: bir GPU cagrisinda kac kesitin birlikte islendigi. Yukselirse cok kanal ayni pencerede (STT_BATCH_WINDOW_MS) cakisiyor demek -- VRAM panelindeki artisla karsilastir.",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(stt_batch_boyutu_bucket[5m]))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(stt_batch_boyutu_bucket[5m]))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(1.0, rate(stt_batch_boyutu_bucket[5m]))",
+          "legendFormat": "max"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Çeviri batch boyutu — dil başına (p95)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 37
+      },
+      "description": "stt_ceviri_batch_boyutu: bir dil icin TEK generate() cagrisinda kac metnin birlikte cevrildigi.",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(stt_ceviri_batch_boyutu_bucket[5m])) by (dil)",
+          "legendFormat": "{{dil}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      }
     }
   ]
 }

@@ -20,11 +20,17 @@ import threading
 import time
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 import anyio
 
 from .batching import BatchCoalescer
 from .config import BYTES_PER_SAMPLE, SAMPLE_RATE, SETTINGS
+from .metrics import (
+    CEVIRI_SANIYE_TOPLAM, HATALAR_TOPLAM, ISLEM_SANIYE_TOPLAM,
+    SEGMENTLER_TOPLAM, SES_SANIYE_TOPLAM,
+)
 from .schemas import HealthStatus, TranscriptionResult
 from .stt import Transcriber
 from .translate import Translator
@@ -69,10 +75,17 @@ class Metrics:
             self.audio_ms += audio_ms
             self.processing_ms += processing_ms
             self.translation_ms += translation_ms
+        # Ayni sayilar Prometheus'a da -- /ozet tekil bir anlik goruntu,
+        # bunlar Grafana'da zaman ici izlenebiliyor (rate(), vs.).
+        SEGMENTLER_TOPLAM.inc()
+        SES_SANIYE_TOPLAM.inc(audio_ms / 1000)
+        ISLEM_SANIYE_TOPLAM.inc(processing_ms / 1000)
+        CEVIRI_SANIYE_TOPLAM.inc(translation_ms / 1000)
 
     def record_failure(self) -> None:
         with self._lock:
             self.failures += 1
+        HATALAR_TOPLAM.inc()
 
     def summary(self) -> dict:
         with self._lock:
@@ -186,9 +199,23 @@ async def transcribe(
 
 
 @app.get("/metrics")
-def metrics_endpoint() -> dict:
+def metrics_endpoint() -> Response:
     """
-    Kapasite ölçümü için toplam sayaçlar.
+    Prometheus formatında -- Grafana'nın scrape ettiği uç.
+
+    <p>Eskiden burası tek seferlik bir JSON özetiydi (elle `curl` ile
+    okunuyordu). Artık `stt_batch_boyutu`/`stt_ceviri_batch_boyutu`
+    histogramları da burada -- GPU VRAM paneliyle (dcgm-exporter) AYNI
+    Grafana panosunda, aynı zaman ekseninde görülebiliyor. Tek seferlik
+    JSON özet hâlâ istenirse {@link /ozet}'te duruyor.
+    """
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+@app.get("/ozet")
+def ozet_endpoint() -> dict:
+    """
+    Kapasite ölçümü için tek anlık toplam özet -- elle `curl` ile hızlı bakış.
 
     `realtime_factor` doğrudan "kaç kanal taşınabilir"e karşılık geliyor:
     20 kanal için 20× gerekiyor. Kart kararı bu sayıya dayanacak.

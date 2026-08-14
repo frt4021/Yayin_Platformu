@@ -22,3 +22,10 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ["dcgm-exporter:9400"]
+
+  # Batch boyutu (stt_batch_boyutu, stt_ceviri_batch_boyutu) burada --
+  # DCGM'in VRAM panelleriyle ayni pano/zaman ekseninde okunabilsin diye.
+  - job_name: stt-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["stt-worker:8100"]
