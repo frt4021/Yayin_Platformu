@@ -1,0 +1,105 @@
+{
+  "title": "Triton Metrikleri",
+  "uid": "triton-metrikleri",
+  "description": "Triton (Whisper + Marian) zaten Prometheus'a taranıyordu (prometheus.yml: job triton) ama hiçbir dashboard'da görselleştirilmemişti. Metrik adları Triton'un dokümante edilmiş standart adları (nv_inference_*, nv_gpu_*) — sürüme göre isim farkı çıkarsa `curl localhost:8002/metrics` ile doğrulanıp burası düzeltilmeli.",
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Model başına başarılı istek oranı",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum by (model) (rate(nv_inference_request_success[5m]))", "legendFormat": "{{model}}" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Model başına başarısız istek oranı",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "sum by (model) (rate(nv_inference_request_failure[5m]))", "legendFormat": "{{model}}" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Model başına ortalama istek gecikmesi (ms)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "nv_inference_request_duration_us / istek sayısı — istek başına ortalama uçtan uca gecikme.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum by (model) (rate(nv_inference_request_duration_us[5m])) / clamp_min(sum by (model) (rate(nv_inference_request_success[5m])), 1) / 1000",
+          "legendFormat": "{{model}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Model başına kuyrukta bekleme süresi (ms)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "nv_inference_queue_duration_us — batching/eşzamanlılık yetersizse burası büyür.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum by (model) (rate(nv_inference_queue_duration_us[5m])) / clamp_min(sum by (model) (rate(nv_inference_request_success[5m])), 1) / 1000",
+          "legendFormat": "{{model}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Model başına hesaplama süresi (ms)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "nv_inference_compute_infer_duration_us — GPU/CPU üzerinde gerçek çıkarım süresi (kuyruk hariç).",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum by (model) (rate(nv_inference_compute_infer_duration_us[5m])) / clamp_min(sum by (model) (rate(nv_inference_request_success[5m])), 1) / 1000",
+          "legendFormat": "{{model}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "GPU bellek kullanımı",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        { "expr": "nv_gpu_memory_used_bytes", "legendFormat": "GPU {{gpu_uuid}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "id": 7,
+      "title": "GPU kullanım oranı (%)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        { "expr": "nv_gpu_utilization * 100", "legendFormat": "GPU {{gpu_uuid}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "min": 0 } }
+    },
+    {
+      "id": 8,
+      "title": "Toplam eşzamanlı çıkarım sayısı (5dk)",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        { "expr": "sum(increase(nv_inference_count[5m]))", "legendFormat": "toplam" }
+      ]
+    }
+  ]
+}

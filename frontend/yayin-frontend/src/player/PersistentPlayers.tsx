@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { recordingsApi } from '@/api/endpoints'
+import { channelsApi, recordingsApi, subtitlesApi } from '@/api/endpoints'
 import type { ActiveRecordingDto, ChannelDto } from '@/api/types'
 import { HlsPlayer, type CaptureHandle } from '@/components/HlsPlayer'
 import { TileActions } from './TileActions'
@@ -260,7 +260,12 @@ export function PersistentPlayers() {
               compact={!onWatchPage}
               hasAudio={channel.id === audioId}
               quality={quality[channel.id] ?? ''}
-              onQuality={(suffix) => setQuality(channel.id, suffix)}
+              onQuality={(suffix) => {
+                setQuality(channel.id, suffix)
+                // Kullanıcı davranışı denetim izi için — oynatıcının kendi
+                // akışını etkilemez, hata sessizce yutuluyor.
+                void channelsApi.kaliteDegisti(channel.id, suffix).catch(() => {})
+              }}
               showControls={singleTile}
               onToggleExpand={() => expand(expanded?.id === channel.id ? null : channel.id)}
               recording={recordings.find((r) => r.channelId === channel.id) ?? null}
@@ -438,6 +443,7 @@ function Tile({
       ) : (
       <HlsPlayer
         key={selected.hlsUrl}
+        channelId={channel.id}
         captureRef={captureRef}
         onVideo={setVideoEl}
         src={selected.hlsUrl}
@@ -523,7 +529,13 @@ function Tile({
             title="Altyazı dili"
             className="h-7 rounded-md border bg-secondary px-1.5 text-xs text-secondary-foreground"
             value={subtitleLang}
-            onChange={(e) => setSubtitleLang(e.target.value)}
+            onChange={(e) => {
+              const yeniDil = e.target.value
+              setSubtitleLang(yeniDil)
+              // Kullanici davranisi denetim izi icin -- altyazinin kendi
+              // akisini etkilemez, bu yuzden hata sessizce yutuluyor.
+              if (yeniDil !== 'kapali') void subtitlesApi.dilDegisti(channel.id, yeniDil).catch(() => {})
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             {SUBTITLE_LANGS.map((l) => (

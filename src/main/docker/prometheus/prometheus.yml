@@ -32,3 +32,40 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ["triton:8002"]
+
+  # MediaMTX'in kendi native metrik dinleyicisi (mediamtx.yml: metrics/metricsAddress).
+  - job_name: mediamtx
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["mediamtx:9998"]
+
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  - job_name: keycloak-postgres
+    static_configs:
+      - targets: ["keycloak-postgres-exporter:9187"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  # MINIO_PROMETHEUS_AUTH_TYPE=public ile kimlik dogrulamasiz acildi.
+  - job_name: minio
+    metrics_path: /minio/v2/metrics/cluster
+    static_configs:
+      - targets: ["minio:9000"]
+
+  # KC_METRICS_ENABLED=true ile acildi. PORT DOGRULANMADI: Keycloak 25'te
+  # metrikler ayri bir yonetim arayuzunde (varsayilan 9000) olabilir --
+  # container ayaga kalkinca `docker compose exec keycloak env | grep KC_HTTP`
+  # ve `curl` ile gercek port/yol dogrulanip gerekirse burasi duzeltilmeli.
+  - job_name: keycloak
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["keycloak:9000"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

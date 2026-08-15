@@ -11,6 +11,187 @@ export interface TokenResponse {
   token_type: string
 }
 
+export const ETKINLIK_TURLERI = [
+  'GIRIS',
+  'GIRIS_BASARISIZ',
+  'CIKIS',
+  'IZLEME_BASLADI',
+  'IZLEME_BITTI',
+  'DINLEME_BASLADI',
+  'DINLEME_BITTI',
+  'ALTYAZI_DIL_DEGISTI',
+  'KALITE_DEGISTI',
+  'DVR_GERI_SARILDI',
+  'KLIP_OLUSTURULDU',
+  'KAYIT_BASLADI',
+  'KAYIT_DURDU',
+  'KANAL_EKLENDI',
+  'KANAL_SILINDI',
+  'RADYO_EKLENDI',
+  'RADYO_SILINDI',
+  'KULLANICI_EKLENDI',
+  'KULLANICI_SILINDI',
+  'KULLANICI_ROLU_DEGISTI',
+  'VIDEO_YUKLENDI',
+  'VIDEO_SILINDI',
+  'VIDEO_IZLEME_BASLADI',
+  'VIDEO_IZLEME_BITTI',
+  'OYNATMA_HATASI',
+  'OYNATMA_TAKILMA',
+] as const
+export type EtkinlikTuru = (typeof ETKINLIK_TURLERI)[number]
+
+export interface EtkinlikDto {
+  id: string
+  kullaniciId: string | null
+  kullaniciAdi: string | null
+  tur: EtkinlikTuru
+  hedefTuru: string | null
+  hedefId: string | null
+  /** hedefId'nin çözümlenmiş adı (kanal/radyo/video adı vb.); hedef yoksa null, silinmişse "Silinmiş …". */
+  hedefAdi: string | null
+  detay: Record<string, unknown>
+  olusturmaZamani: string
+}
+
+export interface EtkinlikSayfasiDto {
+  items: EtkinlikDto[]
+  total: number
+  first: number
+  max: number
+}
+
+/** Bant genişliği MediaMTX metrik entegrasyonu olmadan ölçülmüyor — null. */
+export interface CanliDurumDto {
+  esZamanliIzleyici: number
+  esZamanliDinleyici: number
+  aktifDvrKaydi: number
+  anlikTrafikMbps: number | null
+}
+
+export interface TopEtiketDto {
+  id: string
+  ad: string
+  sayi: number
+}
+
+export interface IcerikPerformansiDto {
+  enCokIzlenenKanallar: TopEtiketDto[]
+  enCokDinlenenRadyolar: TopEtiketDto[]
+  enCokKaydedilenYayinlar: TopEtiketDto[]
+}
+
+export interface KullaniciKullanimDto {
+  kullaniciAdi: string
+  toplamBayt: number
+  yuzde: number
+}
+
+export interface DepolamaDto {
+  enYuksekKullanicilar: KullaniciKullanimDto[]
+  gelecek24SaatPlanliKayit: number
+  toplamDvrBoyutBayt: number
+}
+
+/** yayinKopmaOrani: hiç izleme/dinleme başlangıcı yoksa null (oran anlamsız). */
+export interface TeknikDto {
+  basarisizPlanliKayit: number
+  videoIslemeHatasi: number
+  yayinKopmaOrani: number | null
+}
+
+export interface GenelAktiviteDto {
+  dau: number
+  mau: number
+  saatBazliGiris: Record<string, number>
+  ortalamaIzlemeBaslangici24s: number
+}
+
+export interface VideoIzlemeOzeti {
+  ziyaretEdilenDilimler: number[]
+  tamamlandi: boolean
+  duraklatmaSayisi: number
+  sarmaSayisi: number
+  sureMs: number
+}
+
+export interface OynatmaOzeti {
+  hataSayisi: number
+  takilmaSayisi: number
+  sonMesaj: string | null
+}
+
+export interface VideoAnalitikOzetDto {
+  videoId: string
+  baslik: string
+  oturumSayisi: number
+  tamamlanmaOrani: number
+}
+
+export interface VideoIsiHaritasiDto extends VideoAnalitikOzetDto {
+  /** Uzunluk her zaman 10 — sıfır-doldurulmuş. */
+  dilimSayaclari: number[]
+}
+
+export interface BilesenSaglikDurumu {
+  bilesen: string
+  saglikli: boolean
+  detay: string
+}
+
+export interface SistemSagligiOzetDto {
+  bilesenler: BilesenSaglikDurumu[]
+  sonEtkinlikler: EtkinlikDto[]
+}
+
+/**
+ * BilesenSaglikDurumu'nun (yalnızca erişilebilir mi) aksine gerçek sayısal
+ * detay — Prometheus'tan okunuyor, ulaşılamıyorsa/veri yoksa alan null.
+ */
+export interface ServisMetrikleriDto {
+  tritonIstekSayisi5dk: number | null
+  tritonOrtalamaGecikmeMs: number | null
+  tritonGpuBellekBayt: number | null
+  postgresAktifBaglanti: number | null
+  postgresBoyutBayt: number | null
+  postgresCommitOrani5dk: number | null
+  redisBagliIstemci: number | null
+  redisBellekBayt: number | null
+  redisKomutOrani5dk: number | null
+  minioKullanilanBayt: number | null
+  minioToplamBayt: number | null
+  mediaMtxAktifPath: number | null
+  mediaMtxAktifHlsMuxer: number | null
+}
+
+export interface HedefIzlemeOzetiDto {
+  id: string
+  ad: string
+  oturumSayisi: number
+  toplamSureMs: number
+}
+
+/** {@code TopEtiketDto}'nun aksine gerçek bir id yok — isimle gruplandı. */
+export interface AdSayiDto {
+  ad: string
+  sayi: number
+}
+
+/** kullaniciAdi: yerel kayıt yoksa (hiç giriş yapmamış) null. */
+export interface KullaniciAktiviteDto {
+  kullaniciAdi: string | null
+  videoYuklemeSayisi: number
+  klipSayisi: number
+  toplamIzlemeSuresiMs: number
+  izlenenKanallar: HedefIzlemeOzetiDto[]
+  dinlenenRadyolar: HedefIzlemeOzetiDto[]
+  klipAlinanKanallar: AdSayiDto[]
+  manuelKayitAlinanKanallar: TopEtiketDto[]
+  geriSarilanKanallar: TopEtiketDto[]
+  sonEtkinlikler: EtkinlikDto[]
+  sonGiris: string | null
+}
+
 export interface UserDto {
   /** Keycloak kullanıcı id'si (token'daki sub). Yerel users.id dışarı açılmıyor. */
   id: string

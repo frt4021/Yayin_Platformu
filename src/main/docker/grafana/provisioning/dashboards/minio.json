@@ -1,0 +1,56 @@
+{
+  "title": "MinIO",
+  "uid": "minio-metrikleri",
+  "description": "MinIO'nun native /minio/v2/metrics/cluster ucu bu turda MINIO_PROMETHEUS_AUTH_TYPE=public ile açıldı. Metrik adları MinIO'nun 'cluster' metrik setinin dokümante edilen adları — sürüme göre isim farkı çıkarsa `curl localhost:9000/minio/v2/metrics/cluster` ile doğrulanıp düzeltilmeli.",
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Kullanılabilir / toplam kapasite",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "minio_cluster_capacity_usable_free_bytes", "legendFormat": "boş" },
+        { "expr": "minio_cluster_capacity_usable_total_bytes", "legendFormat": "toplam" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "id": 2,
+      "title": "S3 istek oranı (API başına)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "sum by (api) (rate(minio_s3_requests_total[5m]))", "legendFormat": "{{api}}" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Disk online / offline sayısı",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "minio_cluster_disk_online_total", "legendFormat": "online" },
+        { "expr": "minio_cluster_disk_offline_total", "legendFormat": "offline" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "S3 trafiği (alınan/gönderilen)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "rate(minio_s3_traffic_received_bytes[5m])", "legendFormat": "alınan" },
+        { "expr": "rate(minio_s3_traffic_sent_bytes[5m])", "legendFormat": "gönderilen" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps" } }
+    }
+  ]
+}

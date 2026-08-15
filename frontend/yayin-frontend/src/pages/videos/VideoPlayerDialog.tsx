@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '@/api/client'
 import { videosApi } from '@/api/endpoints'
 import { formatBytes, formatDuration } from '@/api/upload'
@@ -36,6 +36,7 @@ export function VideoPlayerDialog({
 }) {
   const [links, setLinks] = useState<VideoLinks | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
     if (!open || !video) {
@@ -58,6 +59,75 @@ export function VideoPlayerDialog({
       cancelled = true
     }
   }, [open, video])
+
+  // Kullanıcı davranışı denetim izi: tamamlanma oranı + kaba (10 dilim)
+  // tekrar-izleme ısı haritası. Fetch effect'inden AYRI tutuluyor -- bu
+  // effect'in işi telemetri, o effect'in işi adres alma; ikisini
+  // karıştırmak temizlik/yeniden başlatma sınırlarını bulanıklaştırırdı.
+  useEffect(() => {
+    const el = videoRef.current
+    if (!el || !links || !video) return
+    const durationSeconds = video.durationSeconds
+    const videoId = video.id
+
+    const oturum = {
+      dilimler: new Set<number>(),
+      duraklatma: 0,
+      sarma: 0,
+      tamamlandi: false,
+      baslangic: Date.now(),
+      basladiBildirildi: false,
+    }
+
+    function onTimeUpdate() {
+      if (!durationSeconds || !el) return
+      const dilim = Math.min(9, Math.max(0, Math.floor((el.currentTime / durationSeconds) * 10)))
+      oturum.dilimler.add(dilim)
+      if (dilim === 9) oturum.tamamlandi = true
+    }
+    function onPlay() {
+      if (oturum.basladiBildirildi) return
+      oturum.basladiBildirildi = true
+      void videosApi.izlemeBasladi(videoId).catch(() => {})
+    }
+    function onPause() {
+      if (!el?.ended) oturum.duraklatma += 1
+    }
+    function onSeeked() {
+      oturum.sarma += 1
+    }
+    function onEnded() {
+      oturum.tamamlandi = true
+    }
+
+    el.addEventListener('timeupdate', onTimeUpdate)
+    el.addEventListener('play', onPlay)
+    el.addEventListener('pause', onPause)
+    el.addEventListener('seeked', onSeeked)
+    el.addEventListener('ended', onEnded)
+
+    return () => {
+      el.removeEventListener('timeupdate', onTimeUpdate)
+      el.removeEventListener('play', onPlay)
+      el.removeEventListener('pause', onPause)
+      el.removeEventListener('seeked', onSeeked)
+      el.removeEventListener('ended', onEnded)
+
+      // Tek beacon: dialog kapanırken/video değişirken. Oynatma hiç
+      // başlamadıysa (hemen kapatıldıysa) boş bir oturum gönderilmiyor.
+      if (oturum.basladiBildirildi) {
+        void videosApi
+          .izlemeOzeti(videoId, {
+            ziyaretEdilenDilimler: [...oturum.dilimler].sort((a, b) => a - b),
+            tamamlandi: oturum.tamamlandi,
+            duraklatmaSayisi: oturum.duraklatma,
+            sarmaSayisi: oturum.sarma,
+            sureMs: Date.now() - oturum.baslangic,
+          })
+          .catch(() => {})
+      }
+    }
+  }, [links, video])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -85,6 +155,7 @@ export function VideoPlayerDialog({
             // key: adres degisince oynatici yeniden kurulmali.
             <video
               key={links.stream}
+              ref={videoRef}
               src={links.stream}
               controls
               autoPlay

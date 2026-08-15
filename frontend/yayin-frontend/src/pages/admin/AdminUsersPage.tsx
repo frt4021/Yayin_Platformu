@@ -25,6 +25,7 @@ import {
 import { KeyRoundIcon, Loader2Icon, RefreshCwIcon, Trash2Icon, UserPlusIcon } from 'lucide-react'
 import { CreateUserDialog } from './CreateUserDialog'
 import { ResetPasswordDialog } from './ResetPasswordDialog'
+import { UserActivityDialog } from './UserActivityDialog'
 
 function roleVariant(role: Role) {
   if (role === 'Yönetici') return 'default' as const
@@ -41,6 +42,7 @@ export function AdminUsersPage() {
   const [error, setError] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [resetTarget, setResetTarget] = useState<UserDto | null>(null)
+  const [activityTarget, setActivityTarget] = useState<UserDto | null>(null)
   /** İşlem süren satırların id'si — o satırın düğmelerini kilitler. */
   const [pending, setPending] = useState<Set<string>>(new Set())
 
@@ -179,7 +181,14 @@ export function AdminUsersPage() {
                   return (
                     <TableRow key={user.id}>
                       <TableCell className="font-medium">
-                        {user.username}
+                        <button
+                          type="button"
+                          title="Kullanıcı aktivitesini görüntüle"
+                          className="hover:underline"
+                          onClick={() => setActivityTarget(user)}
+                        >
+                          {user.username}
+                        </button>
                         {isSelf && (
                           <span className="ml-2 text-xs text-muted-foreground">(siz)</span>
                         )}
@@ -249,6 +258,7 @@ export function AdminUsersPage() {
         onCreated={() => void load(search)}
       />
       <ResetPasswordDialog user={resetTarget} onClose={() => setResetTarget(null)} />
+      <UserActivityDialog user={activityTarget} onClose={() => setActivityTarget(null)} />
     </div>
   )
 }

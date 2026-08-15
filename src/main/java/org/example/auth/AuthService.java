@@ -1,5 +1,7 @@
 package org.example.auth;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.WebApplicationException;
@@ -7,8 +9,14 @@ import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.example.auth.dto.TokenResponse;
+import org.example.etkinlik.EtkinlikService;
+import org.example.etkinlik.EtkinlikTuru;
 import org.example.exception.AppException;
 import org.jboss.logging.Logger;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.Map;
 
 /**
  * Giriş, token yenileme ve çıkış. Kimlik bilgisi doğrulaması tamamen
@@ -38,6 +46,12 @@ public class AuthService {
     @RestClient
     KeycloakTokenClient tokenClient;
 
+    @Inject
+    EtkinlikService etkinlikService;
+
+    @Inject
+    ObjectMapper json;
+
     @ConfigProperty(name = "keycloak.realm")
     String realm;
 
@@ -52,9 +66,11 @@ public class AuthService {
             TokenResponse token =
                 tokenClient.passwordGrant(realm, GRANT_PASSWORD, clientId, clientSecret, username, password);
             LOG.infof("Giriş başarılı: %s", username);
+            etkinlikService.kaydetGirisDenemesi(EtkinlikTuru.GIRIS, username);
             return token;
         } catch (WebApplicationException e) {
             LOG.infof("Giriş reddedildi: %s (HTTP %d)", username, e.getResponse().getStatus());
+            etkinlikService.kaydetGirisDenemesi(EtkinlikTuru.GIRIS_BASARISIZ, username);
             throw loginFailure(e);
         }
     }
@@ -73,6 +89,11 @@ public class AuthService {
     }
 
     public void logout(String refreshToken) {
+        // Bu uc @PermitAll ve JWT olmadan cagriliyor (frontend anonymous:true ile
+        // gonderiyor) -- kullaniciyi ancak refresh token'in kendi "sub" claim'inden
+        // (DOGRULANMADAN, salt bilgi amacli) cozebiliriz. Guvenlik karari buna
+        // dayanmiyor; sadece denetim izinde "kim cikis yapti" alani icin.
+        etkinlikService.kaydet(EtkinlikTuru.CIKIS, subFromToken(refreshToken), null, null, Map.of());
         try {
             tokenClient.logout(realm, clientId, clientSecret, refreshToken);
         } catch (WebApplicationException e) {
@@ -84,6 +105,23 @@ public class AuthService {
                 return;
             }
             throw AppException.upstreamError("Keycloak oturumu kapatamadı (HTTP " + status + ").", e);
+        }
+    }
+
+    /**
+     * Bir JWT'nin payload'ındaki {@code sub} claim'ini imza DOĞRULAMADAN okur.
+     * Yalnızca {@link #logout} içindeki denetim izi için kullanılır — hiçbir
+     * yetki kararı buna dayanmaz. Ayrıştırma başarısız olursa (beklenmedik
+     * biçim) çıkışın kendisini engellemeden {@code null} döner.
+     */
+    private String subFromToken(String jwt) {
+        try {
+            String[] parcalar = jwt.split("\\.");
+            byte[] payload = Base64.getUrlDecoder().decode(parcalar[1]);
+            JsonNode node = json.readTree(new String(payload, StandardCharsets.UTF_8));
+            return node.path("sub").asText(null);
+        } catch (Exception e) {
+            return null;
         }
     }
 

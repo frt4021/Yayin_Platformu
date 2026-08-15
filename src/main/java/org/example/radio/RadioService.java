@@ -7,6 +7,8 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.example.channel.MediaMtxService;
 import org.example.channel.dto.MediaMtxPathList;
 import org.example.channel.entity.Channel;
+import org.example.etkinlik.EtkinlikService;
+import org.example.etkinlik.EtkinlikTuru;
 import org.example.exception.AppException;
 import org.example.radio.dto.CreateRadioRequest;
 import org.example.radio.dto.RadioDto;
@@ -36,6 +38,9 @@ public class RadioService {
 
     @Inject
     ViewerPresence viewerPresence;
+
+    @Inject
+    EtkinlikService etkinlikService;
 
     @ConfigProperty(name = "mediamtx.hls-base-url")
     String hlsBaseUrl;
@@ -86,6 +91,8 @@ public class RadioService {
         }
         LOG.infof("Radyo oluşturuldu: %s (path=%s, tür=%s, aktif=%s)",
             radio.name, radio.mediamtxPath, radio.sourceKind, radio.active);
+        etkinlikService.kaydet(EtkinlikTuru.RADYO_EKLENDI, keycloakId, "radyo", radio.id,
+            Map.of("radyo", radio.name));
         return toDto(radio, null);
     }
 

@@ -74,7 +74,7 @@ AdminUserResource {
     @POST
     @Operation(summary = "Kullanıcı ekle", description = "Şifre ve rol ile birlikte oluşturur.")
     public Response create(@Valid CreateUserRequest request, @jakarta.ws.rs.core.Context UriInfo uriInfo) {
-        UserDto created = userService.create(request);
+        UserDto created = userService.create(request, jwt.getSubject());
         return Response
             .created(uriInfo.getAbsolutePathBuilder().path(created.id()).build())
             .entity(created)

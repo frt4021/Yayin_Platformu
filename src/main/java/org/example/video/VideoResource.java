@@ -25,6 +25,8 @@ import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 import org.jboss.resteasy.reactive.RestForm;
 import org.jboss.resteasy.reactive.multipart.FileUpload;
+import org.example.etkinlik.EtkinlikService;
+import org.example.etkinlik.EtkinlikTuru;
 import org.example.exception.AppException;
 import org.example.video.dto.CreateVideoRequest;
 import org.example.video.dto.UpdateVideoRequest;
@@ -33,6 +35,7 @@ import org.example.video.dto.VideoDto;
 import org.example.video.dto.VideoLinks;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -71,6 +74,9 @@ public class VideoResource {
     @Inject
     VideoService videoService;
 
+    @Inject
+    EtkinlikService etkinlikService;
+
     /** Yönetici tüm kütüphaneyi görür; moderatör dahil diğerleri kendininkini. */
     private boolean isAdmin() {
         return VideoService.isAdmin(identity.getRoles());
@@ -105,6 +111,40 @@ public class VideoResource {
         return videoService.links(id, jwt.getSubject(), isAdmin());
     }
 
+    @POST
+    @Path("/{id}/izleme-basladi")
+    @Operation(summary = "Gerçek oynatma başlangıcını bildir",
+        description = "viewCount /links çağrıldığında (izleme NİYETİ) artıyor; bu, "
+            + "tarayıcının video elementinin gerçekten oynatmaya başladığı andır. "
+            + "Kullanıcı davranışı denetim izi içindir.")
+    public void izlemeBasladi(@PathParam("id") UUID id) {
+        etkinlikService.kaydet(EtkinlikTuru.VIDEO_IZLEME_BASLADI, jwt.getSubject(), "video", id, Map.of());
+    }
+
+    @POST
+    @Path("/{id}/izleme-ozeti")
+    @Operation(summary = "İzleme oturumu özetini bildir",
+        description = "Tamamlanma oranı ve kaba (10 dilim) tekrar-izleme ısı haritası için. "
+            + "İstemci yalnızca kendi oturumunun özetini bildirir; oynatıcının akışını etkilemez.")
+    public void izlemeOzeti(@PathParam("id") UUID id, IzlemeOzetiRequest request) {
+        List<Integer> dilimler = request.ziyaretEdilenDilimler() == null ? List.of()
+            : request.ziyaretEdilenDilimler().stream()
+                .filter(d -> d != null && d >= 0 && d <= 9)
+                .distinct()
+                .sorted()
+                .toList();
+        etkinlikService.kaydet(EtkinlikTuru.VIDEO_IZLEME_BITTI, jwt.getSubject(), "video", id, Map.of(
+            "ziyaretEdilenDilimler", dilimler,
+            "tamamlandi", request.tamamlandi(),
+            "duraklatmaSayisi", Math.max(0, request.duraklatmaSayisi()),
+            "sarmaSayisi", Math.max(0, request.sarmaSayisi()),
+            "sureMs", Math.max(0, request.sureMs())));
+    }
+
+    public record IzlemeOzetiRequest(List<Integer> ziyaretEdilenDilimler, boolean tamamlandi,
+                                      int duraklatmaSayisi, int sarmaSayisi, long sureMs) {
+    }
+
     @RolesAllowed({Roles.YONETICI, Roles.MODERATOR})
     @POST
     @Operation(summary = "Yükleme başlat",
@@ -126,7 +166,10 @@ public class VideoResource {
             + "Bu çağrı hiç gelmezse süpürücü aynı işi yapar; bildirim bir "
             + "hızlandırmadır, doğruluk kaynağı değil.")
     public VideoDto completeUpload(@PathParam("id") UUID id) {
-        return videoService.completeUpload(id, jwt.getSubject(), isAdmin());
+        VideoDto video = videoService.completeUpload(id, jwt.getSubject(), isAdmin());
+        etkinlikService.kaydet(EtkinlikTuru.VIDEO_YUKLENDI, jwt.getSubject(), "video", id,
+            Map.of("baslik", video.title()));
+        return video;
     }
 
     @RolesAllowed({Roles.YONETICI, Roles.MODERATOR})
@@ -160,7 +203,10 @@ public class VideoResource {
     @Operation(summary = "Videoyu sil",
         description = "Kayıt, video dosyası ve küçük resim birlikte silinir.")
     public Response delete(@PathParam("id") UUID id) {
+        String baslik = videoService.get(id, jwt.getSubject(), isAdmin()).title();
         videoService.delete(id, jwt.getSubject(), isAdmin());
+        etkinlikService.kaydet(EtkinlikTuru.VIDEO_SILINDI, jwt.getSubject(), "video", id,
+            Map.of("baslik", baslik));
         return Response.noContent().build();
     }
 }

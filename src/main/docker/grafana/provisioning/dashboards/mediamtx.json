@@ -1,0 +1,59 @@
+{
+  "title": "MediaMTX",
+  "uid": "mediamtx-metrikleri",
+  "description": "MediaMTX'in native /metrics ucu (mediamtx.yml: metrics/metricsAddress:9998) bu turda açıldı — metrik adları dokümante edilen standart isimler, gerçek çıktı `curl localhost:9998/metrics` ile doğrulanıp gerekirse düzeltilmeli.",
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Aktif path sayısı",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "count(paths)", "legendFormat": "path" }]
+    },
+    {
+      "id": 2,
+      "title": "Aktif HLS muxer sayısı",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "count(hls_muxers)", "legendFormat": "muxer" }]
+    },
+    {
+      "id": 3,
+      "title": "RTSP bağlantı sayısı",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "count(rtsp_conns)", "legendFormat": "rtsp" }]
+    },
+    {
+      "id": 4,
+      "title": "RTMP bağlantı sayısı",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "count(rtmp_conns)", "legendFormat": "rtmp" }]
+    },
+    {
+      "id": 5,
+      "title": "Path sayısı — zaman içinde",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [{ "expr": "count(paths)", "legendFormat": "path" }]
+    },
+    {
+      "id": 6,
+      "title": "HLS muxer sayısı — zaman içinde",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [{ "expr": "count(hls_muxers)", "legendFormat": "muxer" }]
+    }
+  ]
+}

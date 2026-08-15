@@ -1,0 +1,59 @@
+{
+  "title": "Redis",
+  "uid": "redis-metrikleri",
+  "description": "redis_exporter standart metrikleri. Redis burada job queue + pub/sub (altyazı yayını) + viewer presence için kullanılıyor.",
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Bağlı istemci sayısı",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [{ "expr": "redis_connected_clients", "legendFormat": "istemci" }]
+    },
+    {
+      "id": 2,
+      "title": "Saniyedeki komut sayısı",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [{ "expr": "rate(redis_commands_processed_total[5m])", "legendFormat": "komut/sn" }]
+    },
+    {
+      "id": 3,
+      "title": "Bellek kullanımı",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [{ "expr": "redis_memory_used_bytes", "legendFormat": "kullanılan" }],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "id": 4,
+      "title": "Keyspace isabet oranı (%)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "100 * rate(redis_keyspace_hits_total[5m]) / clamp_min(rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m]), 1)",
+          "legendFormat": "isabet %"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "min": 0 } }
+    },
+    {
+      "id": 5,
+      "title": "Tahliye edilen anahtar oranı",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "Bellek limiti aşılıp anahtarlar zorla siliniyorsa burada görünür — job kuyruğu için beklenmedik veri kaybı anlamına gelebilir.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [{ "expr": "rate(redis_evicted_keys_total[5m])", "legendFormat": "tahliye/sn" }]
+    }
+  ]
+}

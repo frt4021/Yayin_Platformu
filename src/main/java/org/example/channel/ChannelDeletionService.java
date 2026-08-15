@@ -11,13 +11,17 @@ import org.example.clip.ClipStorage;
 import org.example.clip.entity.Clip;
 import org.example.dvr.DvrStorage;
 import org.example.dvr.entity.DvrSegment;
+import org.example.etkinlik.EtkinlikService;
+import org.example.etkinlik.EtkinlikTuru;
 import org.example.exception.AppException;
 import org.example.screenshot.ScreenshotStorage;
 import org.example.screenshot.entity.Screenshot;
+import org.example.user.entity.AppUser;
 import org.jboss.logging.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -87,6 +91,9 @@ public class ChannelDeletionService {
 
     @Inject
     MediaMtxService mediaMtx;
+
+    @Inject
+    EtkinlikService etkinlikService;
 
     /**
      * Silinecek olanın dökümü.
@@ -161,6 +168,11 @@ public class ChannelDeletionService {
             deleteClips ? "silindi" : "korundu", silinenKlip,
             deleteScreenshots ? "silindi" : "korundu", silinenEkran,
             deleteDvr ? "silindi" : "saklama kuralına bırakıldı", silinenSegment);
+
+        AppUser kullanici = AppUser.<AppUser>find("username", username).firstResult();
+        etkinlikService.kaydet(EtkinlikTuru.KANAL_SILINDI,
+            kullanici == null ? null : kullanici.keycloakId, "kanal", channelId,
+            Map.of("kanal", ozet.channelName()));
     }
 
     // ------------------------------------------------------------------

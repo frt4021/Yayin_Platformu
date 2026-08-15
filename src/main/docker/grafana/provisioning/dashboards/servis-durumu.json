@@ -1,0 +1,77 @@
+{
+  "title": "Servis Durumu",
+  "uid": "servis-durumu",
+  "description": "Prometheus'un taradığı her hedefin scrape-seviyesinde durumu (up=1/down=0). Admin panelin 'Genel Bakış' sayfasındaki uygulama-seviyesi sağlık kontrollerinden farklı — bu, Prometheus'un hedefe hiç ulaşıp ulaşamadığını gösterir.",
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "schemaVersion": 39,
+  "panels": [
+    { "id": 1, "title": "backend", "type": "stat", "datasource": "Prometheus", "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "targets": [{ "expr": "up{job=\"backend\"}", "legendFormat": "backend" }],
+      "fieldConfig": { "defaults": { "mappings": [
+        { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" } } },
+        { "type": "value", "options": { "1": { "text": "UP", "color": "green" } } }
+      ], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } } } },
+    { "id": 2, "title": "video-worker", "type": "stat", "datasource": "Prometheus", "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "targets": [{ "expr": "up{job=\"video-worker\"}", "legendFormat": "video-worker" }],
+      "fieldConfig": { "defaults": { "mappings": [
+        { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" } } },
+        { "type": "value", "options": { "1": { "text": "UP", "color": "green" } } }
+      ], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } } } },
+    { "id": 3, "title": "triton", "type": "stat", "datasource": "Prometheus", "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "targets": [{ "expr": "up{job=\"triton\"}", "legendFormat": "triton" }],
+      "fieldConfig": { "defaults": { "mappings": [
+        { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" } } },
+        { "type": "value", "options": { "1": { "text": "UP", "color": "green" } } }
+      ], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } } } },
+    { "id": 4, "title": "dcgm-exporter", "type": "stat", "datasource": "Prometheus", "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "targets": [{ "expr": "up{job=\"dcgm-exporter\"}", "legendFormat": "dcgm-exporter" }],
+      "fieldConfig": { "defaults": { "mappings": [
+        { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" } } },
+        { "type": "value", "options": { "1": { "text": "UP", "color": "green" } } }
+      ], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } } } },
+    { "id": 5, "title": "mediamtx", "type": "stat", "datasource": "Prometheus", "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "targets": [{ "expr": "up{job=\"mediamtx\"}", "legendFormat": "mediamtx" }],
+      "fieldConfig": { "defaults": { "mappings": [
+        { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" } } },
+        { "type": "value", "options": { "1": { "text": "UP", "color": "green" } } }
+      ], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } } } },
+    { "id": 6, "title": "postgres", "type": "stat", "datasource": "Prometheus", "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "targets": [{ "expr": "up{job=\"postgres\"}", "legendFormat": "postgres" }],
+      "fieldConfig": { "defaults": { "mappings": [
+        { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" } } },
+        { "type": "value", "options": { "1": { "text": "UP", "color": "green" } } }
+      ], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } } } },
+    { "id": 7, "title": "keycloak-postgres", "type": "stat", "datasource": "Prometheus", "gridPos": { "h": 4, "w": 4, "x": 0, "y": 4 },
+      "targets": [{ "expr": "up{job=\"keycloak-postgres\"}", "legendFormat": "keycloak-postgres" }],
+      "fieldConfig": { "defaults": { "mappings": [
+        { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" } } },
+        { "type": "value", "options": { "1": { "text": "UP", "color": "green" } } }
+      ], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } } } },
+    { "id": 8, "title": "redis", "type": "stat", "datasource": "Prometheus", "gridPos": { "h": 4, "w": 4, "x": 4, "y": 4 },
+      "targets": [{ "expr": "up{job=\"redis\"}", "legendFormat": "redis" }],
+      "fieldConfig": { "defaults": { "mappings": [
+        { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" } } },
+        { "type": "value", "options": { "1": { "text": "UP", "color": "green" } } }
+      ], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } } } },
+    { "id": 9, "title": "minio", "type": "stat", "datasource": "Prometheus", "gridPos": { "h": 4, "w": 4, "x": 8, "y": 4 },
+      "targets": [{ "expr": "up{job=\"minio\"}", "legendFormat": "minio" }],
+      "fieldConfig": { "defaults": { "mappings": [
+        { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" } } },
+        { "type": "value", "options": { "1": { "text": "UP", "color": "green" } } }
+      ], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } } } },
+    { "id": 10, "title": "keycloak", "type": "stat", "datasource": "Prometheus", "gridPos": { "h": 4, "w": 4, "x": 12, "y": 4 },
+      "targets": [{ "expr": "up{job=\"keycloak\"}", "legendFormat": "keycloak" }],
+      "fieldConfig": { "defaults": { "mappings": [
+        { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" } } },
+        { "type": "value", "options": { "1": { "text": "UP", "color": "green" } } }
+      ], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } } } },
+    { "id": 11, "title": "prometheus", "type": "stat", "datasource": "Prometheus", "gridPos": { "h": 4, "w": 4, "x": 16, "y": 4 },
+      "targets": [{ "expr": "up{job=\"prometheus\"}", "legendFormat": "prometheus" }],
+      "fieldConfig": { "defaults": { "mappings": [
+        { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" } } },
+        { "type": "value", "options": { "1": { "text": "UP", "color": "green" } } }
+      ], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } } } }
+  ]
+}

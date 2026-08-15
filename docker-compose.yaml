@@ -79,6 +79,10 @@ services:
       # realm-export.json icindeki $(env:...) yer tutucularini Keycloak
       # bu degiskenlerden doldurur. Secret dosyaya yazilmaz.
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-change_me}
+      # Prometheus /metrics ucu -- Keycloak 25'te yonetim arayuzunde ayri
+      # portta (varsayilan 9000) acilabiliyor; gercek port ayaga kalkinca
+      # container icinden dogrulanmali (bkz. prometheus.yml'deki not).
+      KC_METRICS_ENABLED: "true"
     volumes:
       - ./src/main/docker/keycloak:/opt/keycloak/data/import:ro
     ports:
@@ -97,6 +101,9 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio_admin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change_me}
+      # /minio/v2/metrics/cluster ucunu kimlik dogrulamasiz acar -- dcgm-exporter/
+      # Triton'la ayni yaklasim (ic agda kalan meta bilgi, veri degil).
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     volumes:
       - minio_data:/data
     ports:
@@ -162,6 +169,7 @@ services:
       - "${PORT_RTSP:-8554}:8554"             # RTSP
       - "${PORT_HLS:-8888}:8888"              # HLS/HTTP
       - "${PORT_MEDIAMTX_API:-9997}:9997"     # REST API (dinamik path yönetimi)
+      - "${PORT_MEDIAMTX_METRICS:-9998}:9998" # Prometheus metrikleri (mediamtx.yml: metrics/metricsAddress)
     networks:
       - yayin-merkezi
 
@@ -188,6 +196,9 @@ services:
       # TARAYICI'nin cozecegi adres. "mediamtx" ismi ag ici; disaridan
       # erisilen adres yazilmali yoksa oynatici yayini bulamaz.
       MEDIAMTX_HLS_BASE_URL: ${MEDIAMTX_HLS_BASE_URL:-http://localhost:8888}
+
+      # Admin panelin "Genel Bakış" servis detay metrikleri buradan okunuyor.
+      PROMETHEUS_URL: http://prometheus:9090
 
       # Rendition kodlayicisi: VAAPI | NVENC | YAZILIM
       # Komutu backend uretiyor ama KODLAMA mediamtx konteynerinde calisiyor;
@@ -443,6 +454,51 @@ services:
     networks:
       - yayin-merkezi
 
+  # --- İzleme: Postgres metrikleri (uygulama veritabanı) ---
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-app_user}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/yayin_merkezi?sslmode=disable
+    ports:
+      - "${PORT_POSTGRES_EXPORTER:-9187}:9187"
+    depends_on:
+      - postgres
+    networks:
+      - yayin-merkezi
+
+  # --- İzleme: Postgres metrikleri (Keycloak veritabanı) ---
+  #
+  # Ayrı container: postgres_exporter tek DSN izliyor, iki instance icin tek
+  # exporter'la ikisini birden izlemek ekstra multi-target kurulumu gerektirir.
+  keycloak-postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: keycloak-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: postgresql://${KEYCLOAK_DB_USER:-keycloak}:${KEYCLOAK_DB_PASSWORD:-change_me}@keycloak-postgres:5432/keycloak?sslmode=disable
+    ports:
+      - "${PORT_KEYCLOAK_POSTGRES_EXPORTER:-9188}:9187"
+    depends_on:
+      - keycloak-postgres
+    networks:
+      - yayin-merkezi
+
+  # --- İzleme: Redis metrikleri ---
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    container_name: redis-exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    ports:
+      - "${PORT_REDIS_EXPORTER:-9121}:9121"
+    depends_on:
+      - redis
+    networks:
+      - yayin-merkezi
+
   # --- İzleme: altyazı kuyruğu metrikleri ---
   #
   # Backend ve video-worker AYNI jar oldugu icin ikisi de /q/metrics acar;
@@ -460,6 +516,12 @@ services:
       - backend
       - video-worker
       - dcgm-exporter
+      - mediamtx
+      - postgres-exporter
+      - keycloak-postgres-exporter
+      - redis-exporter
+      - minio
+      - keycloak
     networks:
       - yayin-merkezi
 

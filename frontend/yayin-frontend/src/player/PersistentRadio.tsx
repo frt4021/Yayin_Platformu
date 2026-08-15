@@ -9,6 +9,9 @@ import { usePresence } from './usePresence'
 
 type Status = 'loading' | 'playing' | 'error'
 
+/** Oynatma hatası/takılma özetinin gönderilme sıklığı — HlsPlayer ile aynı tempo. */
+const OYNATMA_OZETI_MS = 60_000
+
 /** Oynatıcı çubuğunun yüksekliği; mini video oynatıcı bu değere göre yukarı kayar. */
 export const RADIO_BAR_HEIGHT = 'h-16'
 
@@ -47,6 +50,33 @@ export function PersistentRadio({
   const [radios, setRadios] = useState<RadioDto[]>([])
   const [status, setStatus] = useState<Status>('loading')
   const [volume, setVolume] = useState(1)
+
+  // Oynatma hatası/takılma sayaçları — dakikada bir toplu gönderiliyor.
+  const hataSayaciRef = useRef(0)
+  const takilmaSayaciRef = useRef(0)
+  const sonMesajRef = useRef<string | null>(null)
+
+  const gonderOynatmaOzeti = useCallback(() => {
+    if (!radioId) return
+    const hata = hataSayaciRef.current
+    const takilma = takilmaSayaciRef.current
+    if (hata === 0 && takilma === 0) return
+    hataSayaciRef.current = 0
+    takilmaSayaciRef.current = 0
+    const sonMesaj = sonMesajRef.current
+    sonMesajRef.current = null
+    void radiosApi
+      .oynatmaOzeti(radioId, { hataSayisi: hata, takilmaSayisi: takilma, sonMesaj })
+      .catch(() => {})
+  }, [radioId])
+
+  useEffect(() => {
+    const timer = setInterval(gonderOynatmaOzeti, OYNATMA_OZETI_MS)
+    return () => {
+      clearInterval(timer)
+      gonderOynatmaOzeti()
+    }
+  }, [gonderOynatmaOzeti])
 
   const load = useCallback(async () => {
     try {
@@ -117,7 +147,14 @@ export function PersistentRadio({
     })
 
     hls.on(Hls.Events.ERROR, (_event, data) => {
+      // Takılma, ERROR olayının bir DETAY'ı (data.details) -- hls.js'te ayrı
+      // bir "BUFFER_STALLED" olayı yok, genelde fatal değil.
+      if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
+        takilmaSayaciRef.current += 1
+      }
       if (!data.fatal) return
+      hataSayaciRef.current += 1
+      sonMesajRef.current = data.details
       // Icecast bağlantıları düşüp geri gelebiliyor. Ancak startLoad/
       // recoverMediaError her çağrıda yeni segment isteği açıp eskileri
       // kapatmıyor — MediaMTX reader birikiyor. Bunun yerine tamamen
@@ -135,7 +172,12 @@ export function PersistentRadio({
             void audio.play().catch(() => {})
           })
           fresh.on(Hls.Events.ERROR, (_e2, d2) => {
+            if (d2.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
+              takilmaSayaciRef.current += 1
+            }
             if (!d2.fatal) return
+            hataSayaciRef.current += 1
+            sonMesajRef.current = d2.details
             setStatus('error')
             fresh.destroy()
           })

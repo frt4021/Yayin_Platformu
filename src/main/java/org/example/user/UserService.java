@@ -8,6 +8,8 @@ import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.example.auth.AuthService;
+import org.example.etkinlik.EtkinlikService;
+import org.example.etkinlik.EtkinlikTuru;
 import org.example.exception.AppException;
 import org.example.user.dto.ChangePasswordRequest;
 import org.example.user.dto.CreateUserRequest;
@@ -29,7 +31,9 @@ import org.keycloak.representations.idm.UserRepresentation;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -59,6 +63,9 @@ public class UserService {
 
     @Inject
     UserProvisioningService provisioning;
+
+    @Inject
+    EtkinlikService etkinlikService;
 
     @ConfigProperty(name = "keycloak.realm")
     String realmName;
@@ -116,7 +123,7 @@ public class UserService {
     // ------------------------------------------------------------------
 
     @Transactional
-    public UserDto create(CreateUserRequest req) {
+    public UserDto create(CreateUserRequest req, String actingUserId) {
         String roleName = requireKnownRole(req.role());
 
         UserRepresentation rep = new UserRepresentation();
@@ -146,6 +153,10 @@ public class UserService {
         provisioning.upsert(keycloakId, req.username(), roleName);
 
         LOG.infof("Kullanıcı oluşturuldu: %s (%s)", req.username(), roleName);
+        AppUser hedefKullanici = AppUser.byKeycloakId(keycloakId);
+        etkinlikService.kaydet(EtkinlikTuru.KULLANICI_EKLENDI, actingUserId, "kullanici",
+            hedefKullanici == null ? null : hedefKullanici.id,
+            Map.of("kullaniciAdi", req.username(), "rol", roleName));
         return get(keycloakId);
     }
 
@@ -157,6 +168,7 @@ public class UserService {
     public UserDto changeRole(String keycloakId, String roleName, String actingUserId) {
         String newRole = requireKnownRole(roleName);
         UserRepresentation rep = representation(keycloakId);
+        String oldRole = effectiveRole(keycloakId);
 
         if (keycloakId.equals(actingUserId) && !Roles.YONETICI.equals(newRole)) {
             // Aksi halde tek yönetici kendini izleyiciye çevirip paneli kilitleyebilir.
@@ -167,6 +179,10 @@ public class UserService {
         provisioning.upsert(keycloakId, rep.getUsername(), newRole);
 
         LOG.infof("Rol değiştirildi: %s -> %s", rep.getUsername(), newRole);
+        AppUser hedefKullanici = AppUser.byKeycloakId(keycloakId);
+        etkinlikService.kaydet(EtkinlikTuru.KULLANICI_ROLU_DEGISTI, actingUserId, "kullanici",
+            hedefKullanici == null ? null : hedefKullanici.id,
+            Map.of("kullaniciAdi", rep.getUsername(), "eskiRol", oldRole, "yeniRol", newRole));
         return get(keycloakId);
     }
 
@@ -183,6 +199,8 @@ public class UserService {
             throw AppException.forbidden("Kendi hesabınızı silemezsiniz.");
         }
         UserRepresentation rep = representation(keycloakId);
+        AppUser hedefKullanici = AppUser.byKeycloakId(keycloakId);
+        UUID hedefId = hedefKullanici == null ? null : hedefKullanici.id;
 
         try (Response response = realm().users().delete(keycloakId)) {
             int status = response.getStatus();
@@ -193,6 +211,8 @@ public class UserService {
         }
         AppUser.deleteByKeycloakId(keycloakId);
         LOG.infof("Kullanıcı silindi: %s", rep.getUsername());
+        etkinlikService.kaydet(EtkinlikTuru.KULLANICI_SILINDI, actingUserId, "kullanici", hedefId,
+            Map.of("kullaniciAdi", rep.getUsername()));
     }
 
     // ------------------------------------------------------------------

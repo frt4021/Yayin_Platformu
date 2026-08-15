@@ -1,0 +1,92 @@
+{
+  "title": "Oynatma Sağlığı",
+  "uid": "oynatma-sagligi",
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Toplam hata (son 1 saat)",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum(increase(oynatma_hata_toplam_total[1h]))", "legendFormat": "hata" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Toplam takılma (son 1 saat)",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        { "expr": "sum(increase(oynatma_takilma_toplam_total[1h]))", "legendFormat": "takılma" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "En çok hata/takılma veren yayınlar (son 1 saat toplam)",
+      "type": "bargauge",
+      "datasource": "Prometheus",
+      "description": "Kanal/radyo adına göre, hata+takılma toplamı azalan sırada — top 10.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (ad, kaynak) (increase(oynatma_hata_toplam_total[1h]) + increase(oynatma_takilma_toplam_total[1h])))",
+          "legendFormat": "{{ad}} ({{kaynak}})"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Kaynak türüne göre hata oranı (kanal/radyo)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "expr": "sum by (kaynak) (rate(oynatma_hata_toplam_total[5m]))",
+          "legendFormat": "{{kaynak}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Kaynak türüne göre takılma oranı (kanal/radyo)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        {
+          "expr": "sum by (kaynak) (rate(oynatma_takilma_toplam_total[5m]))",
+          "legendFormat": "{{kaynak}}"
+        }
+      ]
+    }
+  ]
+}

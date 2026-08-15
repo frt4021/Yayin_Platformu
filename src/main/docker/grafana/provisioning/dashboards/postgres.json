@@ -1,0 +1,58 @@
+{
+  "title": "Postgres",
+  "uid": "postgres-metrikleri",
+  "description": "İki instance da (uygulama veritabanı 'postgres', Keycloak'ın 'keycloak-postgres'i) job etiketiyle aynı dashboard'da. postgres_exporter standart metrikleri.",
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Aktif bağlantı sayısı",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum by (job, datname) (pg_stat_activity_count{job=~\"postgres|keycloak-postgres\"})", "legendFormat": "{{job}} — {{datname}}" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Commit / Rollback oranı",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "sum by (job) (rate(pg_stat_database_xact_commit{job=~\"postgres|keycloak-postgres\"}[5m]))", "legendFormat": "{{job}} commit" },
+        { "expr": "sum by (job) (rate(pg_stat_database_xact_rollback{job=~\"postgres|keycloak-postgres\"}[5m]))", "legendFormat": "{{job}} rollback" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Veritabanı boyutu",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "pg_database_size_bytes{job=~\"postgres|keycloak-postgres\"}", "legendFormat": "{{job}} — {{datname}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "id": 4,
+      "title": "Önbellek isabet oranı (%)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "description": "blks_hit / (blks_hit + blks_read) — düşükse disk I/O'su artıyor demektir.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "100 * sum by (job) (rate(pg_stat_database_blks_hit{job=~\"postgres|keycloak-postgres\"}[5m])) / clamp_min(sum by (job) (rate(pg_stat_database_blks_hit{job=~\"postgres|keycloak-postgres\"}[5m]) + rate(pg_stat_database_blks_read{job=~\"postgres|keycloak-postgres\"}[5m])), 1)",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "min": 0 } }
+    }
+  ]
+}

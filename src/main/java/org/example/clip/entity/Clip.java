@@ -93,6 +93,10 @@ public class Clip extends PanacheEntityBase {
     @Column
     public String error;
 
+    /** Kullanıcı davranışı denetim izi için — Video.viewCount ile aynı desen. */
+    @Column(name = "view_count", nullable = false)
+    public long viewCount = 0;
+
     @Column(nullable = false)
     public int attempts = 0;
 

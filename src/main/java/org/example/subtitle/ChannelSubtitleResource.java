@@ -10,12 +10,16 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
+import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
+import org.example.etkinlik.EtkinlikService;
+import org.example.etkinlik.EtkinlikTuru;
 import org.example.subtitle.dto.SubtitleDto;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -37,6 +41,12 @@ public class ChannelSubtitleResource {
 
     @Inject
     SubtitleService service;
+
+    @Inject
+    JsonWebToken jwt;
+
+    @Inject
+    EtkinlikService etkinlikService;
 
     /**
      * Verilen zaman aralığındaki altyazılar.
@@ -87,5 +97,24 @@ public class ChannelSubtitleResource {
 
     /** @param ms izleyicinin canlı kenardan geride olma süresi */
     public record HlsGecikmeRequest(long ms) {
+    }
+
+    /**
+     * İzleyicinin altyazı dilini değiştirdiğini bildirir — yalnızca kullanıcı
+     * davranışı denetim izi için (bkz. {@code etkinlik_kayitlari}). Genel/spoofable
+     * bir olay-kayıt ucu yerine bilinçli olarak dar tutuldu: istemci yalnızca
+     * kendi dil seçimini bildirebilir, keyfi bir {@code EtkinlikTuru} enjekte edemez.
+     */
+    @POST
+    @Path("/dil")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Altyazı dili değişikliğini bildir",
+        description = "Kullanıcı davranışı denetim izi içindir; altyazının kendi akışını etkilemez.")
+    public void dilDegisti(@PathParam("channelId") UUID channelId, DilDegistiRequest request) {
+        etkinlikService.kaydet(EtkinlikTuru.ALTYAZI_DIL_DEGISTI, jwt.getSubject(), "kanal", channelId,
+            Map.of("dil", request.dil()));
+    }
+
+    public record DilDegistiRequest(String dil) {
     }
 }

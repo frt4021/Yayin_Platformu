@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Hls from 'hls.js'
+import { channelsApi } from '@/api/endpoints'
 import { cn } from '@/lib/utils'
 import { hlsGerideOku } from '@/player/oynaticiAyarlari'
+
+/** Oynatma hatası/takılma özetinin gönderilme sıklığı — hlsGecikmeBildir ile aynı tempo. */
+const OYNATMA_OZETI_MS = 60_000
 
 type Status = 'loading' | 'playing' | 'error'
 
@@ -46,6 +50,7 @@ export interface CaptureHandle {
 
 export function HlsPlayer({
   src,
+  channelId,
   muted = true,
   controls = false,
   className,
@@ -55,6 +60,8 @@ export function HlsPlayer({
   showLiveBadge = true,
 }: {
   src: string
+  /** Oynatma hatası/takılma özetini bildirmek için. Verilmezse hiç bildirilmez. */
+  channelId?: string
   muted?: boolean
   /** Doldurulursa kare yakalama tutamağı buraya yazılır. */
   captureRef?: { current: CaptureHandle | null }
@@ -91,9 +98,39 @@ export function HlsPlayer({
   const [detail, setDetail] = useState<string | null>(null)
   const [behindLive, setBehindLive] = useState(false)
 
+  // Oynatma hatası/takılma sayaçları -- dakikada bir toplu gönderiliyor,
+  // her olayda değil (kötü bir bağlantı saniyede onlarca stall üretebilir).
+  const hataSayaciRef = useRef(0)
+  const takilmaSayaciRef = useRef(0)
+  const sonMesajRef = useRef<string | null>(null)
+
   useEffect(() => {
     onStatusChange?.(status)
   }, [status, onStatusChange])
+
+  const gonderOynatmaOzeti = useCallback(() => {
+    if (!channelId) return
+    const hata = hataSayaciRef.current
+    const takilma = takilmaSayaciRef.current
+    if (hata === 0 && takilma === 0) return
+    hataSayaciRef.current = 0
+    takilmaSayaciRef.current = 0
+    const sonMesaj = sonMesajRef.current
+    sonMesajRef.current = null
+    void channelsApi
+      .oynatmaOzeti(channelId, { hataSayisi: hata, takilmaSayisi: takilma, sonMesaj })
+      .catch(() => {})
+  }, [channelId])
+
+  useEffect(() => {
+    const timer = setInterval(gonderOynatmaOzeti, OYNATMA_OZETI_MS)
+    return () => {
+      clearInterval(timer)
+      // Kalite değişince/karo kapanınca HlsPlayer sık remount oluyor
+      // (key={selected.hlsUrl}) -- pencereyi kaybetmemek için kapanışta da gönder.
+      gonderOynatmaOzeti()
+    }
+  }, [gonderOynatmaOzeti])
 
   /**
    * Video elementini hem içeri hem dışarı bağlar.
@@ -202,7 +239,16 @@ export function HlsPlayer({
     })
 
     hls.on(Hls.Events.ERROR, (_event, data) => {
+      // Takılma, ERROR olayının bir DETAY'ı (data.details) -- hls.js'te ayrı
+      // bir "BUFFER_STALLED" olayı yok. Genelde fatal değil (hls.js kendi
+      // gap-controller'ıyla kurtarıyor), bu yüzden fatal kontrolünden ÖNCE
+      // sayılıyor.
+      if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
+        takilmaSayaciRef.current += 1
+      }
       if (!data.fatal) return
+      hataSayaciRef.current += 1
+      sonMesajRef.current = data.details
       // Ölümcül hatalarda hls.js'in startLoad/recoverMediaError kurtarması
       // her çağrıda yeni segment isteği açıyor; eskileri tam kapanmıyor ve
       // MediaMTX her birini ayrı reader (izleyici) sayıyor. Bunun yerine
@@ -225,7 +271,12 @@ export function HlsPlayer({
             video2.play().catch(() => {})
           })
           fresh.on(Hls.Events.ERROR, (_e2, d2) => {
+            if (d2.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
+              takilmaSayaciRef.current += 1
+            }
             if (!d2.fatal) return
+            hataSayaciRef.current += 1
+            sonMesajRef.current = d2.details
             setStatus('error')
             setDetail(d2.details)
             fresh.destroy()

@@ -9,6 +9,8 @@ import org.example.channel.dto.CreateChannelRequest;
 import org.example.channel.dto.MediaMtxPathList;
 import org.example.channel.dto.UpdateChannelRequest;
 import org.example.channel.entity.Channel;
+import org.example.etkinlik.EtkinlikService;
+import org.example.etkinlik.EtkinlikTuru;
 import org.example.exception.AppException;
 import org.example.radio.entity.Radio;
 import org.example.user.entity.AppUser;
@@ -47,6 +49,9 @@ public class ChannelService {
 
     @Inject
     ViewerPresence viewerPresence;
+
+    @Inject
+    EtkinlikService etkinlikService;
 
     /** @param active şu an yayında olan kanal sayısı */
     public record Capacity(long active, int max) {
@@ -107,6 +112,8 @@ public class ChannelService {
         }
         LOG.infof("Kanal oluşturuldu: %s (path=%s, aktif=%s)",
             channel.name, channel.mediamtxPath, channel.active);
+        etkinlikService.kaydet(EtkinlikTuru.KANAL_EKLENDI, keycloakId, "kanal", channel.id,
+            Map.of("kanal", channel.name));
         return toDto(channel, null);
     }
 

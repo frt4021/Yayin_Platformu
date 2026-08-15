@@ -23,10 +23,18 @@ import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 import org.example.channel.dto.ChannelDto;
 import org.example.channel.dto.CreateChannelRequest;
 import org.example.channel.dto.UpdateChannelRequest;
+import org.example.channel.entity.Channel;
+import org.example.etkinlik.EtkinlikService;
+import org.example.etkinlik.EtkinlikTuru;
+import org.example.playback.PlaybackHealthMetrics;
 import org.example.user.Roles;
 import org.example.viewer.ViewerPresence;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -55,6 +63,12 @@ public class ChannelResource {
 
     @Inject
     ViewerPresence viewerPresence;
+
+    @Inject
+    EtkinlikService etkinlikService;
+
+    @Inject
+    PlaybackHealthMetrics playbackHealthMetrics;
 
     @GET
     @Operation(summary = "Kanalları listele",
@@ -104,7 +118,11 @@ public class ChannelResource {
         description = "Tarayıcı sekmesi periyodik çağırır; bu sekmenin hâlâ izlediğini bildirir. "
             + "MediaMTX reader sayısı yerine viewers alanı bu nabızlardan hesaplanır.")
     public void izlemeNabzi(@PathParam("id") UUID id, @PathParam("tabId") String tabId) {
-        viewerPresence.nabiz(id, tabId);
+        boolean yeniOturum = viewerPresence.nabiz(id, tabId, jwt.getSubject(), "kanal");
+        if (yeniOturum) {
+            etkinlikService.kaydet(EtkinlikTuru.IZLEME_BASLADI, jwt.getSubject(), "kanal", id,
+                Map.of("tabId", tabId));
+        }
     }
 
     @DELETE
@@ -113,7 +131,51 @@ public class ChannelResource {
         description = "Sekme kapanırken/sayfadan ayrılırken çağrılır. Çağrılmazsa (çökme, "
             + "ağ kaybı) sekme en geç 40 sn içinde süpürücüyle düşer.")
     public void izlemeyiBirak(@PathParam("id") UUID id, @PathParam("tabId") String tabId) {
-        viewerPresence.ayril(id, tabId);
+        Instant baslangic = viewerPresence.ayril(id, tabId);
+        if (baslangic != null) {
+            long sureMs = Duration.between(baslangic, Instant.now()).toMillis();
+            etkinlikService.kaydet(EtkinlikTuru.IZLEME_BITTI, jwt.getSubject(), "kanal", id,
+                Map.of("tabId", tabId, "sureMs", sureMs, "sebep", "birakildi"));
+        }
+    }
+
+    @POST
+    @jakarta.ws.rs.Path("/{id}/kalite")
+    @Operation(summary = "Kalite değişikliğini bildir",
+        description = "Kullanıcı davranışı denetim izi içindir; oynatıcının kendi akışını etkilemez.")
+    public void kaliteDegisti(@PathParam("id") UUID id, KaliteDegistiRequest request) {
+        etkinlikService.kaydet(EtkinlikTuru.KALITE_DEGISTI, jwt.getSubject(), "kanal", id,
+            Map.of("kalite", request.kalite()));
+    }
+
+    public record KaliteDegistiRequest(String kalite) {
+    }
+
+    @POST
+    @jakarta.ws.rs.Path("/{id}/oynatma-ozeti")
+    @Operation(summary = "Oynatma hatası/takılma özetini bildir",
+        description = "İstemcide dakikada bir biriktirilir. Hem Prometheus sayaçlarını hem "
+            + "kullanıcı davranışı denetim izini besler; oynatıcının kendi akışını etkilemez.")
+    public void oynatmaOzeti(@PathParam("id") UUID id, OynatmaOzetiRequest request) {
+        Channel channel = Channel.findById(id);
+        String ad = channel == null ? "silinmiş kanal" : channel.name;
+        playbackHealthMetrics.bildir("kanal", ad, request.hataSayisi(), request.takilmaSayisi());
+
+        if (request.hataSayisi() > 0) {
+            Map<String, Object> detay = new HashMap<>();
+            detay.put("sayi", request.hataSayisi());
+            if (request.sonMesaj() != null) {
+                detay.put("sonMesaj", request.sonMesaj());
+            }
+            etkinlikService.kaydet(EtkinlikTuru.OYNATMA_HATASI, jwt.getSubject(), "kanal", id, detay);
+        }
+        if (request.takilmaSayisi() > 0) {
+            etkinlikService.kaydet(EtkinlikTuru.OYNATMA_TAKILMA, jwt.getSubject(), "kanal", id,
+                Map.of("sayi", request.takilmaSayisi()));
+        }
+    }
+
+    public record OynatmaOzetiRequest(int hataSayisi, int takilmaSayisi, String sonMesaj) {
     }
 
     @GET

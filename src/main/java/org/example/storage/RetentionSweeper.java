@@ -1,5 +1,6 @@
 package org.example.storage;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import io.quarkus.scheduler.Scheduled;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -50,6 +51,9 @@ public class RetentionSweeper {
 
     @Inject
     org.example.screenshot.ScreenshotService screenshotService;
+
+    @Inject
+    MeterRegistry registry;
 
     /**
      * Tamamlanmış kliplerin saklanma süresi. {@code 0} = süresiz.
@@ -103,13 +107,19 @@ public class RetentionSweeper {
             LOG.errorf(e, "Süresi dolan kayıtlar durdurulamadı.");
         }
 
-        temizle("başarısız klip", failedClipRetention, this::deleteExpiredFailedClips);
-        temizle("klip", clipRetention, this::deleteExpiredClips);
-        temizle("ekran görüntüsü", screenshotRetention,
+        temizle("başarısız klip", "basarisiz_klip", failedClipRetention, this::deleteExpiredFailedClips);
+        temizle("klip", "klip", clipRetention, this::deleteExpiredClips);
+        temizle("ekran görüntüsü", "ekran_goruntusu", screenshotRetention,
             cutoff -> screenshotService.deleteOlderThan(cutoff, BATCH));
     }
 
-    private void temizle(String ad, Duration sure, java.util.function.ToIntFunction<Instant> is) {
+    /**
+     * @param turEtiketi Prometheus'ta {@code depolama_temizlik_silinen_toplam}
+     *                   sayacının {@code tur} etiketi — admin panelin "Depolama
+     *                   ve Temizlik" dashboard'u bu sayaçtan besleniyor.
+     */
+    private void temizle(String ad, String turEtiketi, Duration sure,
+                         java.util.function.ToIntFunction<Instant> is) {
         if (sure == null || sure.isZero() || sure.isNegative()) {
             return; // Politika kapali.
         }
@@ -117,6 +127,8 @@ public class RetentionSweeper {
             int silinen = is.applyAsInt(Instant.now().minus(sure));
             if (silinen > 0) {
                 LOG.infof("Temizlik: %d %s silindi (%s'ten eski).", silinen, ad, aciklama(sure));
+                registry.counter("depolama_temizlik_silinen_toplam", "tur", turEtiketi)
+                    .increment(silinen);
             }
         } catch (RuntimeException e) {
             LOG.errorf(e, "Temizlik başarısız: %s", ad);

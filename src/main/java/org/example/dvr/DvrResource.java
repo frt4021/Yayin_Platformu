@@ -9,13 +9,17 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 import org.example.dvr.dto.TimelineSpan;
+import org.example.etkinlik.EtkinlikService;
+import org.example.etkinlik.EtkinlikTuru;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -32,6 +36,12 @@ public class DvrResource {
 
     @Inject
     DvrService dvrService;
+
+    @Inject
+    JsonWebToken jwt;
+
+    @Inject
+    EtkinlikService etkinlikService;
 
     @GET
     @Path("/timeline")
@@ -53,6 +63,9 @@ public class DvrResource {
         @PathParam("channelId") UUID channelId,
         @QueryParam("start") String start,
         @QueryParam("duration") long durationSeconds) {
+
+        etkinlikService.kaydet(EtkinlikTuru.DVR_GERI_SARILDI, jwt.getSubject(), "kanal", channelId,
+            Map.of("dakika", durationSeconds / 60));
 
         // Gövde akış halinde aktarılıyor; belleğe toplanmıyor. Biçim
         // parçalı mp4: çıkış bir boru ve normal mp4 sonunda başa dönüp moov

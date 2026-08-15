@@ -4,6 +4,7 @@ import { Toaster } from 'sonner'
 import { AuthProvider } from '@/auth/AuthContext'
 import { RequireAuth } from '@/auth/RequireAuth'
 import { AppLayout } from '@/components/AppLayout'
+import { AdminLayout } from '@/components/AdminLayout'
 import { LoginPage } from '@/pages/LoginPage'
 import { ProfilePage } from '@/pages/ProfilePage'
 import { ChannelsPage } from '@/pages/ChannelsPage'
@@ -14,7 +15,10 @@ import { WatchPage } from '@/pages/WatchPage'
 import { DvrPage } from '@/pages/dvr/DvrPage'
 import { ClipsPage } from '@/pages/ClipsPage'
 import { UnauthorizedPage } from '@/pages/UnauthorizedPage'
+import { AdminGenelBakisPage } from '@/pages/admin/AdminGenelBakisPage'
 import { AdminUsersPage } from '@/pages/admin/AdminUsersPage'
+import { AdminEtkinliklerPage } from '@/pages/admin/AdminEtkinliklerPage'
+import { AdminAnalitikPage } from '@/pages/admin/AdminAnalitikPage'
 
 export default function App() {
   return (
@@ -36,10 +40,17 @@ export default function App() {
               <Route path="/videolar" element={<VideosPage />} />
               <Route path="/galeri" element={<GaleriPage />} />
               <Route path="/profil" element={<ProfilePage />} />
+            </Route>
 
-              {/* Yalnızca yönetici */}
-              <Route element={<RequireAuth roles={['Yönetici']} />}>
+            {/* Yönetim paneli — izleme uygulamasının kabuğundan (mozaik
+                oynatıcılar, sol çubuk) tamamen ayrı, kendi kabuğuyla. */}
+            <Route element={<RequireAuth roles={['Yönetici']} />}>
+              <Route element={<AdminLayout />}>
+                <Route path="/yonetim" element={<Navigate to="/yonetim/genel-bakis" replace />} />
+                <Route path="/yonetim/genel-bakis" element={<AdminGenelBakisPage />} />
                 <Route path="/yonetim/kullanicilar" element={<AdminUsersPage />} />
+                <Route path="/yonetim/etkinlikler" element={<AdminEtkinliklerPage />} />
+                <Route path="/yonetim/analitik" element={<AdminAnalitikPage />} />
               </Route>
             </Route>
           </Route>

@@ -54,6 +54,26 @@ public class TritonClient {
     public record TranscribeResult(String pivotText, String sourceLanguage, Float confidence) {}
 
     /**
+     * Triton'un hazır olup olmadığını sorar — admin panelin "Sistem Sağlığı"
+     * özeti için. Kısa zaman aşımı kasıtlı: burada 120sn beklemek servisi
+     * çökmüş gösterirdi, oysa yalnızca yavaştır.
+     */
+    public boolean saglikliMi() {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/v2/health/ready"))
+                .timeout(Duration.ofSeconds(3))
+                .GET()
+                .build();
+            return http.send(request, HttpResponse.BodyHandlers.discarding()).statusCode() == 200;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
      * Bir ses bölütünü {@code whisper}'a gönderir.
      *
      * <p>Binary-data-extension kullanılıyor: JSON sadece metadata taşıyor,

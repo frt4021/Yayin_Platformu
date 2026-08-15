@@ -9,6 +9,8 @@ import org.example.clip.dto.ActiveRecordingDto;
 import org.example.clip.dto.ClipDto;
 import org.example.clip.dto.CreateClipRequest;
 import org.example.clip.entity.ActiveRecording;
+import org.example.etkinlik.EtkinlikService;
+import org.example.etkinlik.EtkinlikTuru;
 import org.example.exception.AppException;
 import org.example.user.entity.AppUser;
 import org.jboss.logging.Logger;
@@ -16,6 +18,7 @@ import org.jboss.logging.Logger;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -36,6 +39,9 @@ public class RecordingService {
 
     @Inject
     ChannelRecordingGate gate;
+
+    @Inject
+    EtkinlikService etkinlikService;
 
     /** Kaydediciye "süren segmenti şimdi kapat" emri; bkz. {@link #stop}. */
     @Inject
@@ -78,6 +84,7 @@ public class RecordingService {
         recording.persist();
 
         LOG.infof("Kayıt başladı: %s (%s)", channel.name, keycloakId);
+        etkinlikService.kaydet(EtkinlikTuru.KAYIT_BASLADI, keycloakId, "kanal", channelId, Map.of());
         return toDto(recording);
     }
 
@@ -124,6 +131,8 @@ public class RecordingService {
         Instant end = Instant.now();
         Duration length = Duration.between(start, end);
         LOG.infof("Kayıt durduruldu: %s (%d sn)", channelId, length.toSeconds());
+        etkinlikService.kaydet(EtkinlikTuru.KAYIT_DURDU, keycloakId, "kanal", channelId,
+            Map.of("sureSn", length.toSeconds()));
 
         // Suren segmenti HEMEN kapattiriyoruz. Segment kapanmadan cizelgeye
         // satir yazilmiyor; 30 saniyelik segmentte 8 saniyelik bir kaydin

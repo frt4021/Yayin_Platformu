@@ -13,8 +13,19 @@ import type {
   ClipLinks,
   ClipOrigin,
   CreateClipRequest,
+  CanliDurumDto,
   CreateUserRequest,
   CreateVideoRequest,
+  DepolamaDto,
+  EtkinlikSayfasiDto,
+  EtkinlikTuru,
+  GenelAktiviteDto,
+  IcerikPerformansiDto,
+  KullaniciAktiviteDto,
+  OynatmaOzeti,
+  ServisMetrikleriDto,
+  SistemSagligiOzetDto,
+  TeknikDto,
   RadioDto,
   RadioRequest,
   QuotaUsage,
@@ -27,7 +38,10 @@ import type {
   UpdateVideoRequest,
   UploadTicket,
   UserDto,
+  VideoAnalitikOzetDto,
   VideoDto,
+  VideoIsiHaritasiDto,
+  VideoIzlemeOzeti,
   VideoLinks,
 } from './types'
 
@@ -71,6 +85,41 @@ export const adminUsersApi = {
   sync: () => api.post<SyncResultDto>('/api/admin/users/sync'),
 }
 
+export const adminEtkinlikApi = {
+  list: (filtre: {
+    tur?: EtkinlikTuru
+    kullaniciAdi?: string
+    baslangic?: string
+    bitis?: string
+    first?: number
+    max?: number
+  }) => {
+    const params = new URLSearchParams()
+    if (filtre.tur) params.set('tur', filtre.tur)
+    if (filtre.kullaniciAdi) params.set('kullaniciAdi', filtre.kullaniciAdi)
+    if (filtre.baslangic) params.set('baslangic', filtre.baslangic)
+    if (filtre.bitis) params.set('bitis', filtre.bitis)
+    params.set('first', String(filtre.first ?? 0))
+    params.set('max', String(filtre.max ?? 50))
+    return api.get<EtkinlikSayfasiDto>(`/api/admin/etkinlikler?${params}`)
+  },
+}
+
+export const adminAnalitikApi = {
+  genelBakis: () => api.get<SistemSagligiOzetDto>('/api/admin/analitik/genel-bakis'),
+  servisMetrikleri: () => api.get<ServisMetrikleriDto>('/api/admin/analitik/servis-metrikleri'),
+  canliDurum: () => api.get<CanliDurumDto>('/api/admin/analitik/canli-durum'),
+  icerikPerformansi: () => api.get<IcerikPerformansiDto>('/api/admin/analitik/icerik-performansi'),
+  depolama: () => api.get<DepolamaDto>('/api/admin/analitik/depolama'),
+  teknik: () => api.get<TeknikDto>('/api/admin/analitik/teknik'),
+  genel: () => api.get<GenelAktiviteDto>('/api/admin/analitik/genel'),
+  videoListesi: () => api.get<VideoAnalitikOzetDto[]>('/api/admin/analitik/videolar'),
+  videoIsiHaritasi: (id: string) =>
+    api.get<VideoIsiHaritasiDto>(`/api/admin/analitik/videolar/${id}`),
+  kullaniciAktivitesi: (keycloakId: string) =>
+    api.get<KullaniciAktiviteDto>(`/api/admin/analitik/kullanicilar/${keycloakId}`),
+}
+
 export const channelsApi = {
   list: () => api.get<ChannelDto[]>('/api/channels'),
 
@@ -99,6 +148,14 @@ export const channelsApi = {
 
   /** Aktif kanalları MediaMTX'e yeniden yazar; MediaMTX bağımsız yeniden başlatıldığında gerekir. */
   restore: () => api.post<RestoreResult>('/api/channels/restore'),
+
+  /** Kullanıcı davranışı denetim izi için — oynatıcının kendi akışını etkilemez. */
+  kaliteDegisti: (id: string, kalite: string) =>
+    api.post<void>(`/api/channels/${id}/kalite`, { kalite }),
+
+  /** İstemcide dakikada bir biriktirilip gönderilir. */
+  oynatmaOzeti: (id: string, ozet: OynatmaOzeti) =>
+    api.post<void>(`/api/channels/${id}/oynatma-ozeti`, ozet),
 }
 
 export const radiosApi = {
@@ -115,6 +172,10 @@ export const radiosApi = {
   capacity: () => api.get<Capacity>('/api/radios/capacity'),
 
   restore: () => api.post<RestoreResult>('/api/radios/restore'),
+
+  /** İstemcide dakikada bir biriktirilip gönderilir. */
+  oynatmaOzeti: (id: string, ozet: OynatmaOzeti) =>
+    api.post<void>(`/api/radios/${id}/oynatma-ozeti`, ozet),
 }
 
 export const videosApi = {
@@ -153,6 +214,13 @@ export const videosApi = {
   },
 
   remove: (id: string) => api.delete<void>(`/api/videos/${id}`),
+
+  /** Gerçek oynatma başlangıcı — viewCount'un artığı link-fetch NİYETİNDEN farklı. */
+  izlemeBasladi: (id: string) => api.post<void>(`/api/videos/${id}/izleme-basladi`, {}),
+
+  /** Dialog kapanırken TEK beacon; tamamlanma oranı ve ısı haritası için. */
+  izlemeOzeti: (id: string, ozet: VideoIzlemeOzeti) =>
+    api.post<void>(`/api/videos/${id}/izleme-ozeti`, ozet),
 }
 
 export const recordingsApi = {
@@ -272,6 +340,10 @@ export const subtitlesApi = {
    */
   hlsGecikmeBildir: (channelId: string, ms: number) =>
     api.post<void>(`/api/channels/${channelId}/altyazilar/hls-gecikme`, { ms }),
+
+  /** Kullanıcı davranışı denetim izi için — altyazının kendi akışını etkilemez. */
+  dilDegisti: (channelId: string, dil: string) =>
+    api.post<void>(`/api/channels/${channelId}/altyazilar/dil`, { dil }),
 
   list: (channelId: string, from: Date, to: Date) =>
     api.get<SubtitleDto[]>(

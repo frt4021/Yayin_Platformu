@@ -10,6 +10,8 @@ import org.example.clip.dto.ClipDto;
 import org.example.clip.dto.CreateClipRequest;
 import org.example.clip.entity.Clip;
 import org.example.dvr.DvrService;
+import org.example.etkinlik.EtkinlikService;
+import org.example.etkinlik.EtkinlikTuru;
 import org.example.exception.AppException;
 import org.example.user.Roles;
 import org.example.user.entity.AppUser;
@@ -17,6 +19,7 @@ import org.jboss.logging.Logger;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -47,6 +50,9 @@ ClipService {
 
     @Inject
     org.example.storage.QuotaService quota;
+
+    @Inject
+    EtkinlikService etkinlikService;
 
     /**
      * Klip işi oluşturur ve kuyruğa alır.
@@ -127,6 +133,8 @@ ClipService {
 
         LOG.infof("Klip kuyruğa alındı: %s %s..%s (%d sn)",
             channel.name, req.start(), req.end(), duration.toSeconds());
+        etkinlikService.kaydet(EtkinlikTuru.KLIP_OLUSTURULDU, keycloakId, "klip", clip.id,
+            Map.of("kanal", channel.name, "sureSn", duration.toSeconds(), "kaynak", origin.name()));
         return toDto(clip);
     }
 
@@ -187,12 +195,16 @@ ClipService {
     public record ClipLinks(String stream, String download, String fileName) {
     }
 
+    @Transactional
     public ClipLinks links(UUID id, String keycloakId, boolean isAdmin) {
         Clip clip = requireVisible(id, keycloakId, isAdmin);
         if (clip.status != ClipStatus.HAZIR) {
             throw AppException.badRequest(
                 "Klip henüz hazır değil (durum: " + clip.status + ").");
         }
+        // Sayaci artir: Video.viewCount ile ayni desen, kullanici oynat/indir
+        // adresi istediginde gerceklesiyor.
+        clip.viewCount++;
         String name = fileNameOf(clip);
         return new ClipLinks(
             storage.streamUrl(clip.objectKey),

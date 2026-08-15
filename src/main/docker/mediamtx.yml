@@ -14,6 +14,16 @@ api: yes
 apiAddress: :9997
 
 ###############################################
+# Metrikler
+###############################################
+
+# Prometheus /metrics ucu. authInternalUsers'daki mevcut "action: metrics"
+# izni (asagida, docker bridge agi icin zaten tanimli) Prometheus'un buraya
+# erismesi icin yeterli -- ayrica bir kullanici tanimlamaya gerek yok.
+metrics: yes
+metricsAddress: :9998
+
+###############################################
 # HLS
 ###############################################
 
