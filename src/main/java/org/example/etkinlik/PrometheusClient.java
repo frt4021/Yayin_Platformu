@@ -14,6 +14,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * Prometheus'un anlık sorgu (instant query) API'sine konuşan ince istemci.
@@ -73,6 +75,49 @@ public class PrometheusClient {
         } catch (Exception e) {
             LOG.debugf(e, "Prometheus sorgusu başarısız: %s", promQl);
             return null;
+        }
+    }
+
+    /**
+     * {@link #anlikDeger} ile aynı, ama TEK skaler yerine bir etikete göre
+     * gruplanmış birden çok sonuç döner (örn. Triton'un {@code model}
+     * etiketine göre kırılımı — hangi dilin ne kadar yavaş olduğunu görmek
+     * için, tek bir ortalamanın içinde kaybolmadan).
+     *
+     * @return etiket değeri → anlık değer; veri yoksa ya da Prometheus'a
+     *         ulaşılamıyorsa boş harita (null DEĞİL — çağıran taraf tek tek
+     *         eksik dilleri ayırt edebilsin diye).
+     */
+    public Map<String, Double> etiketliDegerler(String promQl, String etiketAdi) {
+        Map<String, Double> sonuc = new LinkedHashMap<>();
+        try {
+            String url = baseUrl + "/api/v1/query?query=" + URLEncoder.encode(promQl, StandardCharsets.UTF_8);
+            HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(3))
+                .GET()
+                .build();
+            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                return sonuc;
+            }
+            JsonNode root = json.readTree(response.body());
+            if (!"success".equals(root.path("status").asText())) {
+                return sonuc;
+            }
+            for (JsonNode item : root.path("data").path("result")) {
+                String etiket = item.path("metric").path(etiketAdi).asText(null);
+                if (etiket == null) {
+                    continue;
+                }
+                sonuc.put(etiket, item.path("value").path(1).asDouble());
+            }
+            return sonuc;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return sonuc;
+        } catch (Exception e) {
+            LOG.debugf(e, "Prometheus sorgusu başarısız: %s", promQl);
+            return sonuc;
         }
     }
 }

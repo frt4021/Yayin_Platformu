@@ -3,6 +3,7 @@ package org.example.channel;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.WebApplicationException;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.example.channel.dto.MediaMtxPathConfig;
 import org.example.channel.dto.MediaMtxPathList;
@@ -38,8 +39,11 @@ public class MediaMtxService {
     @Inject
     TranscodeCommand transcodeCommand;
 
+    @ConfigProperty(name = "channels.rendition-start-timeout")
+    String renditionStartTimeout;
 
-
+    @ConfigProperty(name = "channels.rendition-close-after")
+    String renditionCloseAfter;
 
     /**
      * Path'i istenen yapılandırmaya getirir. Yoksa oluşturur, varsa günceller —
@@ -61,23 +65,35 @@ public class MediaMtxService {
      *
      * <p>Kaynak path'i her koşulda yayında; rendition'lar ondan türüyor.
      * Kayıt oraya yazılınca merdivenin sağlığından bağımsız hale geliyor.
+     *
+     * <h2>Rendition'lar talebe bağlı</h2>
+     * Her rendition kendi {@code runOnDemand} kancasıyla, o path'e ilk
+     * okuyucu geldiğinde kendi ffmpeg sürecini başlatıyor; MediaMTX son
+     * okuyucu ayrıldıktan {@code channels.rendition-close-after} sonra
+     * süreci kendiliğinden kapatıyor. Kaynak path'in kendisi (bu metotun
+     * ikinci yarısı) buna dahil DEĞİL — DVR/kayıt bağımlılığı nedeniyle
+     * her zaman canlı kalmaya devam ediyor (bkz.
+     * docs/olcekleme-100-kullanici-plani.md §3).
      */
     public void applyPath(String path, String sourceUrl, String renditionSpec) {
         List<Rendition> renditions = Rendition.parse(renditionSpec);
 
-        // Transcode cikti path'leri ONCE olusturulmali: MediaMTX tanimsiz bir
-        // path'e yayin kabul etmiyor, ffmpeg "400 Bad Request" alir.
-        // Hicbiri kayit yapmiyor -- kayit kaynakta.
+        // Rendition path'leri talebe bagli: kaynaksiz kuruluyor, ilk okuyucu
+        // gelince MediaMTX kendi runOnDemand kancasini tetikleyip ffmpeg'i
+        // ayaga kaldiriyor. Hicbiri kayit yapmiyor -- kayit kaynakta.
         for (Rendition r : renditions) {
-            ensurePath(r.pathFor(path), MediaMtxPathConfig.publisherFed(false));
+            MediaMtxPathConfig renditionConfig = MediaMtxPathConfig.onDemandRendition(
+                transcodeCommand.buildOnDemand(path, r), renditionStartTimeout, renditionCloseAfter);
+            ensurePath(r.pathFor(path), renditionConfig);
         }
 
         // record HER ZAMAN false: DVR kaydi artik MediaMTX'ten alinmiyor.
         // Kayit, RTSP'den ffmpeg ile cekilip MinIO'ya akitiliyor
         // (bkz. org.example.dvr.DvrRecorder). MediaMTX'in kendi kaydi acik
         // birakilsaydi ayni icerik hem diske hem MinIO'ya yazilirdi.
-        MediaMtxPathConfig config = MediaMtxPathConfig.alwaysOn(
-            sourceUrl, false, transcodeCommand.build(renditions));
+        // transcode komutu ARTIK TASIMIYOR -- rendition'lar yukarida kendi
+        // runOnDemand'larini aldi.
+        MediaMtxPathConfig config = MediaMtxPathConfig.alwaysOn(sourceUrl, false, null);
         try {
             client.addPath(path, config);
         } catch (WebApplicationException e) {

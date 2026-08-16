@@ -13,6 +13,14 @@ import { CheckCircle2Icon, Loader2Icon, XCircleIcon } from 'lucide-react'
 import { TUR_ETIKET, turVariant } from './AdminEtkinliklerPage'
 import { Olcum, StatKart } from './AdminAnalitikPage'
 
+/** Triton model adı → okunur etiket. Sıra kartların ekrandaki sırasını da belirliyor. */
+const TRITON_MODEL_ETIKET: [string, string][] = [
+  ['whisper', 'Whisper (çözümleme)'],
+  ['marian_en_tr', 'Türkçe çeviri'],
+  ['marian_en_de', 'Almanca çeviri'],
+  ['marian_en_ru', 'Rusça çeviri'],
+]
+
 function BilesenKarti({ durum }: { durum: BilesenSaglikDurumu }) {
   return (
     <div
@@ -104,9 +112,14 @@ export function AdminGenelBakisPage() {
           <StatKart baslik="Triton — istek sayısı (5 dk)">
             <Olcum deger={servisMetrikleri?.tritonIstekSayisi5dk ?? null} />
           </StatKart>
-          <StatKart baslik="Triton — ortalama gecikme">
+          <StatKart baslik="Triton — ortalama gecikme (toplam)">
             <Olcum deger={servisMetrikleri?.tritonOrtalamaGecikmeMs ?? null} birim="ms" />
           </StatKart>
+          {TRITON_MODEL_ETIKET.map(([model, etiket]) => (
+            <StatKart key={model} baslik={`Triton — ${etiket} gecikme`}>
+              <Olcum deger={servisMetrikleri?.tritonModelGecikmeMs?.[model] ?? null} birim="ms" />
+            </StatKart>
+          ))}
           <StatKart baslik="Triton — GPU bellek kullanımı">
             {servisMetrikleri?.tritonGpuBellekBayt != null ? (
               formatBytes(servisMetrikleri.tritonGpuBellekBayt)

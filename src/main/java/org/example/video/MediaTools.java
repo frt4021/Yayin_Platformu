@@ -229,6 +229,29 @@ public class MediaTools {
     }
 
     /**
+     * Dosyadan 16 kHz tek kanal ham PCM ({@code s16le}) çıkarır — VAD/Triton'un
+     * beklediği tam biçim, canlı {@code AudioStream}'in ffmpeg bayraklarıyla
+     * AYNI (yalnızca stdout'a akıtmak yerine geçici dosyaya: bu bir toplu iş,
+     * akış gerekmiyor).
+     *
+     * @return üretilen PCM dosyasının yolu; çağıran silmekle yükümlü
+     */
+    public Path extractAudio(String input) {
+        Path out = tempFile("ses", ".pcm");
+        try {
+            run(List.of(
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+                "-i", input,
+                "-vn", "-ac", "1", "-ar", "16000",
+                "-f", "s16le", "-y", out.toString()), "ffmpeg (ses çıkarma)");
+            return out;
+        } catch (RuntimeException e) {
+            deleteQuietly(out);
+            throw e;
+        }
+    }
+
+    /**
      * Dosyayı yeniden kodlamadan {@code faststart} düzenine getirir.
      *
      * <p>Yeniden kodlama yok ({@code -c copy}) ama dosya baştan sona okunup

@@ -90,6 +90,15 @@ public class Clip extends PanacheEntityBase {
     @Column(name = "size_bytes")
     public Long sizeBytes;
 
+    /**
+     * Klibe eşlik eden WebVTT altyazı dosyalarının dilleri (virgülle ayrılmış,
+     * örn. {@code "tr,en,de"}). {@code null} = hiç üretilmedi (kaynakta
+     * altyazı verisi yoktu ya da üretim başarısız oldu) — klip yine de HAZIR
+     * olabilir, bu ikincil bir özellik.
+     */
+    @Column(name = "subtitle_langs")
+    public String subtitleLangs;
+
     @Column
     public String error;
 

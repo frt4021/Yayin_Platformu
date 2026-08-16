@@ -4,13 +4,17 @@ import org.example.clip.ClipOrigin;
 import org.example.clip.ClipStatus;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
  * Klibin dışarıya açılan gösterimi.
  *
- * @param sizeBytes yalnızca {@code HAZIR} durumunda dolu
- * @param error     yalnızca {@code HATA} durumunda dolu; kullanıcıya gösterilir
+ * @param sizeBytes      yalnızca {@code HAZIR} durumunda dolu
+ * @param error          yalnızca {@code HATA} durumunda dolu; kullanıcıya gösterilir
+ * @param subtitleLangs  WebVTT altyazısı üretilen diller; boşsa altyazı yok
+ *                       (kaynakta veri yoktu ya da üretim başarısız oldu —
+ *                       klip yine de izlenebilir)
  */
 public record ClipDto(
     UUID id,
@@ -26,6 +30,7 @@ public record ClipDto(
     String error,
     String requestedBy,
     Instant createdAt,
-    Instant completedAt
+    Instant completedAt,
+    List<String> subtitleLangs
 ) {
 }

@@ -24,6 +24,7 @@ import type {
   KullaniciAktiviteDto,
   OynatmaOzeti,
   ServisMetrikleriDto,
+  SistemLogDto,
   SistemSagligiOzetDto,
   TeknikDto,
   RadioDto,
@@ -118,6 +119,16 @@ export const adminAnalitikApi = {
     api.get<VideoIsiHaritasiDto>(`/api/admin/analitik/videolar/${id}`),
   kullaniciAktivitesi: (keycloakId: string) =>
     api.get<KullaniciAktiviteDto>(`/api/admin/analitik/kullanicilar/${keycloakId}`),
+}
+
+export const adminSistemLogApi = {
+  list: (filtre: { servis?: string; seviye?: string; limit?: number }) => {
+    const params = new URLSearchParams()
+    if (filtre.servis) params.set('servis', filtre.servis)
+    if (filtre.seviye) params.set('seviye', filtre.seviye)
+    params.set('limit', String(filtre.limit ?? 200))
+    return api.get<SistemLogDto[]>(`/api/admin/sistem-loglari?${params}`)
+  },
 }
 
 export const channelsApi = {

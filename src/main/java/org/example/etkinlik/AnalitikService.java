@@ -351,6 +351,11 @@ public class AnalitikService {
                     + "/ clamp_min(sum(rate(nv_inference_request_success[5m])), 1) / 1000"),
             toLong(prometheusClient.anlikDeger("sum(nv_gpu_memory_used_bytes)")),
 
+            prometheusClient.etiketliDegerler(
+                "sum by (model) (rate(nv_inference_request_duration_us[5m])) "
+                    + "/ clamp_min(sum by (model) (rate(nv_inference_request_success[5m])), 1) / 1000",
+                "model"),
+
             toLong(prometheusClient.anlikDeger(
                 "sum(pg_stat_activity_count{job=\"postgres\",datname=\"yayin_merkezi\"})")),
             toLong(prometheusClient.anlikDeger(

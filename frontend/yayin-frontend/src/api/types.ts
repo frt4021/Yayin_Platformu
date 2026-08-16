@@ -152,6 +152,8 @@ export interface ServisMetrikleriDto {
   tritonIstekSayisi5dk: number | null
   tritonOrtalamaGecikmeMs: number | null
   tritonGpuBellekBayt: number | null
+  /** Model/dil bazlı ortalama gecikme (ms) — anahtar: whisper, marian_en_tr, marian_en_de, marian_en_ru. */
+  tritonModelGecikmeMs: Record<string, number>
   postgresAktifBaglanti: number | null
   postgresBoyutBayt: number | null
   postgresCommitOrani5dk: number | null
@@ -332,6 +334,12 @@ export interface TimelineSpan {
 export const CLIP_STATUS = ['BEKLIYOR', 'ISLENIYOR', 'HAZIR', 'HATA'] as const
 export type ClipStatus = (typeof CLIP_STATUS)[number]
 
+/** Hazır bir WebVTT altyazı parçası. Görünen ad yok — SubtitleOverlay.SUBTITLE_LANGS'tan çıkarılıyor. */
+export interface SubtitleTrackDto {
+  lang: string
+  url: string
+}
+
 export interface ClipDto {
   id: string
   /** Kanal silinip bağ koparıldıysa null — klip yine de izlenebilir. */
@@ -350,6 +358,8 @@ export interface ClipDto {
   requestedBy: string
   createdAt: string
   completedAt: string | null
+  /** WebVTT altyazısı üretilen diller; boşsa altyazı yok. */
+  subtitleLangs: string[]
 }
 
 /** Süreli imzalı adresler; dosya doğrudan nesne depolamasından gelir. */
@@ -359,6 +369,7 @@ export interface ClipLinks {
   /** Tarayıcıyı dosyayı kaydetmeye zorlar. */
   download: string
   fileName: string
+  subtitles: SubtitleTrackDto[]
 }
 
 export interface CreateClipRequest {
@@ -406,6 +417,8 @@ export interface VideoDto {
   uploadedBy: string | null
   createdAt: string | null
   completedAt: string | null
+  /** WebVTT altyazısı üretilen diller; boşsa altyazı yok (bkz. videos.subtitle-enabled). */
+  subtitleLangs: string[]
 }
 
 export interface CreateVideoRequest {
@@ -437,6 +450,7 @@ export interface VideoLinks {
   download: string
   thumbnail: string | null
   fileName: string
+  subtitles: SubtitleTrackDto[]
 }
 
 export const CLIP_ORIGIN = ['ARALIK', 'MANUEL_KAYIT'] as const
@@ -570,4 +584,21 @@ export interface ChannelDeletionSummary {
   clipBytes: number
   /** Yayındaki bir kanalı silmek büyük ihtimalle kazadır; ayrıca uyarılıyor. */
   streaming: boolean
+}
+
+export const SISTEM_LOG_SEVIYE = ['HATA', 'UYARI', 'BASARI', 'BILGI'] as const
+export type SistemLogSeviye = (typeof SISTEM_LOG_SEVIYE)[number]
+
+/**
+ * Bir konteyner log satırının Türkçeye yorumlanmış hali. Yalnızca bilinen
+ * bir örüntüye uyan (ya da genel hata/uyarı sinyali taşıyan) satırlar
+ * gelir — rutin gürültü backend'de zaten süzülmüş.
+ */
+export interface SistemLogDto {
+  zaman: string
+  servis: string
+  seviye: SistemLogSeviye
+  mesaj: string
+  /** Orijinal log satırı — katlanabilir detayda gösterilir. */
+  hamMesaj: string
 }

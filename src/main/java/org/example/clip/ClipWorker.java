@@ -8,12 +8,18 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.example.clip.entity.Clip;
 import org.example.dvr.DvrService;
 import org.example.exception.AppException;
+import org.example.subtitle.WebVttWriter;
+import org.example.subtitle.entity.Subtitle;
 import org.jboss.logging.Logger;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.TreeSet;
 import java.util.UUID;
 
 /**
@@ -147,7 +153,9 @@ ClipWorker {
                     job.channelId(), bas, duration)) {
 
                 long size = storage.put(job.objectKey(), body, "video/mp4");
-                markReady(clipId, job.objectKey(), size);
+                List<String> uretilenDiller = altyaziUret(job.channelId(), job.objectKey(), bas, bit);
+                markReady(clipId, job.objectKey(), size,
+                    uretilenDiller.isEmpty() ? null : String.join(",", uretilenDiller));
                 LOG.infof("Klip hazır: %s (%,d bayt)", clipId, size);
             }
         } catch (Exception e) {
@@ -274,7 +282,7 @@ ClipWorker {
     }
 
     @Transactional
-    void markReady(UUID clipId, String objectKey, long size) {
+    void markReady(UUID clipId, String objectKey, long size, String subtitleLangs) {
         Clip clip = Clip.findById(clipId);
         if (clip == null) {
             return;
@@ -282,8 +290,72 @@ ClipWorker {
         clip.status = ClipStatus.HAZIR;
         clip.objectKey = objectKey;
         clip.sizeBytes = size;
+        clip.subtitleLangs = subtitleLangs;
         clip.completedAt = Instant.now();
         clip.error = null;
+    }
+
+    /**
+     * Klibin zaman aralığındaki canlı altyazıyı (§10.1 kararı: her zaman
+     * üretiliyor) WebVTT'ye çevirip klibin yanına sidecar dosya olarak
+     * yükler. Hangi dillerin üretileceği HARDCODE değil — o aralıkta
+     * gerçekten veri taşıyan diller neyse onlar (STT_TARGET_LANGS
+     * değişse bile burası değişmeden çalışır).
+     *
+     * <p><b>Hata klibin üretimini durdurmaz</b> — altyazı ikincil bir
+     * özellik, video sağlamsa klip yine HAZIR olmalı (VideoWorker'daki
+     * önizleme toleransıyla aynı ilke).
+     *
+     * @return üretilen dillerin listesi; hiçbiri üretilemediyse boş
+     */
+    private List<String> altyaziUret(UUID channelId, String objectKey, Instant bas, Instant bit) {
+        try {
+            List<Subtitle> altyazilar = Subtitle.between(channelId, bas, bit);
+            if (altyazilar.isEmpty()) {
+                return List.of();
+            }
+
+            var diller = new TreeSet<String>();
+            for (Subtitle a : altyazilar) {
+                if (a.metinler != null) {
+                    diller.addAll(a.metinler.keySet());
+                }
+            }
+
+            List<String> uretilen = new ArrayList<>();
+            for (String dil : diller) {
+                List<WebVttWriter.VttCue> cues = new ArrayList<>();
+                for (Subtitle a : altyazilar) {
+                    String metin = a.metinler == null ? null : a.metinler.get(dil);
+                    if (metin == null || metin.isBlank()) {
+                        continue;
+                    }
+                    // Klip sinirlarina KIRPILIYOR: bir altyazi satiri klip
+                    // baslamadan once baslamis ya da bitmeden sonra bitmis
+                    // olabilir (Subtitle.between KESISENLERI seciyor, tam
+                    // icerilenleri degil).
+                    Instant cueStart = a.baslangic.isBefore(bas) ? bas : a.baslangic;
+                    Instant cueEnd = a.bitis.isAfter(bit) ? bit : a.bitis;
+                    if (!cueEnd.isAfter(cueStart)) {
+                        continue;
+                    }
+                    cues.add(new WebVttWriter.VttCue(
+                        Duration.between(bas, cueStart), Duration.between(bas, cueEnd), metin));
+                }
+                if (cues.isEmpty()) {
+                    continue;
+                }
+                String vtt = WebVttWriter.yaz(cues);
+                String vttKey = objectKey.replace(".mp4", "-altyazi-" + dil + ".vtt");
+                storage.put(vttKey,
+                    new ByteArrayInputStream(vtt.getBytes(StandardCharsets.UTF_8)), "text/vtt");
+                uretilen.add(dil);
+            }
+            return uretilen;
+        } catch (Exception e) {
+            LOG.warnf(e, "Klip altyazısı üretilemedi, klip yine de hazır olacak.");
+            return List.of();
+        }
     }
 
     @Transactional

@@ -2,7 +2,8 @@ import { Fragment, useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { ApiError } from '@/api/client'
 import { clipsApi } from '@/api/endpoints'
-import type { ClipDto, ClipOrigin, ClipStatus } from '@/api/types'
+import type { ClipDto, ClipOrigin, ClipStatus, SubtitleTrackDto } from '@/api/types'
+import { SUBTITLE_LANGS } from '@/player/SubtitleOverlay'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -63,7 +64,11 @@ export function ClipsPage() {
   const [origin, setOrigin] = useState<ClipOrigin | undefined>(undefined)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [watching, setWatching] = useState<{ clip: ClipDto; url: string | null } | null>(null)
+  const [watching, setWatching] = useState<{
+    clip: ClipDto
+    url: string | null
+    subtitles: SubtitleTrackDto[]
+  } | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -107,14 +112,18 @@ export function ClipsPage() {
   }
 
   async function watch(clip: ClipDto) {
-    setWatching({ clip, url: null })
+    setWatching({ clip, url: null, subtitles: [] })
     try {
-      const { stream } = await clipsApi.links(clip.id)
-      setWatching({ clip, url: stream })
+      const { stream, subtitles } = await clipsApi.links(clip.id)
+      setWatching({ clip, url: stream, subtitles })
     } catch (e) {
       setWatching(null)
       toast.error(e instanceof ApiError ? e.message : 'İzleme adresi alınamadı.')
     }
+  }
+
+  function subtitleLabel(lang: string): string {
+    return SUBTITLE_LANGS.find((l) => l.kod === lang)?.ad ?? lang
   }
 
   async function remove(clip: ClipDto) {
@@ -229,7 +238,16 @@ export function ClipsPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {statusBadge(clip.status)}
+                      <div className="flex items-center gap-1.5">
+                        {statusBadge(clip.status)}
+                        {/* Klip listesinde onlarca satir arasinda hangisinde
+                            altyazi hazir oldugunu izlemeye girmeden gormek icin. */}
+                        {clip.subtitleLangs.length > 0 && (
+                          <Badge variant="outline" title={`Altyazı: ${clip.subtitleLangs.join(', ')}`}>
+                            CC
+                          </Badge>
+                        )}
+                      </div>
                       {clip.error && (
                         <p className="mt-1 max-w-xs text-xs text-destructive">{clip.error}</p>
                       )}
@@ -301,7 +319,18 @@ export function ClipsPage() {
               controls
               autoPlay
               className="aspect-video w-full rounded-lg bg-black"
-            />
+            >
+              {watching.subtitles.map((t, i) => (
+                <track
+                  key={t.lang}
+                  kind="subtitles"
+                  srcLang={t.lang}
+                  label={subtitleLabel(t.lang)}
+                  src={t.url}
+                  default={i === 0}
+                />
+              ))}
+            </video>
           ) : (
             <div className="grid aspect-video w-full place-items-center rounded-lg bg-black">
               <Loader2Icon className="animate-spin text-muted-foreground" />

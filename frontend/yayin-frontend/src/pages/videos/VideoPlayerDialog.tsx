@@ -3,6 +3,7 @@ import { ApiError } from '@/api/client'
 import { videosApi } from '@/api/endpoints'
 import { formatBytes, formatDuration } from '@/api/upload'
 import type { VideoDto, VideoLinks } from '@/api/types'
+import { SUBTITLE_LANGS } from '@/player/SubtitleOverlay'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -160,7 +161,18 @@ export function VideoPlayerDialog({
               controls
               autoPlay
               className="size-full"
-            />
+            >
+              {links.subtitles.map((t, i) => (
+                <track
+                  key={t.lang}
+                  kind="subtitles"
+                  srcLang={t.lang}
+                  label={SUBTITLE_LANGS.find((l) => l.kod === t.lang)?.ad ?? t.lang}
+                  src={t.url}
+                  default={i === 0}
+                />
+              ))}
+            </video>
           ) : (
             <div className="grid size-full place-items-center">
               <Loader2Icon className="size-6 animate-spin text-muted-foreground" />

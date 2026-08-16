@@ -13,11 +13,13 @@ import org.example.dvr.DvrService;
 import org.example.etkinlik.EtkinlikService;
 import org.example.etkinlik.EtkinlikTuru;
 import org.example.exception.AppException;
+import org.example.subtitle.dto.SubtitleTrackDto;
 import org.example.user.Roles;
 import org.example.user.entity.AppUser;
 import org.jboss.logging.Logger;
 
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -188,11 +190,13 @@ ClipService {
      * İzleme ve indirme adresleri. Dosya MinIO'dan doğrudan gelir,
      * backend'den geçmez.
      *
-     * @param stream   {@code <video src>} ile oynatılabilir
-     * @param download tarayıcıyı dosyayı kaydetmeye zorlar
-     * @param fileName önerilen dosya adı
+     * @param stream    {@code <video src>} ile oynatılabilir
+     * @param download  tarayıcıyı dosyayı kaydetmeye zorlar
+     * @param fileName  önerilen dosya adı
+     * @param subtitles varsa WebVTT altyazı parçaları; yoksa boş liste
      */
-    public record ClipLinks(String stream, String download, String fileName) {
+    public record ClipLinks(String stream, String download, String fileName,
+                            List<SubtitleTrackDto> subtitles) {
     }
 
     @Transactional
@@ -209,7 +213,23 @@ ClipService {
         return new ClipLinks(
             storage.streamUrl(clip.objectKey),
             storage.downloadUrl(clip.objectKey, name),
-            name);
+            name,
+            subtitleTracksOf(clip));
+    }
+
+    /** {@link ClipWorker#altyaziUret}'in yazdığı dosya adı deseniyle AYNI. */
+    private List<SubtitleTrackDto> subtitleTracksOf(Clip clip) {
+        return parseLangs(clip.subtitleLangs).stream()
+            .map(dil -> new SubtitleTrackDto(dil,
+                storage.streamUrl(clip.objectKey.replace(".mp4", "-altyazi-" + dil + ".vtt"))))
+            .toList();
+    }
+
+    private static List<String> parseLangs(String csv) {
+        if (csv == null || csv.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(csv.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
     }
 
     @Transactional
@@ -283,7 +303,8 @@ ClipService {
             clip.error,
             clip.requestedBy.username,
             clip.createdAt,
-            clip.completedAt
+            clip.completedAt,
+            parseLangs(clip.subtitleLangs)
         );
     }
 }

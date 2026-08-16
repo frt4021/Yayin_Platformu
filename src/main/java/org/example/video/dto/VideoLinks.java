@@ -1,5 +1,9 @@
 package org.example.video.dto;
 
+import org.example.subtitle.dto.SubtitleTrackDto;
+
+import java.util.List;
+
 /**
  * Süreli imzalı adresler; dosya doğrudan nesne depolamasından gelir.
  *
@@ -20,6 +24,7 @@ public record VideoLinks(
     String stream,
     String download,
     String thumbnail,
-    String fileName
+    String fileName,
+    List<SubtitleTrackDto> subtitles
 ) {
 }

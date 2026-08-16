@@ -19,6 +19,7 @@ import { AdminGenelBakisPage } from '@/pages/admin/AdminGenelBakisPage'
 import { AdminUsersPage } from '@/pages/admin/AdminUsersPage'
 import { AdminEtkinliklerPage } from '@/pages/admin/AdminEtkinliklerPage'
 import { AdminAnalitikPage } from '@/pages/admin/AdminAnalitikPage'
+import { AdminSistemLoglarPage } from '@/pages/admin/AdminSistemLoglarPage'
 
 export default function App() {
   return (
@@ -51,6 +52,7 @@ export default function App() {
                 <Route path="/yonetim/kullanicilar" element={<AdminUsersPage />} />
                 <Route path="/yonetim/etkinlikler" element={<AdminEtkinliklerPage />} />
                 <Route path="/yonetim/analitik" element={<AdminAnalitikPage />} />
+                <Route path="/yonetim/sistem-loglari" element={<AdminSistemLoglarPage />} />
               </Route>
             </Route>
           </Route>

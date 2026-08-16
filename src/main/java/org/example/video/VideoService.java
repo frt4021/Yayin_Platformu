@@ -6,6 +6,7 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.example.exception.AppException;
+import org.example.subtitle.dto.SubtitleTrackDto;
 import org.example.user.entity.AppUser;
 import org.example.video.dto.CreateVideoRequest;
 import org.example.video.dto.UpdateVideoRequest;
@@ -18,6 +19,7 @@ import org.jboss.logging.Logger;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -263,7 +265,22 @@ public class VideoService {
             storage.streamUrl(video.objectKey),
             storage.downloadUrl(video.objectKey, name),
             video.thumbnailKey == null ? null : storage.thumbnailUrl(video.thumbnailKey),
-            name);
+            name,
+            subtitleTracksOf(video));
+    }
+
+    /** {@code org.example.video.subtitle.VideoSubtitleWorker}'ın yazdığı anahtar deseniyle AYNI. */
+    private List<SubtitleTrackDto> subtitleTracksOf(Video video) {
+        return parseLangs(video.subtitleLangs).stream()
+            .map(dil -> new SubtitleTrackDto(dil, storage.thumbnailUrl(subtitleKeyFor(video.objectKey, dil))))
+            .toList();
+    }
+
+    private static List<String> parseLangs(String csv) {
+        if (csv == null || csv.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(csv.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
     }
 
     /**
@@ -494,6 +511,11 @@ public class VideoService {
         return thumbnailDirOf(objectKey) + "onizleme.mp4";
     }
 
+    /** WebVTT altyazı sidecar'ının anahtarı; kaynak dosyayla aynı klasörde. İşçi kullanır. */
+    public static String subtitleKeyFor(String objectKey, String lang) {
+        return thumbnailDirOf(objectKey) + "altyazi-" + lang + ".vtt";
+    }
+
     VideoDto toDto(Video video) {
         return new VideoDto(
             video.id,
@@ -514,7 +536,8 @@ public class VideoService {
             video.viewCount,
             video.uploadedBy == null ? null : video.uploadedBy.username,
             video.createdAt,
-            video.completedAt
+            video.completedAt,
+            parseLangs(video.subtitleLangs)
         );
     }
 

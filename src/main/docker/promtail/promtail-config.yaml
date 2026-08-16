@@ -1,0 +1,45 @@
+# Promtail -- docker.sock'a dokunan TEK bileşen (salt-okunur mount).
+#
+# docker_sd_configs yalnizca ETIKETLEME yapiyor (hangi container hangi
+# isimde); gercek log icerigi Docker'in zaten yazdigi json-file loglarindan
+# okunuyor (/var/lib/docker/containers, salt-okunur mount) -- standart
+# Grafana Promtail-Docker deseni. Backend bu dosyalara hic dokunmuyor,
+# yalnizca Loki'nin HTTP API'sine sorgu atiyor (bkz. LokiClient.java).
+#
+# OLCULMEDI: docker daemon'in gercekten json-file log driver kullandigi
+# varsayiliyor (Docker varsayilani, bu projede ezilmemis) -- baska bir
+# log driver kullaniliyorsa bu yol calismaz, ilk `docker compose up`
+# sonrasi dogrulanmali.
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 15s
+    relabel_configs:
+      # Container adi -- SistemLogYorumlayici'nin kural tablosundaki
+      # "servis" alaniyla eslesiyor (orn. "triton", "video-worker").
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'servis'
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: 'akis'
+      - source_labels: ['__meta_docker_container_id']
+        target_label: '__path__'
+        replacement: '/var/lib/docker/containers/$1/*-json.log'
+    pipeline_stages:
+      # Docker'in json-file suruculugunun sardigi zarfi
+      # ({"log":"...","stream":"...","time":"..."}) coz -- bu olmadan
+      # Loki'ye giden her satir ham JSON zarfi olurdu, SistemLogYorumlayici'nin
+      # kurallari asil log metnine degil bu zarfa bakardi.
+      - docker: {}

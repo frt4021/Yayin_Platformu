@@ -15,6 +15,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import org.example.user.entity.AppUser;
 import org.example.video.VideoStatus;
+import org.example.video.VideoSubtitleStatus;
 import org.hibernate.annotations.Generated;
 import org.hibernate.generator.EventType;
 
@@ -135,7 +136,35 @@ public class Video extends PanacheEntityBase {
     @Column(name = "completed_at")
     public Instant completedAt;
 
+    /**
+     * Altyazı (STT) üretim durumu — video işleme kuyruğundan AYRI (bkz.
+     * {@code org.example.video.subtitle.VideoSubtitleWorker}). Varsayılan
+     * {@code KAPALI}: özellik kapalıysa ya da işlenmemiş bir videoda henüz
+     * ses akışı doğrulanmadıysa.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "subtitle_status", nullable = false, length = 16)
+    public VideoSubtitleStatus subtitleStatus = VideoSubtitleStatus.KAPALI;
+
+    /** WebVTT üretilen diller (virgülle ayrılmış). {@code null} = hiçbiri (konuşma yok ya da hata). */
+    @Column(name = "subtitle_langs")
+    public String subtitleLangs;
+
+    @Column(name = "subtitle_error")
+    public String subtitleError;
+
     // ------------------------------------------------------------------
+
+    /**
+     * Altyazı işlenmeyi bekleyen bir sonraki videoları kilitleyerek alır —
+     * {@link #lockNextPending}'in altyazı kuyruğu için karşılığı.
+     */
+    public static List<Video> lockNextPendingSubtitle(int limit) {
+        return find("subtitleStatus = ?1 order by createdAt", VideoSubtitleStatus.BEKLIYOR)
+            .withLock(LockModeType.PESSIMISTIC_WRITE)
+            .page(0, limit)
+            .list();
+    }
 
     /**
      * İşlenmeyi bekleyen bir sonraki işleri kilitleyerek alır.

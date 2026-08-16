@@ -1,12 +1,14 @@
 package org.example.video;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Event;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.example.exception.AppException;
 import org.example.exception.ErrorCode;
 import org.example.video.entity.Video;
+import org.example.video.subtitle.VideoSubtitleQueuedEvent;
 import org.jboss.logging.Logger;
 
 import java.nio.file.Path;
@@ -58,6 +60,18 @@ public class VideoWorker {
 
     @ConfigProperty(name = "videos.preview-width")
     int previewWidth;
+
+    /**
+     * Yüklenen videolar için altyazı — canlı kanaldaki "her zaman üret"
+     * kararıyla tutarlı (docs/olcekleme-100-kullanici-plani.md §10.1,
+     * 2026-08-16): açıksa sesli her video otomatik, ayrı bir kuyruğa
+     * ({@code VideoSubtitleQueue}) girer.
+     */
+    @ConfigProperty(name = "videos.subtitle-enabled")
+    boolean subtitleEnabled;
+
+    @Inject
+    Event<VideoSubtitleQueuedEvent> subtitleQueued;
 
     /**
      * Tek bir işi talep eder.
@@ -278,6 +292,16 @@ public class VideoWorker {
         video.error = null;
         video.completedAt = Instant.now();
         video.updatedAt = Instant.now();
+
+        // Altyazi kuyruga BURADA giriyor -- video zaten oynatilabilir hale
+        // geldikten sonra, ayri (ve cok daha yavas olabilen) bir is olarak.
+        // Zaten kuyruga girmis/islenmis bir videoyu (kucuk resim tazeleme
+        // gibi ikinci bir markReady cagrisinda) tekrar kuyruga sokmuyoruz.
+        if (subtitleEnabled && probe.hasAudio()
+            && video.subtitleStatus == VideoSubtitleStatus.KAPALI) {
+            video.subtitleStatus = VideoSubtitleStatus.BEKLIYOR;
+            subtitleQueued.fire(new VideoSubtitleQueuedEvent(video.id));
+        }
     }
 
     @Transactional

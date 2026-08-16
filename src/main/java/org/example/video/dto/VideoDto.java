@@ -3,6 +3,7 @@ package org.example.video.dto;
 import org.example.video.VideoStatus;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -53,6 +54,8 @@ public record VideoDto(
     long viewCount,
     String uploadedBy,
     Instant createdAt,
-    Instant completedAt
+    Instant completedAt,
+    /** WebVTT altyazısı üretilen diller; boşsa altyazı yok (bkz. {@code videos.subtitle-enabled}). */
+    List<String> subtitleLangs
 ) {
 }

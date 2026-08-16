@@ -9,6 +9,7 @@ import {
   BarChart3Icon,
   LayoutDashboardIcon,
   LogOutIcon,
+  ScrollTextIcon,
   ShieldIcon,
   UsersIcon,
 } from 'lucide-react'
@@ -19,6 +20,7 @@ const NAV = [
   { to: '/yonetim/kullanicilar', label: 'Kullanıcılar', icon: UsersIcon },
   { to: '/yonetim/etkinlikler', label: 'Etkinlikler', icon: ActivityIcon },
   { to: '/yonetim/analitik', label: 'Analitik', icon: BarChart3Icon },
+  { to: '/yonetim/sistem-loglari', label: 'Sistem Logları', icon: ScrollTextIcon },
 ]
 
 /**

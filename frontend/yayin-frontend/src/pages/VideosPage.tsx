@@ -5,6 +5,7 @@ import { useAuth } from '@/auth/AuthContext'
 import { videosApi } from '@/api/endpoints'
 import { formatBytes, formatDuration } from '@/api/upload'
 import type { VideoDto, VideoLinks } from '@/api/types'
+import { SUBTITLE_LANGS } from '@/player/SubtitleOverlay'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -193,7 +194,18 @@ export function VideosPage() {
                   controls
                   autoPlay
                   className="size-full"
-                />
+                >
+                  {links.subtitles.map((t, i) => (
+                    <track
+                      key={t.lang}
+                      kind="subtitles"
+                      srcLang={t.lang}
+                      label={SUBTITLE_LANGS.find((l) => l.kod === t.lang)?.ad ?? t.lang}
+                      src={t.url}
+                      default={i === 0}
+                    />
+                  ))}
+                </video>
               ) : (
                 <div className="grid size-full place-items-center">
                   <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
@@ -435,6 +447,18 @@ function VideoCard({
         {video.durationSeconds != null && (
           <span className="absolute bottom-1.5 right-1.5 rounded bg-black/75 px-1.5 py-0.5 text-xs font-medium text-white">
             {formatDuration(video.durationSeconds)}
+          </span>
+        )}
+
+        {/* Oynatmadan önce altyazı olup olmadığını görmek için — izgarada
+            onlarca video arasında hangisinde altyazı hazır oldugunu ayirt
+            etmenin tek yolu bu, oynaticiya girmeden bilinmiyordu. */}
+        {video.subtitleLangs.length > 0 && (
+          <span
+            className="absolute bottom-1.5 left-1.5 rounded bg-black/75 px-1.5 py-0.5 text-xs font-medium text-white"
+            title={`Altyazı: ${video.subtitleLangs.join(', ')}`}
+          >
+            CC
           </span>
         )}
 

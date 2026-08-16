@@ -69,12 +69,14 @@ class TritonPythonModel:
         # local_files_only=True SART -- kapali agda indirmeye kalkmasin
         # (translate.py ile ayni gerekce).
         self._tokenizer = MarianTokenizer.from_pretrained(onnx_path, local_files_only=True)
-        # use_io_binding=False: optimum'un CUDA'da varsayilan IOBinding'i,
-        # encoder/decoder/decoder_with_past oturumlari arasinda past_key_values
-        # GPU tensor'larini elle (async senkronizasyon riskiyle) tasiyor --
-        # gercek, degisken boyutlu batch trafiginde "illegal memory access"
-        # (CUDA cudaErrorIllegalAddress, Mul node) cokmesine yol acti. Bu
-        # bayrak standart, kopyalama tabanli yola donduruyor.
+        # use_io_binding=True DENENDI (16 Agustos) ve GERI ALINDI: VRAM'i
+        # 10 kata kadar dusurdu (5.7GB -> 556MB) AMA gercek trafikte saniyeler
+        # icinde "illegal memory access" (CUDA cudaErrorIllegalAddress, Mul
+        # node) ile coktu VE Triton coken stub'i BIR DAHA HIC TOPARLAMADI --
+        # 3 Marian modeli de kalicimi "Stub process ... is not healthy" ile
+        # her istegi reddetmeye basladi (docs/altyazi-hata-analizi-16-
+        # agustos.md). VRAM kazanci, kalici servis kesintisine deger degil --
+        # False'un yavasligi/VRAM maliyeti, True'nun kalici cokmesinden iyi.
         self._model = ORTModelForSeq2SeqLM.from_pretrained(
             onnx_path, provider=provider, local_files_only=True,
             use_io_binding=False,

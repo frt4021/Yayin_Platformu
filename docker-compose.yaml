@@ -19,6 +19,7 @@ volumes:
   minio_data:
   prometheus_data:
   grafana_data:
+  loki_data:
 
 services:
 
@@ -38,7 +39,7 @@ services:
       # container disariya 5433'ten acilir. Compose agi icinde adres yine postgres:5432.
       - "${PORT_POSTGRES:-5433}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app_user}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app_user} -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -199,12 +200,16 @@ services:
 
       # Admin panelin "Genel Bakış" servis detay metrikleri buradan okunuyor.
       PROMETHEUS_URL: http://prometheus:9090
+      # Admin panelin "Sistem Logları" ekranı buradan okunuyor.
+      LOKI_URL: http://loki:3100
 
       # Rendition kodlayicisi: VAAPI | NVENC | YAZILIM
       # Komutu backend uretiyor ama KODLAMA mediamtx konteynerinde calisiyor;
       # bu yuzden deger oradaki donanima gore secilmeli.
       CHANNELS_ENCODER: ${CHANNELS_ENCODER:-VAAPI}
       CHANNELS_MAX_ACTIVE: ${CHANNELS_MAX_ACTIVE:-16}
+      CHANNELS_RENDITION_START_TIMEOUT: ${CHANNELS_RENDITION_START_TIMEOUT:-15s}
+      CHANNELS_RENDITION_CLOSE_AFTER: ${CHANNELS_RENDITION_CLOSE_AFTER:-60s}
 
       MINIO_ENDPOINT: http://minio:9000
       # Imzali indirme adresleri tarayicida acilir; S3 imzasi Host basligini
@@ -222,6 +227,7 @@ services:
       STORAGE_CLIP_RETENTION: ${STORAGE_CLIP_RETENTION:-0}
       STORAGE_SCREENSHOT_RETENTION: ${STORAGE_SCREENSHOT_RETENTION:-0}
       STORAGE_FAILED_CLIP_RETENTION: ${STORAGE_FAILED_CLIP_RETENTION:-P7D}
+      STORAGE_SUBTITLE_RETENTION: ${STORAGE_SUBTITLE_RETENTION:-0}
       STORAGE_SWEEP_INTERVAL: ${STORAGE_SWEEP_INTERVAL:-1h}
       STORAGE_USER_QUOTA_BYTES: ${STORAGE_USER_QUOTA_BYTES:-21474836480}
 
@@ -289,6 +295,13 @@ services:
       STT_DEVICE: ${STT_DEVICE:-cpu}
       STT_COMPUTE_TYPE: ${STT_COMPUTE_TYPE:-int8}
       STT_BEAM_SIZE: ${STT_BEAM_SIZE:-5}
+      # PyTorch'un kendi OOM hata mesajinin onerdigi bayrak -- saatlerce
+      # surmus OOM/retry dongusunden sonra CUDA bellek havuzunun kucuk
+      # parcalara bolunmesini (fragmentation) azaltmak icin. Olculdu:
+      # 15 Agustos'ta VRAM doluluk orani BUGUNKUYLE AYNIYDI (~5.6-5.8GB)
+      # ama istek basi gecikme 20-30 kat dusuktu (docs/altyazi-hata-
+      # analizi-16-agustos.md) -- tek fark parcalanma olabilir.
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
       # 6GB kartta whisper darbogaz oldugu icin varsayilan 2 -- Marian
       # modelleri (ozellikle en_de/en_ru) daha ucuz, ayri ayri artirilabilir.
       # VRAM tepe degeri her degisiklikte OLCULMELI (docs/triton gecis plani,
@@ -298,6 +311,15 @@ services:
       MARIAN_DE_INSTANCES: ${MARIAN_DE_INSTANCES:-1}
       MARIAN_RU_INSTANCES: ${MARIAN_RU_INSTANCES:-1}
     runtime: ${STT_RUNTIME:-runc}
+    # Docker'in varsayilani (1024) whisper+3 Marian'in her biri ayri Python
+    # stub sureci olarak actigi CUDA/ONNX/IPC tanitici sayisina yetmiyor --
+    # olculdu: 1024/1024 doluyor, "Too many open files" ile accept() cokuyor
+    # ve healthcheck'in her yeni baglantisi reddediliyor (docs/altyazi-hata-
+    # analizi-16-agustos.md, Bolum 1).
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/v2/health/ready"]
       interval: 10s
@@ -384,6 +406,12 @@ services:
       VIDEOS_WORKER_ENABLED: "true"
       CLIPS_WORKER_ENABLED: "false"
       VIDEOS_CONCURRENCY: ${VIDEOS_CONCURRENCY:-2}
+
+      # Yuklenen videolar icin altyazi -- video isleme kuyrugundan AYRI,
+      # Triton/GPU'ya bagli ve dakikalar surebilir. Varsayilan kapali.
+      VIDEOS_SUBTITLE_ENABLED: ${VIDEOS_SUBTITLE_ENABLED:-false}
+      VIDEOS_SUBTITLE_CONCURRENCY: ${VIDEOS_SUBTITLE_CONCURRENCY:-1}
+      VIDEOS_SUBTITLE_QUEUE_KEY: ${VIDEOS_SUBTITLE_QUEUE_KEY:-video-altyazi-kuyrugu}
 
       # Onizleme klibi kodlayicisi: YAZILIM | VAAPI | NVENC
       # Varsayilan YAZILIM -- 5 saniyelik 480p klip zaten saniyeler icinde
@@ -525,6 +553,41 @@ services:
     networks:
       - yayin-merkezi
 
+  # --- İzleme: log toplama (Loki) ---
+  #
+  # Denetim/arsiv sistemi DEGIL -- kisa saklama sureli (7 gun), operasyonel
+  # gorunurluk. Backend Loki'nin HTTP API'sine (LogQL) sorgu atiyor (bkz.
+  # org.example.sistemlog.LokiClient) -- docker.sock'a hic dokunmuyor.
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/loki-config.yaml
+    volumes:
+      - ./src/main/docker/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki_data:/loki
+    networks:
+      - yayin-merkezi
+
+  # --- İzleme: log toplama (Promtail) ---
+  #
+  # docker.sock'a dokunan TEK bilesen (salt-okunur) -- resmi, dar kapsamli
+  # Grafana araci, yalnizca log okuyor. Backend'in kendisi asla docker
+  # API'sine dogrudan erismiyor.
+  promtail:
+    image: grafana/promtail:3.3.2
+    container_name: promtail
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/promtail-config.yaml
+    volumes:
+      - ./src/main/docker/promtail/promtail-config.yaml:/etc/promtail/promtail-config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    depends_on:
+      - loki
+    networks:
+      - yayin-merkezi
+
   grafana:
     image: grafana/grafana:11.3.1
     container_name: grafana
@@ -541,5 +604,6 @@ services:
       - "${PORT_GRAFANA:-3001}:3000"
     depends_on:
       - prometheus
+      - loki
     networks:
       - yayin-merkezi

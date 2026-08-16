@@ -20,6 +20,15 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  *                       tetiklenir. Radyo köprüsünde beklenecek bir yayın yok —
  *                       kaynağı komutun kendisi getiriyor, dolayısıyla path'in
  *                       kurulması tetikleyici olmalı.
+ * @param runOnDemand    İlk okuyucu path'i istediğinde (ve henüz yayıncı yoksa)
+ *                       çalıştırılan komut — rendition'ların talebe bağlı
+ *                       üretimi bunun üzerinden yapılıyor (bkz. {@code
+ *                       TranscodeCommand.buildOnDemand}).
+ * @param runOnDemandStartTimeout Komutun yayına başlaması için MediaMTX'in
+ *                       bekleyeceği üst sınır; aşılırsa okuyucunun isteği
+ *                       hata alır.
+ * @param runOnDemandCloseAfter  Son okuyucu ayrıldıktan sonra sürecin bu
+ *                       süre daha ayakta tutulup sonra kapatılacağı süre.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record
@@ -30,7 +39,11 @@ MediaMtxPathConfig(
     String runOnAvailable,
     Boolean runOnAvailableRestart,
     String runOnInit,
-    Boolean runOnInitRestart
+    Boolean runOnInitRestart,
+    String runOnDemand,
+    Boolean runOnDemandRestart,
+    String runOnDemandStartTimeout,
+    String runOnDemandCloseAfter
 ) {
     /**
      * Sürekli çeken bir kanal yapılandırması.
@@ -42,7 +55,8 @@ MediaMtxPathConfig(
         // runOnAvailableRestart yalnızca komut varken anlamlı; null bırakmak
         // PATCH'te alanın MediaMTX tarafındaki değerini korur.
         return new MediaMtxPathConfig(source, false, record,
-            transcode, transcode == null ? null : Boolean.TRUE, null, null);
+            transcode, transcode == null ? null : Boolean.TRUE, null, null,
+            null, null, null, null);
     }
 
     /**
@@ -52,7 +66,8 @@ MediaMtxPathConfig(
      *               yazılır; hepsini kaydetmek diski rendition sayısıyla çarpardı.
      */
     public static MediaMtxPathConfig publisherFed(boolean record) {
-        return new MediaMtxPathConfig(null, null, record, null, null, null, null);
+        return new MediaMtxPathConfig(null, null, record, null, null, null, null,
+            null, null, null, null);
     }
 
     /**
@@ -69,6 +84,16 @@ MediaMtxPathConfig(
      */
     public static MediaMtxPathConfig bridged(String command) {
         return new MediaMtxPathConfig("publisher", null, null, null, null,
-            command, Boolean.TRUE);
+            command, Boolean.TRUE, null, null, null, null);
+    }
+
+    /**
+     * Talebe bağlı üretilen bir rendition çıkışı — path'in kendi okuyucu
+     * sayısına göre MediaMTX süreci kendisi başlatıp durduruyor, Java
+     * tarafında ayrı bir izleyici takibi gerekmiyor.
+     */
+    public static MediaMtxPathConfig onDemandRendition(String command, String startTimeout, String closeAfter) {
+        return new MediaMtxPathConfig(null, null, false, null, null, null, null,
+            command, Boolean.TRUE, startTimeout, closeAfter);
     }
 }

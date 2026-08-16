@@ -10,6 +10,7 @@ import org.example.clip.ClipService;
 import org.example.clip.ClipStatus;
 import org.example.clip.RecordingService;
 import org.example.clip.entity.Clip;
+import org.example.subtitle.entity.Subtitle;
 import org.jboss.logging.Logger;
 
 import java.time.Duration;
@@ -70,12 +71,20 @@ public class RetentionSweeper {
     @ConfigProperty(name = "storage.screenshot-retention")
     Duration screenshotRetention;
 
+    /**
+     * Altyazı metninin (altyazilar tablosu) saklanma süresi. {@code 0} =
+     * süresiz. Nesne depolaması yok — salt veritabanı satırı.
+     */
+    @ConfigProperty(name = "storage.subtitle-retention")
+    Duration subtitleRetention;
+
     @ConfigProperty(name = "storage.sweep-interval")
     String sweepInterval;
 
     void logPolicy(@jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event) {
-        LOG.infof("Temizlik politikası — klip: %s, başarısız klip: %s, ekran görüntüsü: %s",
-            aciklama(clipRetention), aciklama(failedClipRetention), aciklama(screenshotRetention));
+        LOG.infof("Temizlik politikası — klip: %s, başarısız klip: %s, ekran görüntüsü: %s, altyazı: %s",
+            aciklama(clipRetention), aciklama(failedClipRetention), aciklama(screenshotRetention),
+            aciklama(subtitleRetention));
     }
 
     private static String aciklama(Duration d) {
@@ -88,11 +97,12 @@ public class RetentionSweeper {
     }
 
     /**
-     * Süpürücü. Üç iş yapıyor:
+     * Süpürücü. Dört iş yapıyor:
      * <ol>
      *   <li>Üst sınırı aşan manuel kayıtları otomatik durdurur</li>
      *   <li>Süresi dolmuş başarısız klipleri siler</li>
      *   <li>Süresi dolmuş klip ve ekran görüntülerini siler (açıksa)</li>
+     *   <li>Süresi dolmuş altyazı satırlarını siler (açıksa)</li>
      * </ol>
      */
     @Scheduled(every = "{storage.sweep-interval}",
@@ -111,6 +121,7 @@ public class RetentionSweeper {
         temizle("klip", "klip", clipRetention, this::deleteExpiredClips);
         temizle("ekran görüntüsü", "ekran_goruntusu", screenshotRetention,
             cutoff -> screenshotService.deleteOlderThan(cutoff, BATCH));
+        temizle("altyazı", "altyazi", subtitleRetention, this::deleteExpiredSubtitles);
     }
 
     /**
@@ -165,5 +176,15 @@ public class RetentionSweeper {
             n++;
         }
         return n;
+    }
+
+    /**
+     * Klip/ekran görüntüsünden farklı olarak nesne depolamasında karşılığı
+     * yok — salt veritabanı satırı, bu yüzden servis katmanından geçen
+     * tek-tek silme yerine doğrudan toplu {@code DELETE} yeterli.
+     */
+    @Transactional
+    int deleteExpiredSubtitles(Instant cutoff) {
+        return (int) Subtitle.delete("baslangic < ?1", cutoff);
     }
 }

@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { ApiError } from '@/api/client'
 import { radiosApi } from '@/api/endpoints'
-import type { Capacity, RadioDto } from '@/api/types'
+import type { RadioDto } from '@/api/types'
 import { useAuth } from '@/auth/AuthContext'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -23,16 +23,12 @@ import {
 } from 'lucide-react'
 import { RadioFormDialog } from './radios/RadioFormDialog'
 
-/** Durum MediaMTX'ten anlık okunuyor; tazelenmezse gösterge gerçeklikle ilgisini kaybeder. */
-const REFRESH_MS = 15000
-
 export function RadiosPage() {
   const { hasRole } = useAuth()
   const canManage = hasRole('Yönetici', 'Moderatör')
-  const { radioId, radioPaused, playRadio, toggleRadioPause } = usePlayers()
+  const { radioId, radioPaused, playRadio, toggleRadioPause, radios, capacity, refreshRadios } =
+    usePlayers()
 
-  const [radios, setRadios] = useState<RadioDto[]>([])
-  const [capacity, setCapacity] = useState<Capacity | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -40,24 +36,16 @@ export function RadiosPage() {
   const [editing, setEditing] = useState<RadioDto | null>(null)
   const [pending, setPending] = useState<Set<string>>(new Set())
 
-  const load = useCallback(async () => {
-    try {
-      const [list, cap] = await Promise.all([radiosApi.list(), radiosApi.capacity()])
-      setRadios(list)
-      setCapacity(cap)
-      setError(null)
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Radyolar yüklenemedi.')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
+  // Liste ve periyodik tazeleme artık PlayerContext'te (radyo çalarken bir
+  // istasyondan diğerine geçince dinleyici sayısının anında güncellenmesi
+  // için paylaşılan tek state gerekiyor — bkz. PlayerContext.tsx). Burada
+  // yalnızca bu sayfaya özel ilk-yükleme hatasını yakalamak için ayrı bir
+  // çağrı yapılıyor.
   useEffect(() => {
-    void load()
-    const timer = setInterval(() => void load(), REFRESH_MS)
-    return () => clearInterval(timer)
-  }, [load])
+    refreshRadios()
+      .catch((e) => setError(e instanceof ApiError ? e.message : 'Radyolar yüklenemedi.'))
+      .finally(() => setLoading(false))
+  }, [refreshRadios])
 
   const visible = useMemo(() => {
     const q = search.trim().toLocaleLowerCase('tr')
@@ -65,13 +53,21 @@ export function RadiosPage() {
     return radios.filter((r) => r.name.toLocaleLowerCase('tr').includes(q))
   }, [radios, search])
 
+  function baslat(radio: RadioDto) {
+    if (radio.id === radioId) {
+      toggleRadioPause()
+      return
+    }
+    playRadio(radio.id)
+  }
+
   async function remove(radio: RadioDto) {
     if (!confirm(`"${radio.name}" silinecek ve yayını durdurulacak. Emin misiniz?`)) return
     setPending((prev) => new Set(prev).add(radio.id))
     try {
       await radiosApi.remove(radio.id)
       toast.success(`${radio.name} silindi.`)
-      await load()
+      await refreshRadios()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Radyo silinemedi.')
     } finally {
@@ -87,7 +83,7 @@ export function RadiosPage() {
     try {
       const result = await radiosApi.restore()
       toast.success(`${result.restored} radyo MediaMTX'e yeniden yazıldı.`)
-      await load()
+      await refreshRadios()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Radyolar geri yüklenemedi.')
     }
@@ -158,9 +154,7 @@ export function RadiosPage() {
               selected={radio.id === radioId}
               busy={pending.has(radio.id)}
               canManage={canManage}
-              onPlay={() =>
-                radio.id === radioId ? toggleRadioPause() : playRadio(radio.id)
-              }
+              onPlay={() => baslat(radio)}
               onEdit={() => {
                 setEditing(radio)
                 setFormOpen(true)
@@ -175,7 +169,7 @@ export function RadiosPage() {
         radio={editing}
         open={formOpen}
         onOpenChange={setFormOpen}
-        onSaved={() => void load()}
+        onSaved={() => void refreshRadios()}
       />
     </div>
   )
