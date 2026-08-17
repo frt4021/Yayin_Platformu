@@ -10,6 +10,10 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Loader2Icon, PlayIcon, ScissorsIcon, XIcon } from 'lucide-react'
 import { Timeline, type Selection } from './Timeline'
+import { GuidedTour } from '@/components/tour/GuidedTour'
+import { usePageTour } from '@/components/tour/usePageTour'
+import { TourTrigger } from '@/components/tour/TourTrigger'
+import { DVR_TOUR_SEEN_KEY, DVR_TOUR_STEPS } from '@/components/tour/dvrSteps'
 
 /** Zaman çizelgesi pencereleri. 7 gün DVR saklama süresiyle aynı. */
 const WINDOWS = [
@@ -285,13 +289,18 @@ export function DvrPage() {
     ? Math.round((selection.end.getTime() - selection.start.getTime()) / 1000)
     : 0
 
+  const tur = usePageTour(DVR_TOUR_SEEN_KEY)
+
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Geriye sarma</h1>
-        <p className="text-sm text-muted-foreground">
-          Kayıtlı bir noktaya tıklayıp izleyin, sürükleyerek aralık seçip klip çıkarın.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Geriye sarma</h1>
+          <p className="text-sm text-muted-foreground">
+            Kayıtlı bir noktaya tıklayıp izleyin, sürükleyerek aralık seçip klip çıkarın.
+          </p>
+        </div>
+        <TourTrigger onClick={tur.start} />
       </div>
 
       {dvrChannels.length === 0 ? (
@@ -310,7 +319,7 @@ export function DvrPage() {
                 sarmada kullanıcı çoğu zaman kanallar arasında gezinerek
                 arıyor. Ad sırası sabit — liste tazelendiğinde yer
                 değiştirmesinler. */}
-            <div className="flex flex-wrap gap-1.5">
+            <div data-tour="dvr-kanallar" className="flex flex-wrap gap-1.5">
               {[...dvrChannels]
                 .sort((a, b) => a.name.localeCompare(b.name, 'tr'))
                 .map((channel) => (
@@ -330,7 +339,7 @@ export function DvrPage() {
                 ))}
             </div>
 
-            <div className="flex gap-1">
+            <div data-tour="dvr-pencere" className="flex gap-1">
               {WINDOWS.map((w) => (
                 <Button
                   key={w.hours}
@@ -364,7 +373,7 @@ export function DvrPage() {
             </div>
           )}
 
-          <Card>
+          <Card data-tour="dvr-zaman-cizelgesi">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Zaman çizelgesi</CardTitle>
             </CardHeader>
@@ -381,7 +390,7 @@ export function DvrPage() {
           </Card>
 
           <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-            <Card>
+            <Card data-tour="dvr-onizleme">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-2">
                   <CardTitle className="text-base">Önizleme</CardTitle>
@@ -469,7 +478,7 @@ export function DvrPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card data-tour="dvr-secim">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Seçilen aralık</CardTitle>
               </CardHeader>
@@ -565,10 +574,14 @@ export function DvrPage() {
             {/* Çizelge yalnızca GEÇMİŞİ gösterebiliyor; gelecekteki bir aralık
                 orada seçilemez. Planlı kayıt formu o boşluğu kapatıyor ve
                 seçim varsa ondan doldurulabiliyor. */}
-            <ScheduledRecordingCard channelId={channelId} selection={selection} />
+            <div data-tour="dvr-planli-kayit">
+              <ScheduledRecordingCard channelId={channelId} selection={selection} />
+            </div>
           </div>
         </>
       )}
+
+      <GuidedTour open={tur.open} onClose={tur.close} steps={DVR_TOUR_STEPS} />
     </div>
   )
 }

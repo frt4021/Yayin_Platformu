@@ -14,13 +14,14 @@ ARG TRITON_TAG=24.12-py3
 FROM nvcr.io/nvidia/tritonserver:${TRITON_TAG}
 
 ARG STT_MODEL=small
+# STT_TARGET_LANGS SINIRSIZ: "tr,de,ru,fr,es,..." -- ama her kod icin
+# MARIAN_MODELS'ta bir karsiligi OLMAK ZORUNDA, varsayilan kalip TAHMIN
+# EDILMIYOR (bkz. export_models.py, 17 Agustos "TAM DINAMIK MARIAN").
 ARG STT_TARGET_LANGS=tr,de,ru
-# Ceviri modeli secimi ve export hassasiyeti -- .env'den MARIAN_TR_MODEL vb.
-# ile degistirilebilir, varsayilanlar export_models.py icinde (bkz. o
-# dosyadaki not, 16 Agustos).
-ARG MARIAN_TR_MODEL=""
-ARG MARIAN_DE_MODEL=""
-ARG MARIAN_RU_MODEL=""
+# ZORUNLU, format: "tr=Helsinki-NLP/opus-mt-tc-big-en-tr,de=org/model" --
+# STT_TARGET_LANGS'taki HER dil icin bir kayit olmali, eksikse build hata
+# verip durur.
+ARG MARIAN_MODELS=""
 ARG MARIAN_EXPORT_DTYPE=fp16
 
 ENV PYTHONUNBUFFERED=1 \
@@ -37,21 +38,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends gettext-base \
 # "Cannot uninstall pip 24.0, RECORD file not found" ile patliyor. Mevcut
 # pip 24.0 zaten yeterince guncel, yukseltmeye gerek yok.
 #
-# onnxruntime VS onnxruntime-gpu CAKISMASI: faster-whisper CPU-only
-# "onnxruntime"i BAGIMLILIK olarak cekiyor, "optimum[onnxruntime-gpu]" ile
-# AYNI pip cagrisinda kurulunca ikisi ayni site-packages/onnxruntime/
-# klasorune yaziyor ve CPU surumu kazaniyor (olculdu: ValueError "Asked to
-# use CUDAExecutionProvider ... available ... CPUExecutionProvider" --
-# Marian modelleri hep CPU'ya duserdi, sessizce degil, acikca patliyor).
-# Cozum: onnxruntime (CPU) kurulumdan SONRA kaldirilip onnxruntime-gpu
-# force-reinstall ediliyor, boylece dosyalar kesin GPU surumunden kalir.
+# optimum[onnxruntime-gpu] ARTIK YOK (17 Agustos, ucuncu gecis): Marian
+# CTranslate2'ye tasindi (bkz. export_models.py'deki "MARIAN NEDEN
+# CTRANSLATE2'YE TASINDI" notu) -- bu, eskiden burada olan onnxruntime/
+# onnxruntime-gpu CAKISMA sorununu (CPU surumunun sessizce kazanmasi) da
+# YAPISAL OLARAK ORTADAN KALDIRDI, cunku iki ayri onnxruntime paketi kurma
+# ihtiyaci kalmadi. ctranslate2, faster-whisper'in zaten transitive
+# bagimliligi -- burada AYRICA belirtiliyor ki faster-whisper bir gun bu
+# bagimliligi degistirirse build sessizce kirilmasin.
+#
+# torch (CPU-only) GEREKLI: ctranslate2'nin TransformersConverter'i,
+# donusturmeden ONCE modeli PyTorch olarak yukluyor (MarianMTModel.from_pretrained)
+# -- eskiden bunu optimum[onnxruntime-gpu] transitive olarak getiriyordu,
+# kaldirilinca "name 'torch' is not defined" ile build patladi (gercek
+# testte bulundu). Yalnizca BUILD zamaninda (export_models.py) kullaniliyor,
+# calisma anindaki marian_model.py torch'a hic dokunmuyor -- CPU-only surum
+# yeterli, CUDA'li torch'un onlarca ekstra GB'ini indirmeye gerek yok.
 RUN pip install \
     faster-whisper==1.1.1 \
-    "optimum[onnxruntime-gpu]" \
+    ctranslate2 \
     transformers==4.48.0 \
     sentencepiece==0.2.0 \
- && pip uninstall -y onnxruntime \
- && pip install --force-reinstall --no-deps onnxruntime-gpu
+ && pip install --index-url https://download.pytorch.org/whl/cpu torch
 
 # SIRA BILINCLI: export_models.py, config.pbtxt/model.py'ye hic ihtiyac
 # DUYMUYOR (kendi yollarini REPO_ROOT'tan turetiyor) -- bu yuzden agir
@@ -61,10 +69,13 @@ RUN pip install \
 # ~150 saniyelik Whisper indirme + 3 Marian ONNX export'unu HER SEFERINDE
 # tekrar calistirirdi -- olculdu, tam bu yuzden yavasti.
 COPY export_models.py /build/export_models.py
+# Sablonlar (config.pbtxt + model.py) -- export_models.py her Marian dili
+# icin bunlari kopyalayip dolduruyor, bkz. o dosyadaki not.
+COPY templates /build/templates
 
 RUN STT_MODEL=${STT_MODEL} STT_TARGET_LANGS=${STT_TARGET_LANGS} \
-    MARIAN_TR_MODEL=${MARIAN_TR_MODEL} MARIAN_DE_MODEL=${MARIAN_DE_MODEL} \
-    MARIAN_RU_MODEL=${MARIAN_RU_MODEL} MARIAN_EXPORT_DTYPE=${MARIAN_EXPORT_DTYPE} \
+    MARIAN_MODELS=${MARIAN_MODELS} MARIAN_EXPORT_DTYPE=${MARIAN_EXPORT_DTYPE} \
+    MARIAN_TEMPLATE_DIR=/build/templates \
     python3 /build/export_models.py
 
 # Agirlik eksikse SESSIZCE indirmeye calismak yerine acikca patlasin
@@ -72,9 +83,12 @@ RUN STT_MODEL=${STT_MODEL} STT_TARGET_LANGS=${STT_TARGET_LANGS} \
 ENV HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1
 
-# config.pbtxt + model.py -- SIK DEGISIR, bu yuzden en sonda. COPY var olan
-# /models agacini SILMEZ, uzerine YAZAR: yukarida export edilen 1/whisper,
-# 1/onnx klasorleri kalir, yalnizca config.pbtxt + 1/model.py eklenir.
+# SADECE whisper/config.pbtxt icin kaldi (17 Agustos) -- Marian'in
+# config.pbtxt/model.py'si artik export_models.py tarafindan sablondan
+# uretiliyor, model_repository/ altinda marian_en_* DIYE BIR DIZIN YOK.
+# whisper tek, cogaltilmayan bir model oldugu icin sablonlastirmaya gerek
+# yok, statik dosya olarak kalmasi yeterli. COPY var olan /models agacini
+# SILMEZ, uzerine YAZAR: yukarida export edilen 1/whisper klasoru kalir.
 COPY model_repository /models
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

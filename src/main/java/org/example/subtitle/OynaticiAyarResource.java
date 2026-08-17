@@ -8,6 +8,9 @@ import jakarta.ws.rs.core.MediaType;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 
+import java.util.Arrays;
+import java.util.List;
+
 /**
  * Tarayıcıdaki oynatıcının {@code .env}'den gelen ayarları.
  *
@@ -30,10 +33,22 @@ public class OynaticiAyarResource {
     int hlsGeride;
 
     /**
-     * @param hlsGeride izleyicinin canlı kenardan kaç bölüt geriden izleyeceği.
-     *                  Ayrıntı: {@link #ayarlar()}
+     * {@code stt.target-langs} ile AYNI kaynak (VadService'in çeviri açtığı
+     * diller) — önyüzdeki dil seçici burada sabit kodlanmasın diye tek
+     * doğru kaynaktan (.env) besleniyor.
      */
-    public record OynaticiAyarlari(int hlsGeride) {
+    @ConfigProperty(name = "stt.target-langs")
+    String hedefDillerHam;
+
+    /**
+     * @param hlsGeride      izleyicinin canlı kenardan kaç bölüt geriden izleyeceği.
+     *                       Ayrıntı: {@link #ayarlar()}
+     * @param altyaziDilleri altyazının üretildiği hedef diller (ISO kodu,
+     *                       ör. {@code ["tr","de","ru"]}) — pivot {@code en}
+     *                       ve {@code kapali} seçeneği bu listede DEĞİL,
+     *                       önyüz onları sabit ekliyor.
+     */
+    public record OynaticiAyarlari(int hlsGeride, List<String> altyaziDilleri) {
     }
 
     /**
@@ -61,6 +76,10 @@ public class OynaticiAyarResource {
     @GET
     @Operation(summary = "Oynatıcının .env'den gelen ayarları")
     public OynaticiAyarlari ayarlar() {
-        return new OynaticiAyarlari(hlsGeride);
+        List<String> diller = Arrays.stream(hedefDillerHam.split(","))
+            .map(String::strip)
+            .filter(dil -> !dil.isEmpty())
+            .toList();
+        return new OynaticiAyarlari(hlsGeride, diller);
     }
 }

@@ -165,20 +165,29 @@ public class VadService {
      */
     private ExecutorService ceviriPool;
 
+    @ConfigProperty(name = "stt.target-langs")
+    String hedefDillerHam;
+
     /**
-     * Triton'daki hedef dil → model adı eşlemesi. stt-worker/app/config.py'deki
-     * {@code TRANSLATION_MODELS} ile AYNI küme — orada da belirtildiği gibi
-     * SABİT, Whisper pivotu sağladığı için sadece {@code EN → X} yönleri var.
+     * Triton'daki hedef dil → model adı eşlemesi. {@code stt.target-langs}
+     * (.env: {@code STT_TARGET_LANGS}) neyse o kadar dil — export_models.py
+     * her dili {@code marian_en_<kod>} adıyla Triton'a yüklüyor, burada da
+     * aynı kalıpla türetiliyor. Yeni dil eklemek artık bu sınıfa DOKUNMADAN
+     * yalnızca .env değişikliği (17 Ağustos, "tam dinamik dil").
      */
-    private static final Map<String, String> DIL_MODELLERI = Map.of(
-        "tr", "marian_en_tr",
-        "de", "marian_en_de",
-        "ru", "marian_en_ru"
-    );
+    private Map<String, String> DIL_MODELLERI;
 
     @jakarta.annotation.PostConstruct
     void metrikleriKaydet() {
         meterRegistry.gauge("altyazi_aktif_kanal", workers, Map::size);
+        Map<String, String> dilModelleri = new HashMap<>();
+        for (String dil : hedefDillerHam.split(",")) {
+            dil = dil.strip();
+            if (!dil.isEmpty()) {
+                dilModelleri.put(dil, "marian_en_" + dil);
+            }
+        }
+        DIL_MODELLERI = Map.copyOf(dilModelleri);
     }
 
     /**

@@ -21,6 +21,13 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Loader2Icon } from 'lucide-react'
+import { GuidedTour } from '@/components/tour/GuidedTour'
+import { usePageTour } from '@/components/tour/usePageTour'
+import { TourTrigger } from '@/components/tour/TourTrigger'
+import {
+  ADMIN_ANALITIK_TOUR_SEEN_KEY,
+  ADMIN_ANALITIK_TOUR_STEPS,
+} from '@/components/tour/adminAnalitikSteps'
 
 /** "Henüz ölçülmüyor" alanları için — sessizce sıfır göstermek yanıltıcı olurdu. */
 export function Olcum({ deger, birim }: { deger: number | null; birim?: string }) {
@@ -113,6 +120,8 @@ export function AdminAnalitikPage() {
   const [isiHaritasi, setIsiHaritasi] = useState<VideoIsiHaritasiDto | null>(null)
   const [isiHaritasiYukleniyor, setIsiHaritasiYukleniyor] = useState(false)
 
+  const rehberTuru = usePageTour(ADMIN_ANALITIK_TOUR_SEEN_KEY)
+
   useEffect(() => {
     void Promise.all([
       adminAnalitikApi.canliDurum().then(setCanliDurum),
@@ -147,15 +156,18 @@ export function AdminAnalitikPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Analitik</h1>
-        <p className="text-sm text-muted-foreground">
-          Kullanıcı davranışı, içerik/depolama ve video izleme özeti. Henüz ölçülmeyen alanlar
-          açıkça işaretli.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Analitik</h1>
+          <p className="text-sm text-muted-foreground">
+            Kullanıcı davranışı, içerik/depolama ve video izleme özeti. Henüz ölçülmeyen alanlar
+            açıkça işaretli.
+          </p>
+        </div>
+        <TourTrigger onClick={rehberTuru.start} />
       </div>
 
-      <section className="flex flex-col gap-3">
+      <section data-tour="analitik-canli-durum" className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">Canlı Sistem Durumu</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatKart baslik="Eşzamanlı izleyici">{canliDurum?.esZamanliIzleyici ?? 0}</StatKart>
@@ -167,7 +179,7 @@ export function AdminAnalitikPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-3">
+      <section data-tour="analitik-icerik" className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">İçerik & Kanal Performansı</h2>
         <div className="grid gap-3 md:grid-cols-3">
           <TopListe baslik="En çok izlenen kanallar" veri={icerik?.enCokIzlenenKanallar ?? []} />
@@ -176,7 +188,7 @@ export function AdminAnalitikPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-3">
+      <section data-tour="analitik-depolama" className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">Depolama ve DVR Analitiği</h2>
         <div className="grid gap-3 sm:grid-cols-2">
           <StatKart baslik="Önümüzdeki 24 saatte planlı kayıt">
@@ -218,7 +230,7 @@ export function AdminAnalitikPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-3">
+      <section data-tour="analitik-teknik" className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">Teknik & Hata Takibi</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <StatKart baslik="Başarısız planlı kayıt">{teknik?.basarisizPlanliKayit ?? 0}</StatKart>
@@ -229,7 +241,7 @@ export function AdminAnalitikPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-3">
+      <section data-tour="analitik-genel" className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">Genel Kullanıcı Aktivitesi</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatKart baslik="Günlük aktif kullanıcı (DAU)">{genel?.dau ?? 0}</StatKart>
@@ -243,7 +255,7 @@ export function AdminAnalitikPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-3">
+      <section data-tour="analitik-video" className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">Video Tamamlanma Oranı & Isı Haritası</h2>
         <div className="rounded-xl border">
           <Table>
@@ -295,6 +307,12 @@ export function AdminAnalitikPage() {
           </div>
         )}
       </section>
+
+      <GuidedTour
+        open={rehberTuru.open}
+        onClose={rehberTuru.close}
+        steps={ADMIN_ANALITIK_TOUR_STEPS}
+      />
     </div>
   )
 }

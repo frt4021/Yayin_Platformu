@@ -21,6 +21,13 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { ChevronLeftIcon, ChevronRightIcon, Loader2Icon } from 'lucide-react'
+import { GuidedTour } from '@/components/tour/GuidedTour'
+import { usePageTour } from '@/components/tour/usePageTour'
+import { TourTrigger } from '@/components/tour/TourTrigger'
+import {
+  ADMIN_ETKINLIKLER_TOUR_SEEN_KEY,
+  ADMIN_ETKINLIKLER_TOUR_STEPS,
+} from '@/components/tour/adminEtkinliklerSteps'
 
 const MAX = 50
 
@@ -106,6 +113,8 @@ export function AdminEtkinliklerPage() {
   const [tur, setTur] = useState<EtkinlikTuru | 'HEPSI'>('HEPSI')
   const [kullaniciAdi, setKullaniciAdi] = useState('')
 
+  const rehberTuru = usePageTour(ADMIN_ETKINLIKLER_TOUR_SEEN_KEY)
+
   const load = useCallback(async (f: number, t: EtkinlikTuru | 'HEPSI', ad: string) => {
     setLoading(true)
     setError(null)
@@ -140,16 +149,19 @@ export function AdminEtkinliklerPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Kullanıcı Etkinliği</h1>
-        <p className="text-sm text-muted-foreground">
-          Giriş/çıkış, izleme/dinleme oturumları ve admin/içerik eylemlerinin denetim izi.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Kullanıcı Etkinliği</h1>
+          <p className="text-sm text-muted-foreground">
+            Giriş/çıkış, izleme/dinleme oturumları ve admin/içerik eylemlerinin denetim izi.
+          </p>
+        </div>
+        <TourTrigger onClick={rehberTuru.start} />
       </div>
 
       <div className="flex flex-wrap gap-3">
         <Select value={tur} onValueChange={(v) => setTur(v as EtkinlikTuru | 'HEPSI')}>
-          <SelectTrigger className="h-9 w-56">
+          <SelectTrigger data-tour="etkinlik-tur-filtre" className="h-9 w-56">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -163,6 +175,7 @@ export function AdminEtkinliklerPage() {
         </Select>
 
         <Input
+          data-tour="etkinlik-kullanici-filtre"
           placeholder="Kullanıcı adına göre ara…"
           value={kullaniciAdi}
           onChange={(e) => setKullaniciAdi(e.target.value)}
@@ -175,7 +188,7 @@ export function AdminEtkinliklerPage() {
           {error}
         </div>
       ) : (
-        <div className="rounded-xl border">
+        <div data-tour="etkinlik-tablo" className="rounded-xl border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -224,7 +237,7 @@ export function AdminEtkinliklerPage() {
         </div>
       )}
 
-      <div className="flex items-center justify-between text-sm text-muted-foreground">
+      <div data-tour="etkinlik-sayfalama" className="flex items-center justify-between text-sm text-muted-foreground">
         <span>
           {total === 0 ? '0' : `${first + 1}–${Math.min(first + MAX, total)}`} / {total}
         </span>
@@ -249,6 +262,12 @@ export function AdminEtkinliklerPage() {
           </Button>
         </div>
       </div>
+
+      <GuidedTour
+        open={rehberTuru.open}
+        onClose={rehberTuru.close}
+        steps={ADMIN_ETKINLIKLER_TOUR_STEPS}
+      />
     </div>
   )
 }

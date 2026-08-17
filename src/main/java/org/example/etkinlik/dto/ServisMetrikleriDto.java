@@ -15,10 +15,11 @@ public record ServisMetrikleriDto(
     Double tritonOrtalamaGecikmeMs,
     Long tritonGpuBellekBayt,
 
-    // Model/dil bazlı kırılım (whisper, marian_en_tr, marian_en_de,
-    // marian_en_ru) — toplam ortalamanın içinde bir dilin çok daha yavaş
-    // olduğu (ör. GPU VRAM sınırına yakınken Marian'ların 10+ saniyeye
-    // çıkması) gizlenmesin diye ayrı ayrı. Veri yoksa boş harita.
+    // Model/dil bazlı kırılım (whisper + STT_TARGET_LANGS'taki her dil icin
+    // marian_en_<kod> — PromQL "by (model)" ile dinamik, sabit liste yok)
+    // — toplam ortalamanın içinde bir dilin çok daha yavaş olduğu (ör. GPU
+    // VRAM sınırına yakınken Marian'ların 10+ saniyeye çıkması) gizlenmesin
+    // diye ayrı ayrı. Veri yoksa boş harita.
     Map<String, Double> tritonModelGecikmeMs,
 
     // Postgres — yalnızca uygulama veritabanı (yayin_merkezi); Keycloak'ın

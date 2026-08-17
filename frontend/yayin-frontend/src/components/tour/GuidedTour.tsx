@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { XIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { TOUR_STEPS, type TourStep } from './steps'
+import type { TourStep } from './steps'
 
 /** Vurgulanan alanın çevresine bırakılan boşluk. */
 const PADDING = 8
@@ -38,7 +38,22 @@ const BALON_W = 340
  * {@code body}'ye taşınmadan bir ata elemanın {@code overflow} ya da
  * {@code transform}'u onu kırpabilirdi.
  */
-export function GuidedTour({ open, onClose }: { open: boolean; onClose: () => void }) {
+/**
+ * {@code steps}: bu turun adım listesi — sayfaya özel (bkz. {@code steps.ts}
+ * dosyasındaki {@code *_TOUR_STEPS} sabitleri). Bileşen artık tek bir global
+ * listeye bağlı değil; her sayfa kendi listesini geçiriyor, aynı anda yalnızca
+ * o sayfanın DOM'u ekranda olduğu için hedef isimleri sayfalar arası
+ * çakışsa bile sorun olmuyor.
+ */
+export function GuidedTour({
+  open,
+  onClose,
+  steps,
+}: {
+  open: boolean
+  onClose: () => void
+  steps: TourStep[]
+}) {
   const [adim, setAdim] = useState(0)
   const [kutu, setKutu] = useState<DOMRect | null>(null)
   const [adimlar, setAdimlar] = useState<TourStep[]>([])
@@ -57,9 +72,11 @@ export function GuidedTour({ open, onClose }: { open: boolean; onClose: () => vo
    */
   useEffect(() => {
     if (!open) return
-    setAdimlar(TOUR_STEPS.filter((s) => document.querySelector(`[data-tour="${s.target}"]`)))
+    setAdimlar(steps.filter((s) => document.querySelector(`[data-tour="${s.target}"]`)))
     setAdim(0)
-  }, [open])
+    // "steps" modul seviyesinde sabit bir dizi (bkz. steps.ts) -- referansi
+    // render'lar arasinda degismiyor, bagimlilikta olmasi sorun yaratmiyor.
+  }, [open, steps])
 
   const mevcut: TourStep | undefined = adimlar[adim]
 

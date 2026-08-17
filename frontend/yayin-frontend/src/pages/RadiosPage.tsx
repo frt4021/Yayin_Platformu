@@ -22,6 +22,10 @@ import {
   Trash2Icon,
 } from 'lucide-react'
 import { RadioFormDialog } from './radios/RadioFormDialog'
+import { GuidedTour } from '@/components/tour/GuidedTour'
+import { usePageTour } from '@/components/tour/usePageTour'
+import { TourTrigger } from '@/components/tour/TourTrigger'
+import { RADIOS_TOUR_STEPS, RADIOS_TOUR_SEEN_KEY } from '@/components/tour/radiosSteps'
 
 export function RadiosPage() {
   const { hasRole } = useAuth()
@@ -35,6 +39,7 @@ export function RadiosPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<RadioDto | null>(null)
   const [pending, setPending] = useState<Set<string>>(new Set())
+  const tur = usePageTour(RADIOS_TOUR_SEEN_KEY)
 
   // Liste ve periyodik tazeleme artık PlayerContext'te (radyo çalarken bir
   // istasyondan diğerine geçince dinleyici sayısının anında güncellenmesi
@@ -93,13 +98,14 @@ export function RadiosPage() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-3xl font-semibold tracking-tight">Radyolar</h1>
+        <TourTrigger onClick={tur.start} />
         {capacity && (
           <Badge variant="secondary">
             {capacity.active} / {capacity.max} yayında
           </Badge>
         )}
 
-        <div className="relative ml-auto">
+        <div data-tour="radyo-arama" className="relative ml-auto">
           <SearchIcon className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
           <Input
             placeholder="İstasyon ara"
@@ -111,11 +117,17 @@ export function RadiosPage() {
 
         {canManage && (
           <>
-            <Button variant="outline" onClick={() => void restore()} title="Aktif radyoları MediaMTX'e yeniden yaz">
+            <Button
+              data-tour="radyo-geri-yukle"
+              variant="outline"
+              onClick={() => void restore()}
+              title="Aktif radyoları MediaMTX'e yeniden yaz"
+            >
               <RefreshCwIcon />
               Geri yükle
             </Button>
             <Button
+              data-tour="radyo-ekle"
               onClick={() => {
                 setEditing(null)
                 setFormOpen(true)
@@ -145,7 +157,7 @@ export function RadiosPage() {
           </p>
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div data-tour="radyo-liste" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {visible.map((radio) => (
             <StationCard
               key={radio.id}
@@ -171,6 +183,8 @@ export function RadiosPage() {
         onOpenChange={setFormOpen}
         onSaved={() => void refreshRadios()}
       />
+
+      <GuidedTour open={tur.open} onClose={tur.close} steps={RADIOS_TOUR_STEPS} />
     </div>
   )
 }
@@ -226,7 +240,7 @@ function StationCard({
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{radio.name}</div>
 
-        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+        <div data-tour="radyo-durum" className="mt-1 flex flex-wrap items-center gap-1.5">
           <StatusBadge radio={radio} />
           {radio.sourceKind === 'KOPRU' && (
             <Badge

@@ -334,7 +334,7 @@ export interface TimelineSpan {
 export const CLIP_STATUS = ['BEKLIYOR', 'ISLENIYOR', 'HAZIR', 'HATA'] as const
 export type ClipStatus = (typeof CLIP_STATUS)[number]
 
-/** Hazır bir WebVTT altyazı parçası. Görünen ad yok — SubtitleOverlay.SUBTITLE_LANGS'tan çıkarılıyor. */
+/** Hazır bir WebVTT altyazı parçası. Görünen ad yok — SubtitleOverlay.subtitleLangs()'tan çıkarılıyor. */
 export interface SubtitleTrackDto {
   lang: string
   url: string

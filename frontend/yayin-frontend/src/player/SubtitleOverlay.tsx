@@ -3,6 +3,7 @@ import { subtitlesApi } from '@/api/endpoints'
 import type { SubtitleDto } from '@/api/types'
 import type { CaptureHandle } from '@/components/HlsPlayer'
 import { cn } from '@/lib/utils'
+import { altyaziDilleriOku } from './oynaticiAyarlari'
 
 /**
  * Video üzerine altyazı bindirmesi.
@@ -328,15 +329,51 @@ const BACKFILL_MS = 60_000
 const CACHE_LIMIT = 200
 
 /**
+ * ISO kod → görünen ad. Yalnızca YAYGIN diller için — sunucu
+ * (`STT_TARGET_LANGS`) bunda olmayan bir kod verirse kod büyük harfle
+ * olduğu gibi gösteriliyor, uygulama kırılmıyor.
+ */
+const DIL_ADLARI: Record<string, string> = {
+  tr: 'Türkçe',
+  de: 'Deutsch',
+  ru: 'Русский',
+  fr: 'Français',
+  es: 'Español',
+  it: 'Italiano',
+  pt: 'Português',
+  nl: 'Nederlands',
+  pl: 'Polski',
+  ar: 'العربية',
+  zh: '中文',
+  ja: '日本語',
+  ko: '한국어',
+  uk: 'Українська',
+  ro: 'Română',
+  bg: 'Български',
+  cs: 'Čeština',
+  sv: 'Svenska',
+  fi: 'Suomi',
+  da: 'Dansk',
+  el: 'Ελληνικά',
+  hu: 'Magyar',
+  he: 'עברית',
+  hi: 'हिन्दी',
+  id: 'Bahasa Indonesia',
+  vi: 'Tiếng Việt',
+}
+
+/**
  * Seçilebilir altyazı dilleri.
  *
- * `en` pivot ve her zaman var; diğerleri ondan çevriliyor. Kaynak dilde
- * altyazı yok — Whisper `task=translate` ile çalışıyor.
+ * `kapali` ve `en` (pivot) SABİT — geri kalanı sunucudan (.env:
+ * `STT_TARGET_LANGS`) geldiği kadar, {@link altyaziDilleriOku}. Burada
+ * sabit kodlanmıyor: yeni bir dil eklemek artık yalnızca .env değişikliği,
+ * `docker compose build frontend` GEREKMİYOR (17 Ağustos, "tam dinamik dil").
  */
-export const SUBTITLE_LANGS = [
-  { kod: 'kapali', ad: 'Altyazı yok' },
-  { kod: 'tr', ad: 'Türkçe' },
-  { kod: 'en', ad: 'English' },
-  { kod: 'de', ad: 'Deutsch' },
-  { kod: 'ru', ad: 'Русский' },
-] as const
+export function subtitleLangs(): { kod: string; ad: string }[] {
+  return [
+    { kod: 'kapali', ad: 'Altyazı yok' },
+    ...altyaziDilleriOku().map((kod) => ({ kod, ad: DIL_ADLARI[kod] ?? kod.toUpperCase() })),
+    { kod: 'en', ad: 'English' },
+  ]
+}

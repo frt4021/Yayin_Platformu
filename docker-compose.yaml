@@ -202,6 +202,10 @@ services:
       PROMETHEUS_URL: http://prometheus:9090
       # Admin panelin "Sistem Logları" ekranı buradan okunuyor.
       LOKI_URL: http://loki:3100
+      # Altyazı dil seçici buradan besleniyor (OynaticiAyarResource) --
+      # video-worker'daki VadService ile AYNI liste olmalı, triton build
+      # argümanıyla da (bkz. triton servisi) TUTARLI kalmalı.
+      STT_TARGET_LANGS: ${STT_TARGET_LANGS:-tr,de,ru}
 
       # Rendition kodlayicisi: VAAPI | NVENC | YAZILIM
       # Komutu backend uretiyor ama KODLAMA mediamtx konteynerinde calisiyor;
@@ -286,16 +290,17 @@ services:
     build:
       context: ./triton
       args:
+        # SINIRSIZ dil listesi -- "tr,de,ru,fr,es,..." gibi istenildigi kadar
+        # kod eklenebilir, her biri icin export_models.py config.pbtxt/
+        # model.py'yi kendisi uretiyor (bkz. triton/export_models.py,
+        # "TAM DINAMIK MARIAN"). Rebuild GEREKIR (build-arg, calisma zamani
+        # degil) -- agirliklar offline calisma icin build'de gomuluyor.
         STT_MODEL: ${STT_MODEL:-small}
         STT_TARGET_LANGS: ${STT_TARGET_LANGS:-tr,de,ru}
-        # Bos birakilirsa export_models.py kendi varsayilanini kullanir
-        # (Helsinki-NLP/opus-mt-*) -- burada .env'den GECIRMEK icin var,
-        # zorunlu degil. Farkli/daha kucuk bir model denerken TEK satirlik
-        # .env degisikligi + `docker compose build triton` yeterli, koda
-        # dokunulmaz.
-        MARIAN_TR_MODEL: ${MARIAN_TR_MODEL:-}
-        MARIAN_DE_MODEL: ${MARIAN_DE_MODEL:-}
-        MARIAN_RU_MODEL: ${MARIAN_RU_MODEL:-}
+        # Format: "tr=Helsinki-NLP/opus-mt-tc-big-en-tr,fr=org/model" --
+        # yalnizca "Helsinki-NLP/opus-mt-en-<kod>" varsayimindan SAPAN diller
+        # icin gerekli, geri kalani otomatik turetilir.
+        MARIAN_MODELS: ${MARIAN_MODELS:-}
         MARIAN_EXPORT_DTYPE: ${MARIAN_EXPORT_DTYPE:-fp16}
     image: yayin/triton:${IMAGE_TAG:-latest}
     container_name: triton
@@ -316,9 +321,13 @@ services:
       # VRAM tepe degeri her degisiklikte OLCULMELI (docs/triton gecis plani,
       # Bolum 7 -- tahmin, dogrulanmadi).
       WHISPER_INSTANCES: ${WHISPER_INSTANCES:-2}
-      MARIAN_TR_INSTANCES: ${MARIAN_TR_INSTANCES:-1}
-      MARIAN_DE_INSTANCES: ${MARIAN_DE_INSTANCES:-1}
-      MARIAN_RU_INSTANCES: ${MARIAN_RU_INSTANCES:-1}
+      # SINIRSIZ dil, SINIRSIZ instance -- format "tr=2,fr=3" (yalnizca
+      # varsayilandan SAPAN diller icin), listede olmayan HER dil
+      # MARIAN_INSTANCES_DEFAULT'u kullanir. REBUILD GEREKMEZ -- ikisi de
+      # calisma zamani env degiskeni, container'i yeniden baslatmak yeterli
+      # (bkz. triton/entrypoint.sh, "TAM DINAMIK MARIAN").
+      MARIAN_INSTANCES: ${MARIAN_INSTANCES:-}
+      MARIAN_INSTANCES_DEFAULT: ${MARIAN_INSTANCES_DEFAULT:-1}
     runtime: ${STT_RUNTIME:-runc}
     # Docker'in varsayilani (1024) whisper+3 Marian'in her biri ayri Python
     # stub sureci olarak actigi CUDA/ONNX/IPC tanitici sayisina yetmiyor --
@@ -397,6 +406,11 @@ services:
       # adi + ic port ile gidiyor.
       TRITON_URL: ${TRITON_URL:-http://triton:8000}
       VAD_STT_ENABLED: ${VAD_STT_ENABLED:-true}
+      # Triton servisindeki STT_TARGET_LANGS (build-arg) ile AYNI liste
+      # olmali -- burasi VadService'in kac dil icin ceviri istegi acacagini
+      # belirliyor, orasi hangi marian_en_<kod> modellerinin export
+      # edildigini. Ikisi uyusmazsa Triton'da olmayan bir model istenir.
+      STT_TARGET_LANGS: ${STT_TARGET_LANGS:-tr,de,ru}
       # Triton'a gecisle asil eszamanlilik/batching instance_group+
       # dynamic_batching ile Triton icinde yonetiliyor -- bu deger artik
       # yalnizca Java tarafindaki gonderici thread sayisini sinirliyor.

@@ -226,7 +226,7 @@
       "type": "timeseries",
       "datasource": "Prometheus",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 37 },
-      "description": "İngilizce (pivot) her zaman ilk yayınlanan dil -- bu panel her hedef dilin (tr/de/ru) pivottan NE KADAR SONRA yayınlandığını gösterir, toplam üretim gecikmesini değil (o, 'Üretim gecikmesi' panelinde). Bir dil sürekli diğerlerinden yavaşsa (örn. marian_en_tr tc-big modeli) o modelin instance sayısı (MARIAN_TR_INSTANCES vb.) artırılması gerekebilir.",
+      "description": "İngilizce (pivot) her zaman ilk yayınlanan dil -- bu panel STT_TARGET_LANGS'taki her hedef dilin pivottan NE KADAR SONRA yayınlandığını gösterir, toplam üretim gecikmesini değil (o, 'Üretim gecikmesi' panelinde). Bir dil sürekli diğerlerinden yavaşsa o modelin instance sayısı (.env: MARIAN_INSTANCES=\"<dil>=<sayı>,...\") artırılması gerekebilir.",
       "targets": [
         {
           "expr": "altyazi_ceviri_gecikme_ms{istatistik=\"ortalama\"}",

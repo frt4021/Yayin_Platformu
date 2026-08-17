@@ -1,15 +1,20 @@
 /**
- * Rehberli tur adımları.
+ * Rehberli tur adımları — HER SAYFANIN kendi listesi burada, tek dosyada.
  *
  * <h2>Neden hedefler CSS seçici değil, veri özniteliği</h2>
  * Sınıf adları Tailwind'de sürekli değişiyor ve bir sınıfı düzenleyen kişi
  * turu bozduğunu fark edemezdi. {@code data-tour="..."} açık bir sözleşme:
  * özniteliği silen, turun o adımını sildiğini görüyor.
  *
- * <h2>Neden hepsi İzleme sayfasında</h2>
- * Tur, rota değiştirerek ilerleseydi her adımda sayfa yüklenmesini beklemek
- * ve hedefin gelmesini yoklamak gerekirdi. Ürünün merkezi zaten bu sayfa;
- * diğer sayfalar buradaki gezinmeden bir tık uzakta ve tur onu gösteriyor.
+ * <h2>Neden tek dosya, sayfa başına ayrı dosya değil</h2>
+ * Adım metinleri arasında ton/uzunluk tutarlılığı gerekiyor — hepsi bir
+ * arada olunca bu göze çarpıyor, dağılmış olsaydı fark edilmezdi.
+ *
+ * <h2>Hedef adları sayfalar arası çakışabilir, sorun değil</h2>
+ * {@code GuidedTour} her zaman TEK bir sayfanın DOM'unu görüyor (React
+ * Router diğerlerini unmount ediyor) ve o an açık olan tek bir tur var —
+ * bu yüzden örn. iki sayfada da {@code "arama"} hedefi olması çakışma
+ * yaratmıyor.
  */
 export interface TourStep {
   /** {@code data-tour} değeri. Hedef bulunamazsa adım <b>atlanıyor</b>. */
@@ -20,7 +25,9 @@ export interface TourStep {
   placement?: 'top' | 'bottom' | 'left' | 'right'
 }
 
-export const TOUR_STEPS: TourStep[] = [
+export const WATCH_TOUR_SEEN_KEY = 'yayin-merkezi.tur-gorundu'
+
+export const WATCH_TOUR_STEPS: TourStep[] = [
   {
     target: 'nav',
     title: 'Gezinme',
@@ -85,6 +92,3 @@ export const TOUR_STEPS: TourStep[] = [
     placement: 'top',
   },
 ]
-
-/** localStorage anahtarı — tur bir kez gösterilip bırakılıyor. */
-export const TOUR_SEEN_KEY = 'yayin-merkezi.tur-gorundu'

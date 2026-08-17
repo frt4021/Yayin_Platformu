@@ -113,15 +113,28 @@ STT_DEVICE=cuda
 STT_COMPUTE_TYPE=int8_float16
 STT_BEAM_SIZE=1
 STT_MAX_CONCURRENCY=6
+# SINIRSIZ liste -- "tr,de,ru,fr,es,..." gibi istenen kadar dil eklenebilir,
+# ama her kod icin asagida MARIAN_MODELS'ta bir karsiligi OLMAK ZORUNDA.
 STT_TARGET_LANGS=tr,de,ru
+# ZORUNLU: STT_TARGET_LANGS'taki HER dil icin "kod=repo" eslemesi -- eksik
+# dil icin build hata verip durur, repo adi TAHMIN EDILMIYOR. Format:
+# "kod=repo,kod2=repo2". ("tr" icin standart opus-mt-en-tr artik herkese
+# acik degil (401), bu yuzden daha buyuk tc-big surumu kullaniliyor.)
+MARIAN_MODELS=tr=Helsinki-NLP/opus-mt-tc-big-en-tr,de=Helsinki-NLP/opus-mt-en-de,ru=Helsinki-NLP/opus-mt-en-ru
+# ONNX export hassasiyeti: fp16 (GPU-native, kucuk) | fp32 (varsayilan
+# optimum davranisi). Statik agirlik boyutunu etkiler, gercek yukte VRAM
+# tavanini DEGISTIRMEZ (bkz. asagidaki VRAM formulu).
+MARIAN_EXPORT_DTYPE=fp16
 STT_RUNTIME=nvidia
 TRITON_URL=http://triton:8000
 PORT_TRITON_HTTP=8100
 PORT_TRITON_METRICS=8002
 WHISPER_INSTANCES=2
-MARIAN_TR_INSTANCES=1
-MARIAN_DE_INSTANCES=1
-MARIAN_RU_INSTANCES=1
+# Format: "kod=sayi,kod2=sayi2" -- STT_TARGET_LANGS'taki her dil icin ayri
+# bir *_INSTANCES degiskeni GEREKMIYOR artik. Listede olmayan dil
+# MARIAN_INSTANCES_DEFAULT'u kullanir. REBUILD gerekmez, bkz. asagidaki bolum.
+MARIAN_INSTANCES=
+MARIAN_INSTANCES_DEFAULT=1
 
 # --- Altyazı bütçesi ---
 ALTYAZI_BUTCE_MS=8000
@@ -221,14 +234,44 @@ yoksa yazılımda ölçülen fark kanal başına **%14 yerine %142 CPU**.
 | `VAD_MAX_SEGMENT_MS` | Bölüt penceresi — gecikmenin en büyük parçası, kısaltmak Whisper'a bırakılan bağlamı azaltır |
 | `STT_MODEL` | `tiny`\|`base`\|`small`\|`medium`\|`large-v3` — model değişince **Triton yeniden kurulmalı** (`docker compose build triton`) |
 | `STT_DEVICE` / `STT_COMPUTE_TYPE` | `cpu`\|`cuda`, `int8`\|`int8_float16`\|`float16` |
-| `STT_TARGET_LANGS` | Hedef diller (`tr,de,ru`) — Whisper İngilizce pivot ürettiği için sabit set |
+| `STT_TARGET_LANGS` | Hedef diller — **sınırsız sayıda**, virgülle ayrılmış (`tr,de,ru,fr,...`). Whisper İngilizce pivot ürettiği için her dil `EN → X` yönünde tek bir Marian modeli. Backend, video-worker ve Triton'da **aynı** liste olmalı |
+| `MARIAN_MODELS` | **Zorunlu.** `STT_TARGET_LANGS`'taki her dil için model repo'su (`kod=repo,...`) — eksik dil için build hata verip durur, varsayılan kalıp tahmin edilmez |
 | `TRITON_URL` | Java → Triton adresi, container-içi her zaman `http://triton:8000` |
-| `WHISPER_INSTANCES`, `MARIAN_TR_INSTANCES`, `MARIAN_DE_INSTANCES`, `MARIAN_RU_INSTANCES` | Model başına paralel GPU kopyası — **rebuild gerekmez**, bkz. aşağıdaki bölüm |
+| `WHISPER_INSTANCES`, `MARIAN_INSTANCES`, `MARIAN_INSTANCES_DEFAULT` | Model başına paralel GPU kopyası (`MARIAN_INSTANCES` formatı: `kod=sayı,...`) — **rebuild gerekmez**, bkz. aşağıdaki bölüm |
 | `ALTYAZI_HLS_GERIDE` | Altyazının gerçek bütçesi: `bütçe = ALTYAZI_HLS_GERIDE × bölüt süresi`. Kural: **bütçe ≥ p95 gecikme**, p95 `docker compose logs backend \| grep "ALTYAZI KAPSAMA"` |
 | `ALTYAZI_BUTCE_MS` | Yalnızca rapor satırı için — **hiçbir şeyi düşürmez** |
 
 > **Sıfır yazmayın** (`ALTYAZI_HLS_GERIDE`): MediaMTX `PART-HOLD-BACK=0.5`
 > ilan ediyor, hls.js sıfır yerine onu kullanır ve bütçe yarım saniyeye düşer.
+
+#### Yeni bir dil eklediğinizde önyüzde nasıl görünür
+
+`STT_TARGET_LANGS`'a eklenen bir dil, önyüzdeki altyazı dili seçicisine
+kadar şu zincirle ulaşır — hiçbir adımda kod değişikliği gerekmez:
+
+```
+.env: STT_TARGET_LANGS=de,ru
+   → application.properties: stt.target-langs
+   → OynaticiAyarResource (GET /api/ayarlar/oynatici, kimlik istemez)
+        → ham ISO kodu listesi döner: ["de","ru"]  (backend İSİM ÜRETMİYOR)
+   → frontend: ayarlariYukle() bu kodları saklar (oynaticiAyarlari.ts)
+   → SubtitleOverlay.tsx: subtitleLangs() her kod için görünen adı bulur
+```
+
+Görünen isim yalnızca **frontend**'de, `SubtitleOverlay.tsx`'teki
+`DIL_ADLARI` sabit haritasından geliyor (~26 dil: tr, de, ru, fr, es, it,
+pt, nl, pl, ar, zh, ja, ko, uk, ro, bg, cs, sv, fi, da, el, hu, he, hi, id,
+vi). Eklediğiniz kod bu haritada varsa gerçek adıyla ("Русский") görünür;
+yoksa **kodu büyük harfle** ("FA" gibi) gösterir — altyazı üretimi/çevirisi
+bundan etkilenmez, yalnızca seçicideki etiket kozmetik kalır. Haritada
+olmayan bir dile güzel isim vermek isterseniz `DIL_ADLARI`'na tek satır
+ekleyip `docker compose build frontend` yeterli.
+
+Backend/video-worker tarafında da isim eşlemesi yok: `VadService`'teki
+çeviri döngüsü ve `SubtitleLagMetrics`'teki metrikler (`altyazi_ceviri_gecikme_ms{dil="..."}`)
+`STT_TARGET_LANGS`'taki kodu olduğu gibi kullanıyor — Grafana
+dashboard'larında da sabit bir dil listesi/dropdown'u yok, hangi dil
+etikedi Prometheus'ta varsa o gösteriliyor.
 
 ---
 
@@ -274,9 +317,7 @@ eşzamanlılık modeline aitti, Triton'ın `instance_group` paralelliğine
 | Model | `.env` değişkeni | Varsayılan | Not |
 |---|---|---|---|
 | Whisper | `WHISPER_INSTANCES` | `2` | 6 GB kartta asıl darboğaz, gerçek kazanç buradan |
-| `marian_en_tr` | `MARIAN_TR_INSTANCES` | `1` | tc-big model daha büyük (tahmin ~900 MB-1,1 GB/kopya) |
-| `marian_en_de` | `MARIAN_DE_INSTANCES` | `1` | küçük model (tahmin ~350-450 MB/kopya), ucuz artırılabilir |
-| `marian_en_ru` | `MARIAN_RU_INSTANCES` | `1` | aynı |
+| `marian_en_<kod>` (her biri) | `MARIAN_INSTANCES` (`kod=sayı,...`) yoksa `MARIAN_INSTANCES_DEFAULT` | `1` | `STT_TARGET_LANGS`'taki HER dil için ayrı bir `marian_en_<kod>` dizini `entrypoint.sh` tarafından otomatik keşfediliyor — yeni dil eklemek bu script'e dokunmayı gerektirmez |
 
 **Değiştirmek rebuild gerektirmiyor:** `triton/entrypoint.sh`, container her
 başladığında `config.pbtxt`'lerdeki yer tutucuları (`${WHISPER_INSTANCES}`

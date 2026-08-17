@@ -5,7 +5,7 @@ import { useAuth } from '@/auth/AuthContext'
 import { videosApi } from '@/api/endpoints'
 import { formatBytes, formatDuration } from '@/api/upload'
 import type { VideoDto, VideoLinks } from '@/api/types'
-import { SUBTITLE_LANGS } from '@/player/SubtitleOverlay'
+import { subtitleLangs } from '@/player/SubtitleOverlay'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,6 +22,10 @@ import {
 } from 'lucide-react'
 import { VideoEditDialog } from './videos/VideoEditDialog'
 import { VideoUploadDialog } from './videos/VideoUploadDialog'
+import { GuidedTour } from '@/components/tour/GuidedTour'
+import { usePageTour } from '@/components/tour/usePageTour'
+import { TourTrigger } from '@/components/tour/TourTrigger'
+import { VIDEOS_TOUR_SEEN_KEY, VIDEOS_TOUR_STEPS } from '@/components/tour/videosSteps'
 
 /** İşlenen kayıt varken liste tazelenir; yoksa boşuna sorgulanmaz. */
 const REFRESH_MS = 5000
@@ -53,6 +57,8 @@ export function VideosPage() {
   const [playing, setPlaying] = useState<VideoDto | null>(null)
   const [links, setLinks] = useState<VideoLinks | null>(null)
   const [linksError, setLinksError] = useState<string | null>(null)
+
+  const tur = usePageTour(VIDEOS_TOUR_SEEN_KEY)
 
   const load = useCallback(async (query: string) => {
     try {
@@ -141,8 +147,9 @@ export function VideosPage() {
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-3xl font-semibold tracking-tight">Video kütüphanesi</h1>
         <Badge variant="secondary">{videos.length} video</Badge>
+        <TourTrigger onClick={tur.start} />
 
-        <div className="relative ml-auto">
+        <div data-tour="videolar-arama" className="relative ml-auto">
           <SearchIcon className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
           <Input
             placeholder="Başlıkta ara"
@@ -156,7 +163,7 @@ export function VideosPage() {
             gizleme kullanıcıyı reddedilecek bir düğmeyle karşılaştırmamak
             için. */}
         {yazabilir && (
-          <Button onClick={() => setUploadOpen(true)}>
+          <Button data-tour="videolar-yukle" onClick={() => setUploadOpen(true)}>
             <UploadIcon />
             Video yükle
           </Button>
@@ -200,7 +207,7 @@ export function VideosPage() {
                       key={t.lang}
                       kind="subtitles"
                       srcLang={t.lang}
-                      label={SUBTITLE_LANGS.find((l) => l.kod === t.lang)?.ad ?? t.lang}
+                      label={subtitleLangs().find((l) => l.kod === t.lang)?.ad ?? t.lang}
                       src={t.url}
                       default={i === 0}
                     />
@@ -303,7 +310,10 @@ export function VideosPage() {
         </div>
       ) : (
         // Boş durum: video seçilmemiş — ızgara.
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div
+          data-tour="videolar-izgara"
+          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+        >
           {videos.map((video) => (
             <VideoCard
               key={video.id}
@@ -331,6 +341,8 @@ export function VideosPage() {
         onOpenChange={(open) => !open && setEditing(null)}
         onSaved={() => void load(search)}
       />
+
+      <GuidedTour open={tur.open} onClose={tur.close} steps={VIDEOS_TOUR_STEPS} />
     </div>
   )
 }
@@ -455,6 +467,7 @@ function VideoCard({
             etmenin tek yolu bu, oynaticiya girmeden bilinmiyordu. */}
         {video.subtitleLangs.length > 0 && (
           <span
+            data-tour="videolar-cc"
             className="absolute bottom-1.5 left-1.5 rounded bg-black/75 px-1.5 py-0.5 text-xs font-medium text-white"
             title={`Altyazı: ${video.subtitleLangs.join(', ')}`}
           >
@@ -491,7 +504,10 @@ function VideoCard({
             çıkılmasına izin vermiyor. Yönetici başkasının videosunu görürse onu
             da yönetebilir. */}
         {yazabilir && (
-        <div className="mt-2 flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <div
+          data-tour="videolar-eylemler"
+          className="mt-2 flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100"
+        >
           <Button
             variant="ghost"
             size="icon"

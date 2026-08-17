@@ -24,6 +24,10 @@ import {
 } from 'lucide-react'
 import { ChannelFormDialog } from './channels/ChannelFormDialog'
 import { DeleteChannelDialog } from './channels/DeleteChannelDialog'
+import { GuidedTour } from '@/components/tour/GuidedTour'
+import { usePageTour } from '@/components/tour/usePageTour'
+import { TourTrigger } from '@/components/tour/TourTrigger'
+import { CHANNELS_TOUR_STEPS, CHANNELS_TOUR_SEEN_KEY } from '@/components/tour/channelsSteps'
 
 /** Durum bilgisi MediaMTX'ten anlık okunuyor; tazelenmezse gösterge gerçeklikle ilgisini kaybeder. */
 const REFRESH_MS = 15000
@@ -56,6 +60,7 @@ export function ChannelsPage() {
   const [pending] = useState<Set<string>>(new Set())
   /** Silme onayı bekleyen kanal; null ise iletişim kutusu kapalı. */
   const [silinecek, setSilinecek] = useState<ChannelDto | null>(null)
+  const tur = usePageTour(CHANNELS_TOUR_SEEN_KEY)
 
   const load = useCallback(async () => {
     try {
@@ -126,8 +131,10 @@ export function ChannelsPage() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-3xl font-semibold tracking-tight">Kanallar</h1>
+            <TourTrigger onClick={tur.start} />
             {capacity && (
               <Badge
+                data-tour="kanal-kapasite"
                 // Kapasite dolduğunda yeni aktif kanal reddedilecek; göstergeyi
                 // önceden uyarı verecek şekilde renklendiriyoruz.
                 variant={capacity.active >= capacity.max ? 'destructive' : 'secondary'}
@@ -145,6 +152,7 @@ export function ChannelsPage() {
         {canManage && (
           <div className="flex gap-2">
             <Button
+              data-tour="kanal-yeniden-yaz"
               variant="outline"
               onClick={() => void restore()}
               title="Aktif kanalları MediaMTX'e yeniden yaz — MediaMTX bağımsız yeniden başlatıldığında gerekir"
@@ -152,7 +160,7 @@ export function ChannelsPage() {
               <RefreshCwIcon />
               MediaMTX'e yeniden yaz
             </Button>
-            <Button onClick={openCreate}>
+            <Button data-tour="kanal-ekle" onClick={openCreate}>
               <PlusIcon />
               Yeni kanal
             </Button>
@@ -165,7 +173,7 @@ export function ChannelsPage() {
           {error}
         </div>
       ) : (
-        <div className="rounded-xl border">
+        <div data-tour="kanal-tablo" className="rounded-xl border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -245,7 +253,7 @@ export function ChannelsPage() {
                         {channel.createdBy ?? '—'}
                       </TableCell>
                       <TableCell>
-                        <div className="flex justify-end gap-1">
+                        <div data-tour="kanal-islemler" className="flex justify-end gap-1">
                           <Button
                             variant="ghost"
                             size="icon"
@@ -298,6 +306,8 @@ export function ChannelsPage() {
         onClose={() => setSilinecek(null)}
         onDeleted={silindi}
       />
+
+      <GuidedTour open={tur.open} onClose={tur.close} steps={CHANNELS_TOUR_STEPS} />
     </div>
   )
 }

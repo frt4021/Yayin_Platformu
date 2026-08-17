@@ -1,21 +1,27 @@
 """
-Triton Python backend — Marian (ONNX, optimum ile) sarmalayıcısı.
+Triton Python backend — Marian (CTranslate2) sarmalayıcısı.
 
-stt-worker/app/translate.py'deki Translator._translate_many mantığının
-Triton'a taşınmış hali: modelin kendisi ONNX formatında ve hesaplama
-onnxruntime CUDAExecutionProvider üzerinden yapılıyor (kullanıcının açıkça
-seçtiği yol) ama seq2seq generate() döngüsünü (autoregressive decode + beam
-search) saf bir `backend: onnxruntime` config'i KURAMADIĞI için (Triton'ın
-protobuf config dili kontrol akışı ifade edemiyor), orkestrasyon burada
-optimum.onnxruntime.ORTModelForSeq2SeqLM ile yapılıyor.
+17 Ağustos, üçüncü geçiş: ONNX Runtime'dan (optimum.onnxruntime) CTranslate2'ye
+taşındı. Sebep ölçüldü: ONNX Runtime'ın CUDA "caching allocator"ı, değişken
+cümle sayısı/uzunluğu yüzünden her yeni tensor şekli için yeni bellek bloğu
+açıp bunu HİÇBİR ZAMAN GPU'ya geri vermiyordu — gerçek 15-kanal yükünde 1
+saatte 590MB'tan 5,1GB'a çıkıp kartı tıkadı. Whisper (faster-whisper/
+CTranslate2) aynı sorunu yaşamıyor çünkü her girdi sabit 30 saniyelik
+pencereye dolduruluyor (tensor şekli hiç değişmiyor) — CTranslate2'nin
+sabit boyutlu çalışma alanı davranışını Marian'a da taşımak aynı VRAM
+sabitliğini kazandırıyor (bkz. export_models.py'deki "MARIAN NEDEN
+CTRANSLATE2'YE TAŞINDI" notu).
 
 Kanallar arası batching artık BatchCoalescer yerine Triton'ın dynamic_batching'i
 tarafından yapılıyor — execute()'a gelen `requests` listesi zaten Triton'ın
 biriktirdiği bir batch.
 
-Dosya, marian_en_tr / marian_en_de / marian_en_ru dizinlerinde AYNI —
-hangi dile çevireceğini config.pbtxt'teki isimden değil, kendi ağırlık
-klasöründen (1/onnx) okuyor.
+Bu dosya GERÇEK bir şablon (triton/templates/marian_model.py) —
+export_models.py, STT_TARGET_LANGS'taki HER dil için bunu olduğu gibi
+kopyalıyor (bkz. o dosya). Hangi dile çevireceğini config.pbtxt'teki
+isimden değil, kendi ağırlık klasöründen (1/ctranslate2) okuduğu için
+hiçbir dile özel kod içermiyor — yeni bir dil eklemek bu dosyayı hiç
+değiştirmeden çalışır.
 """
 
 import logging
@@ -55,32 +61,20 @@ def _split(text: str) -> list[str]:
 
 class TritonPythonModel:
     def initialize(self, args):
-        from optimum.onnxruntime import ORTModelForSeq2SeqLM
+        import ctranslate2
         from transformers import MarianTokenizer
 
         self._log = logging.getLogger(args["model_name"])
-        onnx_path = os.path.join(args["model_repository"], args["model_version"], "onnx")
+        ct2_path = os.path.join(args["model_repository"], args["model_version"], "ctranslate2")
 
         device = os.environ.get("STT_DEVICE", "cuda")
-        provider = "CUDAExecutionProvider" if device == "cuda" else "CPUExecutionProvider"
 
-        self._log.info("Marian yükleniyor (ONNX): %s (%s)", onnx_path, provider)
+        self._log.info("Marian yükleniyor (CTranslate2): %s (%s)", ct2_path, device)
 
         # local_files_only=True SART -- kapali agda indirmeye kalkmasin
         # (translate.py ile ayni gerekce).
-        self._tokenizer = MarianTokenizer.from_pretrained(onnx_path, local_files_only=True)
-        # use_io_binding=True DENENDI (16 Agustos) ve GERI ALINDI: VRAM'i
-        # 10 kata kadar dusurdu (5.7GB -> 556MB) AMA gercek trafikte saniyeler
-        # icinde "illegal memory access" (CUDA cudaErrorIllegalAddress, Mul
-        # node) ile coktu VE Triton coken stub'i BIR DAHA HIC TOPARLAMADI --
-        # 3 Marian modeli de kalicimi "Stub process ... is not healthy" ile
-        # her istegi reddetmeye basladi (docs/altyazi-hata-analizi-16-
-        # agustos.md). VRAM kazanci, kalici servis kesintisine deger degil --
-        # False'un yavasligi/VRAM maliyeti, True'nun kalici cokmesinden iyi.
-        self._model = ORTModelForSeq2SeqLM.from_pretrained(
-            onnx_path, provider=provider, local_files_only=True,
-            use_io_binding=False,
-        )
+        self._tokenizer = MarianTokenizer.from_pretrained(ct2_path, local_files_only=True)
+        self._translator = ctranslate2.Translator(ct2_path, device=device)
 
     def execute(self, requests):
         texts = []
@@ -99,10 +93,22 @@ class TritonPythonModel:
         duz_cumleler = [s for sentences in tumu for s in sentences]
 
         if duz_cumleler:
-            batch = self._tokenizer(duz_cumleler, return_tensors="pt",
-                                     padding=True, truncation=True, max_length=512)
-            generated = self._model.generate(**batch, max_length=512, num_beams=1)
-            parts = self._tokenizer.batch_decode(generated, skip_special_tokens=True)
+            # CTranslate2'nin Marian config'i add_source_eos=false -- yani
+            # kaynak dizinin sonuna EOS token'ini CTranslate2 KENDISI
+            # EKLEMIYOR, cagiran taraf eklemek ZORUNDA. Eklenmezse encoder
+            # cikisi bozuluyor ve model sonsuz tekrara giriyor (gercek testte
+            # bulundu: "Das Wetter ist Wetter ist Wetter..." gibi anlamsiz
+            # tekrar). self._tokenizer.tokenize() ozel token EKLEMEZ, bu
+            # yuzden eos_token elle ekleniyor.
+            kaynak_tokenler = [
+                self._tokenizer.tokenize(cumle) + [self._tokenizer.eos_token]
+                for cumle in duz_cumleler
+            ]
+            sonuclar_ct2 = self._translator.translate_batch(kaynak_tokenler, beam_size=1)
+            parts = [
+                self._tokenizer.convert_tokens_to_string(r.hypotheses[0])
+                for r in sonuclar_ct2
+            ]
         else:
             parts = []
 

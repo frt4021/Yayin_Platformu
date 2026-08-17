@@ -20,6 +20,13 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Loader2Icon } from 'lucide-react'
+import { GuidedTour } from '@/components/tour/GuidedTour'
+import { usePageTour } from '@/components/tour/usePageTour'
+import { TourTrigger } from '@/components/tour/TourTrigger'
+import {
+  ADMIN_SISTEM_LOGLAR_TOUR_SEEN_KEY,
+  ADMIN_SISTEM_LOGLAR_TOUR_STEPS,
+} from '@/components/tour/adminSistemLoglarSteps'
 
 /** Sayfa açıkken sık, aksi halde de makul bir sıklıkla — diğer admin sayfalarıyla aynı tempo. */
 const REFRESH_MS = 15000
@@ -59,6 +66,8 @@ export function AdminSistemLoglarPage() {
   const [seviye, setSeviye] = useState<SistemLogSeviye | 'HEPSI'>('HEPSI')
   const [acikSatir, setAcikSatir] = useState<string | null>(null)
 
+  const rehberTuru = usePageTour(ADMIN_SISTEM_LOGLAR_TOUR_SEEN_KEY)
+
   const load = useCallback(async (s: string, sv: SistemLogSeviye | 'HEPSI') => {
     try {
       const sonuc = await adminSistemLogApi.list({
@@ -87,17 +96,20 @@ export function AdminSistemLoglarPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Sistem Logları</h1>
-        <p className="text-sm text-muted-foreground">
-          Tüm servislerin logları Türkçeye yorumlanmış halde — rutin gürültü süzülüyor,
-          yalnızca bilinen bir hata/uyarı/başarı örüntüsüne uyan satırlar gösteriliyor.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Sistem Logları</h1>
+          <p className="text-sm text-muted-foreground">
+            Tüm servislerin logları Türkçeye yorumlanmış halde — rutin gürültü süzülüyor,
+            yalnızca bilinen bir hata/uyarı/başarı örüntüsüne uyan satırlar gösteriliyor.
+          </p>
+        </div>
+        <TourTrigger onClick={rehberTuru.start} />
       </div>
 
       <div className="flex flex-wrap gap-3">
         <Select value={seviye} onValueChange={(v) => setSeviye(v as SistemLogSeviye | 'HEPSI')}>
-          <SelectTrigger className="h-9 w-40">
+          <SelectTrigger data-tour="sistemlog-seviye-filtre" className="h-9 w-40">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -111,6 +123,7 @@ export function AdminSistemLoglarPage() {
         </Select>
 
         <Input
+          data-tour="sistemlog-servis-filtre"
           placeholder="Servis adına göre ara (örn. triton, video-worker)…"
           value={servis}
           onChange={(e) => setServis(e.target.value)}
@@ -123,13 +136,13 @@ export function AdminSistemLoglarPage() {
           {error}
         </div>
       ) : (
-        <div className="rounded-xl border">
+        <div data-tour="sistemlog-tablo" className="rounded-xl border">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Zaman</TableHead>
                 <TableHead>Servis</TableHead>
-                <TableHead>Seviye</TableHead>
+                <TableHead data-tour="sistemlog-seviye-sutun">Seviye</TableHead>
                 <TableHead>Mesaj</TableHead>
               </TableRow>
             </TableHeader>
@@ -188,6 +201,12 @@ export function AdminSistemLoglarPage() {
           </Table>
         </div>
       )}
+
+      <GuidedTour
+        open={rehberTuru.open}
+        onClose={rehberTuru.close}
+        steps={ADMIN_SISTEM_LOGLAR_TOUR_STEPS}
+      />
     </div>
   )
 }

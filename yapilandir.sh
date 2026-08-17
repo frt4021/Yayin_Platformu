@@ -350,10 +350,11 @@ STT_MAX_CONCURRENCY=$stt_concurrency
 # gerekiyor; kaynak dil kumesi genislese bile bu set SABIT kalir.
 STT_TARGET_LANGS=tr,de,ru
 
-# Hangi Marian modelinin hangi dile export edildigi -- HEPSI burada, tek
-# yerden gorunsun diye (16 Agustos'tan once export_models.py icinde gomuluydu,
-# .env'den hicbiri gorunmuyordu). Bos birakilirsa export_models.py'nin kendi
-# varsayilanina duser (bu satirlardaki degerlerle AYNI).
+# TAM DINAMIK MARIAN (17 Agustos): STT_TARGET_LANGS'a istediginiz kadar dil
+# kodu ekleyin, her biri icin Triton config.pbtxt/model.py'sini KENDISI
+# uretir (bkz. triton/export_models.py). Burada yalnizca
+# "Helsinki-NLP/opus-mt-en-<kod>" varsayimindan SAPAN diller belirtilmeli --
+# format "kod=model,kod=model".
 #
 # tr icin "tc-big" varyant (~3GB) kullaniliyor cunku standart boyutlu
 # "opus-mt-en-tr" artik Hugging Face Hub'da herkese acik degil (401).
@@ -362,9 +363,7 @@ STT_TARGET_LANGS=tr,de,ru
 # model boyutu degil, aninda islenen istek sayisi -- docs/altyazi-hata-
 # analizi-16-agustos.md). Kalite feda etmenin faydasi olculmedigi icin
 # GERCEK model varsayilan.
-MARIAN_TR_MODEL=Helsinki-NLP/opus-mt-tc-big-en-tr
-MARIAN_DE_MODEL=Helsinki-NLP/opus-mt-en-de
-MARIAN_RU_MODEL=Helsinki-NLP/opus-mt-en-ru
+MARIAN_MODELS=tr=Helsinki-NLP/opus-mt-tc-big-en-tr
 MARIAN_EXPORT_DTYPE=$marian_dtype
 
 VAD_STT_ENABLED=true
@@ -376,15 +375,17 @@ PORT_TRITON_HTTP=8100
 PORT_TRITON_METRICS=8002
 
 # instance_group.count -- HER BIRI ayri container YENIDEN BASLATMAYLA
-# (rebuild GEREKMEZ) degisir. Marian modelleri whisper'dan daha ucuz,
-# ayri ayri artirilabilir. VRAM tepe degeri her degisiklikte OLCULMELI --
+# (rebuild GEREKMEZ) degisir. VRAM tepe degeri her degisiklikte OLCULMELI --
 # 16 Agustos oturumunda whisper instance sayisinin TEK BASINA OOM'u
 # cozmedigi, asil buyuk tuketicinin Marian oldugu ogrenildi (bkz. yukaridaki
 # STT_MODEL/STT_BEAM_SIZE secimi ve docs/altyazi-hata-analizi-16-agustos.md).
 WHISPER_INSTANCES=$whisper_instances
-MARIAN_TR_INSTANCES=1
-MARIAN_DE_INSTANCES=1
-MARIAN_RU_INSTANCES=1
+
+# SINIRSIZ dil, SINIRSIZ instance (17 Agustos): format "tr=2,fr=3", listede
+# olmayan HER dil MARIAN_INSTANCES_DEFAULT'u kullanir. Yeni bir dil eklemek
+# bu satirlara hic dokunmadan calisir.
+MARIAN_INSTANCES=
+MARIAN_INSTANCES_DEFAULT=1
 
 # GPU'ya gecerken IKISI BIRDEN degismeli:
 #   STT_DEVICE=cuda    -> taban imaj ve torch surumu bundan turuyor (build)

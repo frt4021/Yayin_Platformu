@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/auth/AuthContext'
 import { Badge } from '@/components/ui/badge'
@@ -22,7 +22,9 @@ import { PersistentPlayers, WATCH_PATH } from '@/player/PersistentPlayers'
 import { PersistentRadio } from '@/player/PersistentRadio'
 import { ActiveStreamPanel } from '@/player/ActiveStreamPanel'
 import { GuidedTour } from '@/components/tour/GuidedTour'
-import { TOUR_SEEN_KEY } from '@/components/tour/steps'
+import { usePageTour } from '@/components/tour/usePageTour'
+import { TourTrigger } from '@/components/tour/TourTrigger'
+import { WATCH_TOUR_SEEN_KEY, WATCH_TOUR_STEPS } from '@/components/tour/steps'
 
 interface NavItem {
   to: string
@@ -93,31 +95,24 @@ function Shell({
   const izlemede = location.pathname === WATCH_PATH
 
   /**
-   * Rehberli tur.
+   * İzleme sayfasının turu.
    *
-   * <p>İlk girişte <b>bir kez</b> açılıyor. Hedeflerin çoğu İzleme
-   * sayfasında olduğu için yalnızca orada başlatılıyor — başka bir sayfada
-   * açılsaydı adımların yarısı hedefsiz kalıp atlanırdı.
-   *
-   * <p>Gecikme, hedeflerin DOM'a girmesini bekliyor: kanal listesi bir
-   * istekten geliyor ve tur ondan önce ölçüm yaparsa çipleri bulamıyor.
+   * <p>Hedeflerin çoğu bu sayfada olduğu için otomatik açılış yalnızca
+   * burada gerçekleşiyor — {@code izlemede} ile açık prop'u bastırılıyor,
+   * başka bir sayfadayken gösterilseydi adımların yarısı hedefsiz kalıp
+   * atlanırdı. {@code Shell} rota değişse de unmount olmadığı için
+   * {@code usePageTour}'un kendi zamanlayıcısı yalnızca bir kez çalışıyor.
    */
-  const [turAcik, setTurAcik] = useState(false)
+  const izlemeTuru = usePageTour(WATCH_TOUR_SEEN_KEY)
 
   useEffect(() => {
-    if (!izlemede || localStorage.getItem(TOUR_SEEN_KEY)) return
-    const timer = setTimeout(() => setTurAcik(true), 900)
-    return () => clearTimeout(timer)
-  }, [izlemede])
-
-  useEffect(() => {
-    const ac = () => setTurAcik(true)
+    const ac = () => izlemeTuru.start()
     // Profil sayfasindaki "turu yeniden baslat" dugmesi bu olayi yayiyor.
     // Context yerine olay: tur tek bir yerden aciliyor ve araya bir saglayici
     // koymak, yalnizca bunun icin tum agaci sarmalamak olurdu.
     window.addEventListener('yayin-merkezi:tur', ac)
     return () => window.removeEventListener('yayin-merkezi:tur', ac)
-  }, [])
+  }, [izlemeTuru])
 
   return (
     <div className="min-h-dvh">
@@ -208,13 +203,12 @@ function Shell({
       </main>
 
       {izlemede && <ActiveStreamPanel />}
+      {izlemede && <TourTrigger onClick={izlemeTuru.start} />}
 
       <GuidedTour
-        open={turAcik}
-        onClose={() => {
-          setTurAcik(false)
-          localStorage.setItem(TOUR_SEEN_KEY, '1')
-        }}
+        open={izlemede && izlemeTuru.open}
+        onClose={izlemeTuru.close}
+        steps={WATCH_TOUR_STEPS}
       />
 
       <PersistentPlayers />

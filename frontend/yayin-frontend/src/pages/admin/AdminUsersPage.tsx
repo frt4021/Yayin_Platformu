@@ -26,6 +26,10 @@ import { KeyRoundIcon, Loader2Icon, RefreshCwIcon, Trash2Icon, UserPlusIcon } fr
 import { CreateUserDialog } from './CreateUserDialog'
 import { ResetPasswordDialog } from './ResetPasswordDialog'
 import { UserActivityDialog } from './UserActivityDialog'
+import { GuidedTour } from '@/components/tour/GuidedTour'
+import { usePageTour } from '@/components/tour/usePageTour'
+import { TourTrigger } from '@/components/tour/TourTrigger'
+import { ADMIN_USERS_TOUR_STEPS, ADMIN_USERS_TOUR_SEEN_KEY } from '@/components/tour/adminUsersSteps'
 
 function roleVariant(role: Role) {
   if (role === 'Yönetici') return 'default' as const
@@ -35,6 +39,7 @@ function roleVariant(role: Role) {
 
 export function AdminUsersPage() {
   const { session } = useAuth()
+  const tur = usePageTour(ADMIN_USERS_TOUR_SEEN_KEY)
 
   const [users, setUsers] = useState<UserDto[]>([])
   const [search, setSearch] = useState('')
@@ -116,17 +121,25 @@ export function AdminUsersPage() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Kullanıcılar</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-semibold tracking-tight">Kullanıcılar</h1>
+            <TourTrigger onClick={tur.start} />
+          </div>
           <p className="text-sm text-muted-foreground">
             Kullanıcı ekleyin, rol atayın, şifre sıfırlayın.
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={sync} title="Keycloak'taki değişiklikleri yerel tabloya yansıt">
+          <Button
+            data-tour="esitle"
+            variant="outline"
+            onClick={sync}
+            title="Keycloak'taki değişiklikleri yerel tabloya yansıt"
+          >
             <RefreshCwIcon />
             Eşitle
           </Button>
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button data-tour="yeni-kullanici" onClick={() => setCreateOpen(true)}>
             <UserPlusIcon />
             Yeni kullanıcı
           </Button>
@@ -134,6 +147,7 @@ export function AdminUsersPage() {
       </div>
 
       <Input
+        data-tour="arama"
         placeholder="Kullanıcı adı, ad, soyad veya e-posta ara…"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
@@ -145,7 +159,7 @@ export function AdminUsersPage() {
           {error}
         </div>
       ) : (
-        <div className="rounded-xl border">
+        <div data-tour="kullanici-tablosu" className="rounded-xl border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -154,7 +168,9 @@ export function AdminUsersPage() {
                 <TableHead>Ad Soyad</TableHead>
                 <TableHead>Rol</TableHead>
                 <TableHead>Durum</TableHead>
-                <TableHead className="text-right">İşlem</TableHead>
+                <TableHead data-tour="kullanici-islemler" className="text-right">
+                  İşlem
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -259,6 +275,8 @@ export function AdminUsersPage() {
       />
       <ResetPasswordDialog user={resetTarget} onClose={() => setResetTarget(null)} />
       <UserActivityDialog user={activityTarget} onClose={() => setActivityTarget(null)} />
+
+      <GuidedTour open={tur.open} onClose={tur.close} steps={ADMIN_USERS_TOUR_STEPS} />
     </div>
   )
 }

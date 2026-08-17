@@ -4,7 +4,7 @@ import { channelsApi, recordingsApi, subtitlesApi } from '@/api/endpoints'
 import type { ActiveRecordingDto, ChannelDto } from '@/api/types'
 import { HlsPlayer, type CaptureHandle } from '@/components/HlsPlayer'
 import { TileActions } from './TileActions'
-import { SUBTITLE_LANGS, SubtitleOverlay } from './SubtitleOverlay'
+import { subtitleLangs, SubtitleOverlay } from './SubtitleOverlay'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -538,7 +538,7 @@ function Tile({
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {SUBTITLE_LANGS.map((l) => (
+            {subtitleLangs().map((l) => (
               <option key={l.kod} value={l.kod}>
                 {l.ad}
               </option>

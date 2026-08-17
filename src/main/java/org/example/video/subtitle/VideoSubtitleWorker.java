@@ -60,14 +60,16 @@ public class VideoSubtitleWorker {
     private static final Logger LOG = Logger.getLogger(VideoSubtitleWorker.class);
 
     /**
-     * Triton'daki hedef dil → model adı eşlemesi. {@code VadService.DIL_MODELLERI}
-     * ile AYNI küme — Whisper pivotu sağladığı için yalnızca {@code EN → X} yönleri var.
+     * Triton'daki hedef dil → model adı eşlemesi. {@code stt.target-langs}
+     * (.env: {@code STT_TARGET_LANGS}) neyse o kadar dil — {@code
+     * VadService.DIL_MODELLERI} ile AYNI kaynaktan, AYNI mantıkla türetiliyor
+     * (17 Ağustos, "tam dinamik dil"): export_models.py her dili {@code
+     * marian_en_<kod>} adıyla Triton'a yüklüyor, burada da aynı kalıp.
      */
-    private static final Map<String, String> DIL_MODELLERI = Map.of(
-        "tr", "marian_en_tr",
-        "de", "marian_en_de",
-        "ru", "marian_en_ru"
-    );
+    @ConfigProperty(name = "stt.target-langs")
+    String hedefDillerHam;
+
+    private Map<String, String> dilModelleri;
 
     @Inject
     VideoStorage storage;
@@ -80,6 +82,18 @@ public class VideoSubtitleWorker {
 
     @ConfigProperty(name = "vad.model-path")
     String modelPath;
+
+    @jakarta.annotation.PostConstruct
+    void dilModelleriniHazirla() {
+        Map<String, String> dilModelleri = new HashMap<>();
+        for (String dil : hedefDillerHam.split(",")) {
+            dil = dil.strip();
+            if (!dil.isEmpty()) {
+                dilModelleri.put(dil, "marian_en_" + dil);
+            }
+        }
+        this.dilModelleri = Map.copyOf(dilModelleri);
+    }
 
     @Transactional
     boolean claim(UUID videoId) {
@@ -123,7 +137,7 @@ public class VideoSubtitleWorker {
                     continue;
                 }
                 ekle(dilBazliCue, "en", segment, sonuc.pivotText());
-                for (var entry : DIL_MODELLERI.entrySet()) {
+                for (var entry : dilModelleri.entrySet()) {
                     String ceviri = triton.translate(entry.getValue(), sonuc.pivotText());
                     if (ceviri != null && !ceviri.isBlank()) {
                         ekle(dilBazliCue, entry.getKey(), segment, ceviri);

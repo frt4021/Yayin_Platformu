@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# config.pbtxt'lerdeki ${WHISPER_INSTANCES} gibi yer tutucuları .env'den gelen
-# gerçek sayılarla doldurur, SONRA tritonserver'ı başlatır.
+# config.pbtxt'lerdeki ${WHISPER_INSTANCES}/${MARIAN_INSTANCE_COUNT} gibi yer
+# tutucuları .env'den gelen gerçek sayılarla doldurur, SONRA tritonserver'ı
+# başlatır.
 #
 # NEDEN BURADA (build zamaninda degil): instance_group.count'u degistirmek
 # icin imaji YENIDEN KURMAK gerekmesin -- .env'i degistirip
@@ -11,18 +12,42 @@
 # IDEMPOTENT: zaten doldurulmus bir config.pbtxt'te yer tutucu KALMADIGI icin
 # envsubst onu oldugu gibi birakir -- container'i defalarca yeniden baslatmak
 # guvenli.
+#
+# TAM DINAMIK MARIAN (17 Agustos): eskiden her dil icin ayri, sabit isimli
+# bir env degiskeni (MARIAN_TR_INSTANCES, MARIAN_DE_INSTANCES, ...) gerekiyordu
+# -- yeni bir dil eklemek bu script'i de elle guncellemek demekti. Artik
+# /models/marian_en_* dizinleri NE KADAR VARSA hepsi taraniyor, her biri icin
+# MARIAN_INSTANCES'taki (format: "tr=2,fr=3") esleme aranip bulunamazsa
+# MARIAN_INSTANCES_DEFAULT'a dusuluyor. Yeni bir dil eklemek artik bu
+# script'e HIC DOKUNMADAN calisir.
 set -euo pipefail
 
 : "${WHISPER_INSTANCES:=1}"
-: "${MARIAN_TR_INSTANCES:=1}"
-: "${MARIAN_DE_INSTANCES:=1}"
-: "${MARIAN_RU_INSTANCES:=1}"
-export WHISPER_INSTANCES MARIAN_TR_INSTANCES MARIAN_DE_INSTANCES MARIAN_RU_INSTANCES
+: "${MARIAN_INSTANCES_DEFAULT:=1}"
 
-for config in /models/*/config.pbtxt; do
-  envsubst '${WHISPER_INSTANCES} ${MARIAN_TR_INSTANCES} ${MARIAN_DE_INSTANCES} ${MARIAN_RU_INSTANCES}' \
-    < "$config" > "${config}.tmp"
-  mv "${config}.tmp" "$config"
+export WHISPER_INSTANCES
+envsubst '${WHISPER_INSTANCES}' < /models/whisper/config.pbtxt > /models/whisper/config.pbtxt.tmp
+mv /models/whisper/config.pbtxt.tmp /models/whisper/config.pbtxt
+
+# MARIAN_INSTANCES'i "dil=sayi" ciftlerine ayristir.
+declare -A marian_sayilari
+IFS=',' read -ra ciftler <<< "${MARIAN_INSTANCES:-}"
+for cift in "${ciftler[@]}"; do
+  cift="$(echo -n "$cift" | tr -d '[:space:]')"
+  [ -z "$cift" ] && continue
+  dil="${cift%%=*}"
+  sayi="${cift#*=}"
+  marian_sayilari["$dil"]="$sayi"
+done
+
+for dizin in /models/marian_en_*/; do
+  [ -e "${dizin}config.pbtxt" ] || continue
+  dil="$(basename "$dizin")"
+  dil="${dil#marian_en_}"
+  MARIAN_INSTANCE_COUNT="${marian_sayilari[$dil]:-$MARIAN_INSTANCES_DEFAULT}"
+  export MARIAN_INSTANCE_COUNT
+  envsubst '${MARIAN_INSTANCE_COUNT}' < "${dizin}config.pbtxt" > "${dizin}config.pbtxt.tmp"
+  mv "${dizin}config.pbtxt.tmp" "${dizin}config.pbtxt"
 done
 
 # --exit-on-error=false SART: varsayilanla (true) bir model (orn. VRAM

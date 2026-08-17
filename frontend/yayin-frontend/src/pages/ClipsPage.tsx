@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import { ApiError } from '@/api/client'
 import { clipsApi } from '@/api/endpoints'
 import type { ClipDto, ClipOrigin, ClipStatus, SubtitleTrackDto } from '@/api/types'
-import { SUBTITLE_LANGS } from '@/player/SubtitleOverlay'
+import { subtitleLangs } from '@/player/SubtitleOverlay'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,6 +22,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { GuidedTour } from '@/components/tour/GuidedTour'
+import { usePageTour } from '@/components/tour/usePageTour'
+import { TourTrigger } from '@/components/tour/TourTrigger'
+import { CLIPS_TOUR_SEEN_KEY, CLIPS_TOUR_STEPS } from '@/components/tour/clipsSteps'
 
 /** İş devam ederken sık, bittiğinde seyrek tazeleme. */
 const POLL_ACTIVE_MS = 3000
@@ -123,7 +127,7 @@ export function ClipsPage() {
   }
 
   function subtitleLabel(lang: string): string {
-    return SUBTITLE_LANGS.find((l) => l.kod === lang)?.ad ?? lang
+    return subtitleLangs().find((l) => l.kod === lang)?.ad ?? lang
   }
 
   async function remove(clip: ClipDto) {
@@ -137,19 +141,24 @@ export function ClipsPage() {
     }
   }
 
+  const tur = usePageTour(CLIPS_TOUR_SEEN_KEY)
+
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Klipler ve kayıtlar</h1>
-          <p className="text-sm text-muted-foreground">
-            Arka planda üretilir; hazır olunca burada izlenip indirilebilir.
-          </p>
+        <div className="flex items-start gap-2">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight">Klipler ve kayıtlar</h1>
+            <p className="text-sm text-muted-foreground">
+              Arka planda üretilir; hazır olunca burada izlenip indirilebilir.
+            </p>
+          </div>
+          <TourTrigger onClick={tur.start} />
         </div>
 
         {/* İkisi de aynı tabloda: ürün ve yaşam döngüsü aynı, yalnızca nasıl
             istendikleri farklı. */}
-        <div className="flex gap-1 rounded-lg border p-1">
+        <div data-tour="klip-filtre" className="flex gap-1 rounded-lg border p-1">
           {([
             [undefined, 'Tümü'],
             ['ARALIK', 'Aralık seçimi'],
@@ -172,17 +181,17 @@ export function ClipsPage() {
           {error}
         </div>
       ) : (
-        <div className="rounded-xl border">
+        <div data-tour="klip-tablo" className="rounded-xl border">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Aralık</TableHead>
                 <TableHead>Süre</TableHead>
-                <TableHead>Nasıl</TableHead>
-                <TableHead>Durum</TableHead>
+                <TableHead data-tour="klip-nasil">Nasıl</TableHead>
+                <TableHead data-tour="klip-durum">Durum</TableHead>
                 <TableHead>Boyut</TableHead>
                 <TableHead>İsteyen</TableHead>
-                <TableHead className="text-right">İşlem</TableHead>
+                <TableHead data-tour="klip-islem" className="text-right">İşlem</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -345,6 +354,8 @@ export function ClipsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <GuidedTour open={tur.open} onClose={tur.close} steps={CLIPS_TOUR_STEPS} />
     </div>
   )
 }

@@ -14,6 +14,10 @@ import {
   Trash2Icon,
   XIcon,
 } from 'lucide-react'
+import { GuidedTour } from '@/components/tour/GuidedTour'
+import { usePageTour } from '@/components/tour/usePageTour'
+import { TourTrigger } from '@/components/tour/TourTrigger'
+import { GALERI_TOUR_SEEN_KEY, GALERI_TOUR_STEPS } from '@/components/tour/galeriSteps'
 
 /** Kareler gün gün gruplanıyor; kronolojik bir arşivde tarih en doğal ayraç. */
 function gunBasligi(iso: string): string {
@@ -38,6 +42,8 @@ export function GaleriPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<Set<string>>(new Set())
   const [preview, setPreview] = useState<ScreenshotDto | null>(null)
+
+  const tur = usePageTour(GALERI_TOUR_SEEN_KEY)
 
   const load = useCallback(async (kanal: string) => {
     try {
@@ -94,8 +100,10 @@ export function GaleriPage() {
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-3xl font-semibold tracking-tight">Ekran görüntüleri</h1>
         <Badge variant="secondary">{shots.length} kare</Badge>
+        <TourTrigger onClick={tur.start} />
 
         <select
+          data-tour="galeri-filtre"
           aria-label="Kanal"
           className="ml-auto h-9 rounded-md border bg-input-bg px-3 text-sm"
           value={channelId}
@@ -125,7 +133,8 @@ export function GaleriPage() {
           </p>
         </div>
       ) : (
-        gruplar.map(([gun, liste]) => (
+        <div data-tour="galeri-izgara" className="flex flex-col gap-5">
+        {gruplar.map(([gun, liste]) => (
           <section key={gun} className="flex flex-col gap-2">
             <h2 className="text-sm font-medium text-muted-foreground">{gun}</h2>
             <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
@@ -155,7 +164,10 @@ export function GaleriPage() {
                         {saat(shot.capturedAt)} · {formatBytes(shot.sizeBytes)}
                       </div>
                     </div>
-                    <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                    <div
+                      data-tour="galeri-eylemler"
+                      className="flex shrink-0 gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100"
+                    >
                       <Button variant="ghost" size="icon" className="size-6" asChild title="İndir">
                         <a href={shot.downloadUrl} download={shot.fileName}>
                           <DownloadIcon />
@@ -181,7 +193,8 @@ export function GaleriPage() {
               ))}
             </div>
           </section>
-        ))
+        ))}
+        </div>
       )}
 
       {/* Büyütme katmanı. Dialog yerine düz katman: tek bir görsel için
@@ -213,6 +226,8 @@ export function GaleriPage() {
           </Button>
         </div>
       )}
+
+      <GuidedTour open={tur.open} onClose={tur.close} steps={GALERI_TOUR_STEPS} />
     </div>
   )
 }

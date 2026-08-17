@@ -9,9 +9,13 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { CompassIcon, Loader2Icon } from 'lucide-react'
+import { CompassIcon, HelpCircleIcon, Loader2Icon } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { TOUR_SEEN_KEY } from '@/components/tour/steps'
+import { WATCH_TOUR_SEEN_KEY } from '@/components/tour/steps'
+import { GuidedTour } from '@/components/tour/GuidedTour'
+import { usePageTour } from '@/components/tour/usePageTour'
+import { TourTrigger } from '@/components/tour/TourTrigger'
+import { PROFILE_TOUR_SEEN_KEY, PROFILE_TOUR_STEPS } from '@/components/tour/profileSteps'
 
 export function ProfilePage() {
   const navigate = useNavigate()
@@ -23,6 +27,8 @@ export function ProfilePage() {
   const [repeatPassword, setRepeatPassword] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  const tur = usePageTour(PROFILE_TOUR_SEEN_KEY)
 
   useEffect(() => {
     profileApi
@@ -57,7 +63,10 @@ export function ProfilePage() {
   return (
     <div className="flex max-w-2xl flex-col gap-5">
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Profilim</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-3xl font-semibold tracking-tight">Profilim</h1>
+          <TourTrigger onClick={tur.start} />
+        </div>
         <p className="text-sm text-muted-foreground">Hesap bilgileriniz ve şifre değişikliği.</p>
       </div>
 
@@ -65,8 +74,13 @@ export function ProfilePage() {
         <CardHeader>
           <CardTitle className="text-base">Rehberli tur</CardTitle>
           <CardDescription>
-            Arayüzün nasıl çalıştığını adım adım gösterir. İlk girişte bir kez
-            kendiliğinden açılır.
+            Arayüzün nasıl çalıştığını adım adım gösterir. Her sayfanın kendi turu var —
+            ilk girişte bir kez kendiliğinden açılır, sayfadaki{' '}
+            <span className="inline-flex items-center gap-1 align-middle">
+              <HelpCircleIcon className="size-3.5" />
+            </span>{' '}
+            simgesinden istediğiniz zaman yeniden başlatabilirsiniz. Aşağıdaki düğme İzleme
+            sayfasının turunu açar.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -77,19 +91,19 @@ export function ProfilePage() {
               // tur acilirdi ama isaret durdugu icin bir dahaki girise
               // yine kendiliginden acilmazdi -- kullanici "yeniden baslat"
               // dedigine gore o davranisi da geri istiyor.
-              localStorage.removeItem(TOUR_SEEN_KEY)
+              localStorage.removeItem(WATCH_TOUR_SEEN_KEY)
               // Hedeflerin cogu Izleme sayfasinda; once oraya gidiliyor.
               navigate('/izle')
               window.dispatchEvent(new Event('yayin-merkezi:tur'))
             }}
           >
             <CompassIcon />
-            Turu yeniden başlat
+            İzleme sayfası turunu başlat
           </Button>
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-tour="profil-hesap">
         <CardHeader>
           <CardTitle className="text-base">Hesap bilgileri</CardTitle>
         </CardHeader>
@@ -113,7 +127,7 @@ export function ProfilePage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-tour="profil-sifre">
         <CardHeader>
           <CardTitle className="text-base">Şifre değiştir</CardTitle>
           <CardDescription>Güvenlik için mevcut şifreniz doğrulanır.</CardDescription>
@@ -170,6 +184,8 @@ export function ProfilePage() {
         </CardContent>
       </Card>
       <QuotaCard />
+
+      <GuidedTour open={tur.open} onClose={tur.close} steps={PROFILE_TOUR_STEPS} />
     </div>
   )
 }
@@ -197,7 +213,7 @@ export function QuotaCard() {
   ]
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border p-4">
+    <div data-tour="profil-kota" className="flex flex-col gap-3 rounded-xl border p-4">
       <div className="flex items-center justify-between">
         <h2 className="font-medium">Depolama</h2>
         <span className="text-sm text-muted-foreground">

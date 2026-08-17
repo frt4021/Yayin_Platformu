@@ -3,7 +3,7 @@ import { ApiError } from '@/api/client'
 import { videosApi } from '@/api/endpoints'
 import { formatBytes, formatDuration } from '@/api/upload'
 import type { VideoDto, VideoLinks } from '@/api/types'
-import { SUBTITLE_LANGS } from '@/player/SubtitleOverlay'
+import { subtitleLangs } from '@/player/SubtitleOverlay'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -167,7 +167,7 @@ export function VideoPlayerDialog({
                   key={t.lang}
                   kind="subtitles"
                   srcLang={t.lang}
-                  label={SUBTITLE_LANGS.find((l) => l.kod === t.lang)?.ad ?? t.lang}
+                  label={subtitleLangs().find((l) => l.kod === t.lang)?.ad ?? t.lang}
                   src={t.url}
                   default={i === 0}
                 />

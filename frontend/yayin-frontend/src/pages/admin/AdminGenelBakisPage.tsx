@@ -12,6 +12,13 @@ import { cn } from '@/lib/utils'
 import { CheckCircle2Icon, Loader2Icon, XCircleIcon } from 'lucide-react'
 import { TUR_ETIKET, turVariant } from './AdminEtkinliklerPage'
 import { Olcum, StatKart } from './AdminAnalitikPage'
+import { GuidedTour } from '@/components/tour/GuidedTour'
+import { usePageTour } from '@/components/tour/usePageTour'
+import { TourTrigger } from '@/components/tour/TourTrigger'
+import {
+  ADMIN_GENEL_BAKIS_TOUR_STEPS,
+  ADMIN_GENEL_BAKIS_TOUR_SEEN_KEY,
+} from '@/components/tour/adminGenelBakisSteps'
 
 /** Triton model adı → okunur etiket. Sıra kartların ekrandaki sırasını da belirliyor. */
 const TRITON_MODEL_ETIKET: [string, string][] = [
@@ -50,6 +57,7 @@ function BilesenKarti({ durum }: { durum: BilesenSaglikDurumu }) {
  * {@code etkinlik_kayitlari} verisi.
  */
 export function AdminGenelBakisPage() {
+  const tur = usePageTour(ADMIN_GENEL_BAKIS_TOUR_SEEN_KEY)
   const [veri, setVeri] = useState<SistemSagligiOzetDto | null>(null)
   const [canliDurum, setCanliDurum] = useState<CanliDurumDto | null>(null)
   const [servisMetrikleri, setServisMetrikleri] = useState<ServisMetrikleriDto | null>(null)
@@ -74,13 +82,16 @@ export function AdminGenelBakisPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Genel Bakış</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-3xl font-semibold tracking-tight">Genel Bakış</h1>
+          <TourTrigger onClick={tur.start} />
+        </div>
         <p className="text-sm text-muted-foreground">
           Canlı durum, sistem sağlığı ve son etkinlikler.
         </p>
       </div>
 
-      <section className="flex flex-col gap-3">
+      <section data-tour="canli-durum" className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">Canlı Durum</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatKart baslik="Eşzamanlı izleyici">{canliDurum?.esZamanliIzleyici ?? 0}</StatKart>
@@ -92,7 +103,7 @@ export function AdminGenelBakisPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-3">
+      <section data-tour="sistem-sagligi" className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">Sistem Sağlığı</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {(veri?.bilesenler ?? []).map((durum) => (
@@ -101,7 +112,7 @@ export function AdminGenelBakisPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-3">
+      <section data-tour="servis-metrikleri" className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">Servis Metrikleri</h2>
         <p className="text-sm text-muted-foreground">
           Yukarıdaki sağlık kartları yalnızca erişilebilir mi diyor — burası Prometheus'tan
@@ -115,11 +126,16 @@ export function AdminGenelBakisPage() {
           <StatKart baslik="Triton — ortalama gecikme (toplam)">
             <Olcum deger={servisMetrikleri?.tritonOrtalamaGecikmeMs ?? null} birim="ms" />
           </StatKart>
-          {TRITON_MODEL_ETIKET.map(([model, etiket]) => (
-            <StatKart key={model} baslik={`Triton — ${etiket} gecikme`}>
-              <Olcum deger={servisMetrikleri?.tritonModelGecikmeMs?.[model] ?? null} birim="ms" />
-            </StatKart>
-          ))}
+          {/* display:contents: grid duzenini bozmadan bu kartlari tur icin
+              tek bir hedef altinda gruplamak icin -- sarmalayici kendi bir
+              grid hucresi acmiyor, cocuklari direkt ust grid'e katiliyor. */}
+          <div data-tour="triton-model-gecikme" className="contents">
+            {TRITON_MODEL_ETIKET.map(([model, etiket]) => (
+              <StatKart key={model} baslik={`Triton — ${etiket} gecikme`}>
+                <Olcum deger={servisMetrikleri?.tritonModelGecikmeMs?.[model] ?? null} birim="ms" />
+              </StatKart>
+            ))}
+          </div>
           <StatKart baslik="Triton — GPU bellek kullanımı">
             {servisMetrikleri?.tritonGpuBellekBayt != null ? (
               formatBytes(servisMetrikleri.tritonGpuBellekBayt)
@@ -173,7 +189,7 @@ export function AdminGenelBakisPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-3">
+      <section data-tour="son-etkinlikler" className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">Son Etkinlikler</h2>
         <div className="rounded-xl border">
           {(veri?.sonEtkinlikler ?? []).length === 0 ? (
@@ -202,6 +218,8 @@ export function AdminGenelBakisPage() {
           )}
         </div>
       </section>
+
+      <GuidedTour open={tur.open} onClose={tur.close} steps={ADMIN_GENEL_BAKIS_TOUR_STEPS} />
     </div>
   )
 }
