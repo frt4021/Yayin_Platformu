@@ -188,12 +188,22 @@ baslat() {
 
   # --- triton saglik denetimi ---
   #
-  # En sik ariza: model(ler) bellege sigmiyor ve konteyner yeniden baslama
-  # dongusune giriyor. Belirtisi "restarting" durumu; sebebi log'un
-  # icinde OOM olarak gorunmeyebiliyor cunku surec cekirdek tarafindan
-  # oldurulyor. Sessiz kalmak yerine dogrudan cozumu gosteriyoruz.
-  local triton_durum
+  # Iki ayri ariza belirtisi ogrenildi (16 Agustos oturumu,
+  # docs/altyazi-hata-analizi-16-agustos.md):
+  #
+  #   1. "restarting" -- model(ler) belleğe sığmıyor, cekirdek sureci
+  #      olduruyor (OOM), Docker yeniden baslatiyor. Log'da OOM
+  #      GORUNMEYEBILIR cunku surec disaridan oldurulmus olur.
+  #   2. "unhealthy" (Up ama saglik kontrolu FAIL) -- FARKLI bir sebep:
+  #      Docker'in varsayilan dosya tanitici limiti (1024) whisper+3
+  #      Marian'in Python stub sureclerine yetmeyip "Too many open files"
+  #      ile accept() cokebiliyor. docker-compose.yaml'daki triton
+  #      servisine ulimits.nofile eklenerek COZULDU; bu kontrol yalnizca
+  #      eski bir compose dosyasiyla calisiliyorsa ya da baska bir ortama
+  #      tasindiginda ayni hatanin tekrarlanmadigindan emin olmak icin.
+  local triton_durum triton_saglik
   triton_durum="$(docker inspect -f '{{.State.Status}}' triton 2>/dev/null || echo yok)"
+  triton_saglik="$(docker inspect -f '{{.State.Health.Status}}' triton 2>/dev/null || echo yok)"
   if [ "$triton_durum" = "restarting" ]; then
     echo
     sari "  ! triton yeniden başlama döngüsünde."
@@ -203,6 +213,22 @@ baslat() {
     gri  "               REBUILD gerekmez) ya da STT_MODEL=medium / STT_COMPUTE_TYPE=int8."
     gri  "    Model/dil degisikligi sonrasi imaj YENİDEN KURULMALI (agirliklar imaja gömülü):"
     gri  "               docker compose build triton"
+    gri  "    Ayrıntılı teşhis geçmişi: docs/altyazi-hata-analizi-16-agustos.md"
+    echo
+    gri  "    Son loglar:"
+    docker logs triton --tail 5 2>&1 | sed 's/^/      /'
+    echo
+  elif [ "$triton_saglik" = "unhealthy" ]; then
+    echo
+    sari "  ! triton ayakta ama sağlık kontrolü başarısız (unhealthy)."
+    gri  "    Olası sebep 1 -- dosya tanıtıcısı tükendi:"
+    gri  "               docker exec triton sh -c 'ls /proc/1/fd | wc -l; cat /proc/1/limits | grep \"open files\"'"
+    gri  "               1024/1024 gibi doluysa docker-compose.yaml'daki triton"
+    gri  "               servisinin ulimits.nofile ayarı eksik/kaybolmuş demektir."
+    gri  "    Olası sebep 2 -- bir model yüklenemedi (STT_TARGET_LANGS ile"
+    gri  "               export edilen diller uyuşmuyor olabilir):"
+    gri  "               docker logs triton --tail 200 | grep \"successfully loaded\\|failed to load\""
+    gri  "    Ayrıntılı teşhis geçmişi: docs/altyazi-hata-analizi-16-agustos.md"
     echo
     gri  "    Son loglar:"
     docker logs triton --tail 5 2>&1 | sed 's/^/      /'

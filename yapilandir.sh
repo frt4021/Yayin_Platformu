@@ -60,6 +60,7 @@ donanim_raporu() {
   gri "  --- bulunan donanım ---"
   if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
     nvidia-smi -L 2>/dev/null | sed 's/^/    /'
+    gri "    VRAM: $(gpu_vram_mb) MiB"
   else
     gri "    NVIDIA: yok (nvidia-smi çalışmıyor)"
   fi
@@ -68,6 +69,13 @@ donanim_raporu() {
   else
     gri "    /dev/dri/renderD128: yok"
   fi
+}
+
+# Kartın toplam VRAM'i (MiB) — yalnızca ilk GPU. STT varsayılanlarını
+# seçerken kullanılıyor; nvidia-smi yoksa/başarısızsa 0 döner.
+gpu_vram_mb() {
+  nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null \
+    | head -1 | tr -d '[:space:]' || echo 0
 }
 
 env_uret() {
@@ -102,6 +110,7 @@ env_uret() {
   local stt_device="cpu" stt_runtime="runc" stt_model="small" stt_compute="int8"
   # Gecikme degerleri: CPU varsayilanlari. NVENC dalinda eziliyor.
   local vad_segment_ms=6000 stt_concurrency=2
+  local stt_beam=5 whisper_instances=2
   # Izleyicinin canli kenardan kac bolut geriden izleyecegi = ALTYAZININ
   # BUTCESI. CPU'da uretim gecikmesi buyuk (olculdu: p95 ~23 sn), bu yuzden
   # yuksek. GPU dalinda dusuruluyor.
@@ -115,7 +124,7 @@ env_uret() {
       # makinede video NVENC'e gecer ama STT sessizce CPU'da kalirdi --
       # large-v3 CPU'da ~0,3-0,5x gercek zaman, yani tek kanali bile
       # tasimaz ve sebebi hicbir yerde gorunmezdi.
-      stt_device="cuda"; stt_runtime="nvidia"; stt_model="small"
+      stt_device="cuda"; stt_runtime="nvidia"
       stt_compute="int8_float16"
       # Gecikmeyi belirleyen degerler de GPU'ya gore. Bunlar CPU'da
       # birakilirsa GPU alinmis ama gecikme CPU ayarinda kalmis olur:
@@ -129,6 +138,22 @@ env_uret() {
       # hizlanirsa 24 saniye geriden izlemenin anlami yok. OLCTUKTEN SONRA
       # ayarlayin -- kural: butce >= p95 gecikme.
       altyazi_hls_geride=5
+
+      # 16 Agustos oturumunda ELLE OGRENILEN, ACI VERICI ders: 6GB'lik bir
+      # kartta (ornegin RTX 4050) "small" + beam=5 + 2 whisper instance'i
+      # whisper+3 Marian modeliyle bir arada YUKLENEMIYOR bile -- saatlerce
+      # OOM/cokme dongusune girildi (docs/altyazi-hata-analizi-16-agustos.md,
+      # docs/triton-yatay-olcekleme-plani.md). VRAM'e gore iki basamakli bir
+      # varsayilan seciliyor; TAHMIN degil, o oturumda GERCEKTEN calisan
+      # kombinasyon kullaniliyor. Kart 8GB+ ise "small" hala guvenli bir
+      # baslangic, ama kesin sinir bu makinede de OLCULMEDI.
+      local vram
+      vram="$(gpu_vram_mb)"
+      if [ -n "$vram" ] && [ "$vram" -gt 0 ] && [ "$vram" -lt 8000 ]; then
+        stt_model="tiny"; stt_beam=1; whisper_instances=1
+      else
+        stt_model="small"; stt_beam=5; whisper_instances=2
+      fi
       ;;
     VAAPI)
       media_dev="/dev/dri:/dev/dri"
@@ -304,7 +329,7 @@ STT_DEVICE=$stt_device
 # OLCULMELI, varsayilmamali. Kart geldiginde ilk olcum bu olmali.
 STT_COMPUTE_TYPE=$stt_compute
 
-STT_BEAM_SIZE=5
+STT_BEAM_SIZE=$stt_beam
 # Java gonderici thread sayisi. Triton'a gecisle asil eszamanlilik/batching
 # WHISPER_INSTANCES + config.pbtxt'teki dynamic_batching ile Triton icinde
 # yonetiliyor -- bu sadece Java tarafi.
@@ -323,10 +348,12 @@ PORT_TRITON_HTTP=8100
 PORT_TRITON_METRICS=8002
 
 # instance_group.count -- HER BIRI ayri container YENIDEN BASLATMAYLA
-# (rebuild GEREKMEZ) degisir. 6GB kartta whisper darbogaz oldugu icin
-# 2 ile basliyoruz; Marian modelleri cok daha ucuz, ayri artirilabilir.
-# VRAM tepe degeri her degisiklikte OLCULMELI, tahmin, dogrulanmadi.
-WHISPER_INSTANCES=2
+# (rebuild GEREKMEZ) degisir. Marian modelleri whisper'dan daha ucuz,
+# ayri ayri artirilabilir. VRAM tepe degeri her degisiklikte OLCULMELI --
+# 16 Agustos oturumunda whisper instance sayisinin TEK BASINA OOM'u
+# cozmedigi, asil buyuk tuketicinin Marian oldugu ogrenildi (bkz. yukaridaki
+# STT_MODEL/STT_BEAM_SIZE secimi ve docs/altyazi-hata-analizi-16-agustos.md).
+WHISPER_INSTANCES=$whisper_instances
 MARIAN_TR_INSTANCES=1
 MARIAN_DE_INSTANCES=1
 MARIAN_RU_INSTANCES=1
