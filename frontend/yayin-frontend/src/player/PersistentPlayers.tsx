@@ -380,6 +380,32 @@ function Tile({
     }
   }, [rewindUrl])
 
+  /**
+   * {@link TileActions}'ın kare yakalama tutamağı — canlı akışta
+   * {@code captureRef} (HlsPlayer'ınki) kullanılır. Geri sarılmışken AYRICA
+   * kurulmalı: {@code rewindUrl} set olunca HlsPlayer tamamen unmount olur
+   * ve kendi temizleme kodunda {@code captureRef.current = null} yazar —
+   * geri sarılmış mp4'ün kendi video elementi (yukarıdaki `<video>`) hiç
+   * captureRef'e bağlı değildi, bu yüzden kare yakalama geri sarılmışken
+   * "Görüntü henüz hazır değil" hatası veriyordu (gerçek bug, 17 Ağustos).
+   * {@code playingDate}, rewindStart + o an oynanan saniye ile geçmişteki
+   * GERÇEK anı veriyor — DvrPage.tsx'teki aynı hesapla birebir aynı fikir.
+   */
+  const tileCapture: { current: CaptureHandle | null } = {
+    current:
+      rewindUrl && videoEl
+        ? {
+            video: videoEl,
+            playingDate: () =>
+              rewindStart
+                ? new Date(rewindStart.getTime() + videoEl.currentTime * 1000)
+                : new Date(),
+            liveEdge: () => null,
+            goLive: backToLive,
+          }
+        : captureRef.current,
+  }
+
   function backToLive() {
     if (rewindUrl) URL.revokeObjectURL(rewindUrl)
     setRewindUrl(null)
@@ -518,8 +544,9 @@ function Tile({
         <div data-tour="karo-eylemleri" className="pointer-events-auto flex gap-1">
           <TileActions
             channel={channel}
-            capture={captureRef}
+            capture={tileCapture}
             recording={recording}
+            rewound={rewindUrl !== null}
             onRecordingChanged={onRecordingChanged}
           />
           {/* Altyazı dili karo başına: mozaikte farklı kanallar farklı dilde

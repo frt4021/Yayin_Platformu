@@ -373,7 +373,17 @@ const DIL_ADLARI: Record<string, string> = {
 export function subtitleLangs(): { kod: string; ad: string }[] {
   return [
     { kod: 'kapali', ad: 'Altyazı yok' },
-    ...altyaziDilleriOku().map((kod) => ({ kod, ad: DIL_ADLARI[kod] ?? kod.toUpperCase() })),
+    ...altyaziDilleriOku().map((kod) => ({ kod, ad: dilAdi(kod) })),
     { kod: 'en', ad: 'English' },
   ]
+}
+
+/**
+ * ISO dil kodu → görünen ad. `subtitleLangs()`'ın kullandığı aynı harita —
+ * dil adı gösteren başka bir yerin (ör. admin panelin Triton model
+ * kartları) tekrar sabit kodlamak yerine buraya başvurması için ayrı
+ * dışa aktarıldı.
+ */
+export function dilAdi(kod: string): string {
+  return DIL_ADLARI[kod] ?? kod.toUpperCase()
 }

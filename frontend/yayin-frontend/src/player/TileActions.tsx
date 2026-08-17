@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { ApiError } from '@/api/client'
-import { recordingsApi, screenshotsApi } from '@/api/endpoints'
+import { clipsApi, recordingsApi, screenshotsApi } from '@/api/endpoints'
 import type { ActiveRecordingDto, ChannelDto } from '@/api/types'
 import type { CaptureHandle } from '@/components/HlsPlayer'
 import { Button } from '@/components/ui/button'
@@ -46,30 +46,67 @@ export function TileActions({
   channel,
   capture,
   recording,
+  rewound,
   onRecordingChanged,
 }: {
   channel: ChannelDto
   capture: { current: CaptureHandle | null }
   /** Bu kanalda devam eden kayıt; yoksa null. */
   recording: ActiveRecordingDto | null
+  /** Oynatıcı şu an geri sarılmış bir DVR bölümünü mü gösteriyor. */
+  rewound: boolean
   onRecordingChanged: () => void
 }) {
   const [busy, setBusy] = useState(false)
   const [, tick] = useState(0)
   const shotBusy = useRef(false)
 
-  // Kayıt sürerken saniye sayacını ilerlet. Süre istemcide hesaplanıyor;
-  // sunucudan saniye saniye çekmek gereksiz trafik olurdu.
+  /**
+   * Geri sarılmışken "kayda başla"nın işaretlediği GEÇMİŞ an.
+   *
+   * <p>Sunucuda bir kayıt AÇILMIYOR — {@code recordingsApi.start/stop} hep
+   * "şimdi"den başlar, geçmiş bir andan başlamayı desteklemiyor. Bunun yerine
+   * başlangıç anı burada, istemcide hatırlanıyor; "durdur"a basıldığında bu
+   * andan ŞİMDİYE kadar DVR'dan doğrudan bir klip istenip aynı sonuca
+   * ulaşılıyor — DVR zaten sürekli kaydettiği için bu geriye dönük istek
+   * her zaman karşılanabilir.
+   */
+  const [pendingClipStart, setPendingClipStart] = useState<Date | null>(null)
+
+  // Kayıt/klip işaretleme sürerken saniye sayacını ilerlet. Süre istemcide
+  // hesaplanıyor; sunucudan saniye saniye çekmek gereksiz trafik olurdu.
   useEffect(() => {
-    if (!recording) return
+    if (!recording && !pendingClipStart) return
     const timer = setInterval(() => tick((n) => n + 1), 1000)
     return () => clearInterval(timer)
-  }, [recording])
+  }, [recording, pendingClipStart])
 
   async function toggleRecording() {
     setBusy(true)
     try {
-      if (recording) {
+      if (pendingClipStart) {
+        // Geri sarılmışken işaretlenmiş klip — bitiş de "şimdi" (new Date())
+        // DEĞİL, "durdur"a basıldığı an EKRANDA GÖSTERİLEN zaman: kullanıcı
+        // hâlâ geri sarılmış haldeyken durdurursa gerçek şimdi çok daha
+        // ileride olur ve rewind noktasından şimdiye kadarki KOCAMAN bir
+        // aralık klibe girerdi (gerçek bug, düzeltildi). Başlangıçla
+        // simetrik: ikisi de capture.current.playingDate()'ten geliyor —
+        // canlıya dönülmüşse bu zaten gerçek "şimdi"ye (HLS gecikmesi kadar)
+        // yakın çıkıyor, hâlâ geri sarılmışsa GÖRÜNEN anı veriyor.
+        // recordingsApi'ye hiç uğramıyoruz (bkz. yukarıdaki pendingClipStart
+        // javadoc'u). Önce temizle: istek başarısız olsa bile düğme
+        // "sonsuza dek kaydediyor" görünümünde takılı kalmasın.
+        const start = pendingClipStart
+        const end = capture.current?.playingDate() ?? new Date()
+        setPendingClipStart(null)
+        await clipsApi.create(channel.id, {
+          start: start.toISOString(),
+          end: end.toISOString(),
+        })
+        toast.success('Klip kuyruğa alındı.', {
+          description: 'Hazır olunca Klipler sayfasından indirebilirsiniz.',
+        })
+      } else if (recording) {
         const sonuc = await recordingsApi.stop(channel.id)
         // Durdurma her koşulda başarılı; klip AYRI bir iş ve açılamayabilir
         // (örneğin aralığın tamamı kayıtlı değilse). Her iki durumda da
@@ -82,6 +119,20 @@ export function TileActions({
           toast.warning('Kayıt durduruldu ama klip açılamadı.', {
             description: sonuc.error ?? undefined,
           })
+        }
+      } else if (rewound) {
+        // Geri sarılmışken "kayda başla": canlıdan değil, İZLEDİĞİNİZ
+        // geçmiş andan başlasın istendiği için (17 Ağustos, gerçek istek)
+        // sunucuda kayıt açmıyoruz — bkz. pendingClipStart javadoc'u.
+        const an = capture.current?.playingDate() ?? null
+        if (!an) {
+          toast.error('Hangi andan başlanacağı belirlenemedi.')
+        } else {
+          setPendingClipStart(an)
+          toast.success(
+            `${channel.name} — ${an.toLocaleTimeString('tr-TR')} anından itibaren klip işaretlendi.`,
+            { description: 'Bitirmek için tekrar basın.' },
+          )
         }
       } else {
         await recordingsApi.start(channel.id)
@@ -134,29 +185,37 @@ export function TileActions({
     }
   }
 
+  const kaydediyor = recording != null || pendingClipStart != null
+
   return (
     <div className="pointer-events-auto flex items-center gap-1">
-      {recording && (
+      {kaydediyor && (
         <span className="flex items-center gap-1 rounded-full bg-status-live-bg px-2 py-0.5 text-xs font-medium text-status-live">
           <span className="size-1.5 animate-pulse rounded-full bg-status-live" />
-          {gecenSure(recording.startedAt)}
+          {gecenSure(recording ? recording.startedAt : pendingClipStart!.toISOString())}
         </span>
       )}
 
       <Button
         variant="secondary"
         size="icon"
-        className={cn('size-7', recording && 'text-status-live')}
+        className={cn('size-7', kaydediyor && 'text-status-live')}
         disabled={busy}
-        // DVR şartı kalktı: sunucu, geriye sarması kapalı kanallarda kaydı
-        // kayıt süresince kendisi açıyor ve durdurulunca geri kapatıyor.
-        title={recording ? 'Kaydı durdur' : 'Kayda başla'}
+        title={
+          recording
+            ? 'Kaydı durdur'
+            : pendingClipStart
+              ? 'Klibi bitir'
+              : rewound
+                ? 'Bu andan klip almaya başla'
+                : 'Kayda başla'
+        }
         onClick={(e) => {
           e.stopPropagation()
           void toggleRecording()
         }}
       >
-        {busy ? <Loader2Icon className="animate-spin" /> : recording ? <SquareIcon /> : <CircleIcon />}
+        {busy ? <Loader2Icon className="animate-spin" /> : kaydediyor ? <SquareIcon /> : <CircleIcon />}
       </Button>
 
       {/* Dar yerleşimde de gösteriliyor: kare yakalama küçük döşeme

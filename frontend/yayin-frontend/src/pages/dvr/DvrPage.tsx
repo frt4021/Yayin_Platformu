@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { ApiError } from '@/api/client'
-import { channelsApi, clipsApi, dvrApi } from '@/api/endpoints'
+import { channelsApi, clipsApi, dvrApi, screenshotsApi } from '@/api/endpoints'
 import { readTokens } from '@/api/tokens'
 import type { ChannelDto, TimelineSpan } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { ScheduledRecordingCard } from './ScheduledRecordingCard'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Loader2Icon, PlayIcon, ScissorsIcon, XIcon } from 'lucide-react'
+import { CameraIcon, Loader2Icon, PlayIcon, ScissorsIcon, XIcon } from 'lucide-react'
 import { Timeline, type Selection } from './Timeline'
 import { GuidedTour } from '@/components/tour/GuidedTour'
 import { usePageTour } from '@/components/tour/usePageTour'
@@ -80,6 +80,7 @@ export function DvrPage() {
   /** Oynatıcıda o an yüklü olan aralık; kullanıcı neye baktığını bilsin diye. */
   const [previewRange, setPreviewRange] = useState<{ start: Date; seconds: number } | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [capturing, setCapturing] = useState(false)
 
   /**
    * Seçim boyunca eşit aralıklı kareler — "neyi klip alıyorum" sorusunun
@@ -210,6 +211,50 @@ export function DvrPage() {
       })
     } finally {
       setPreviewLoading(false)
+    }
+  }
+
+  /**
+   * DVR önizlemesinde o an oynayan kareyi galeriye ekler.
+   *
+   * <p>Canlı oynatıcıdaki {@code TileActions.captureFrame} ile AYNI teknik
+   * (video → canvas → blob) — burada da çalışıyor çünkü {@link playFrom}
+   * segmenti önce aynı-kökenli bir {@code blob:} URL'e indirip videoya
+   * ONU veriyor; MinIO'nun kendi (farklı port/köken) adresi hiç videoya
+   * verilmiyor, bu yüzden canvas "tainted" olmuyor.
+   *
+   * <p>{@code capturedAt} "şimdi" DEĞİL — önizlemenin başlangıcına
+   * {@code video.currentTime} eklenerek karenin GERÇEK, geçmişteki anı
+   * hesaplanıyor. Bu, canlı yakalamadan bile daha kesin: HLS gecikmesi
+   * tahmini gerekmiyor, aralık zaten sunucudan biliniyor.
+   */
+  async function captureFromPreview() {
+    const video = videoRef.current
+    if (!video || !video.videoWidth || !previewRange || !channelId) {
+      toast.error('Önce bir andan oynatmayı başlatın.')
+      return
+    }
+    setCapturing(true)
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Canvas oluşturulamadı.')
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/jpeg', 0.92),
+      )
+      if (!blob) throw new Error('Kare kodlanamadı.')
+
+      const capturedAt = new Date(previewRange.start.getTime() + video.currentTime * 1000)
+      await screenshotsApi.capture(channelId, blob, capturedAt, canvas.width, canvas.height)
+      toast.success('Kare galeriye eklendi.')
+    } catch (e) {
+      toast.error(e instanceof ApiError || e instanceof Error ? e.message : 'Kare alınamadı.')
+    } finally {
+      setCapturing(false)
     }
   }
 
@@ -394,12 +439,28 @@ export function DvrPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-2">
                   <CardTitle className="text-base">Önizleme</CardTitle>
-                  {previewRange && (
-                    <span className="text-xs text-muted-foreground">
-                      {previewRange.start.toLocaleTimeString('tr-TR')} +
-                      {formatDuration(previewRange.seconds)}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {previewRange && (
+                      <span className="text-xs text-muted-foreground">
+                        {previewRange.start.toLocaleTimeString('tr-TR')} +
+                        {formatDuration(previewRange.seconds)}
+                      </span>
+                    )}
+                    <Button
+                      size="icon"
+                      variant="secondary"
+                      className="size-7"
+                      disabled={!previewRange || capturing}
+                      onClick={() => void captureFromPreview()}
+                      title="Bu andan kare yakala"
+                    >
+                      {capturing ? (
+                        <Loader2Icon className="animate-spin" />
+                      ) : (
+                        <CameraIcon />
+                      )}
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">

@@ -121,9 +121,10 @@ STT_TARGET_LANGS=tr,de,ru
 # "kod=repo,kod2=repo2". ("tr" icin standart opus-mt-en-tr artik herkese
 # acik degil (401), bu yuzden daha buyuk tc-big surumu kullaniliyor.)
 MARIAN_MODELS=tr=Helsinki-NLP/opus-mt-tc-big-en-tr,de=Helsinki-NLP/opus-mt-en-de,ru=Helsinki-NLP/opus-mt-en-ru
-# ONNX export hassasiyeti: fp16 (GPU-native, kucuk) | fp32 (varsayilan
-# optimum davranisi). Statik agirlik boyutunu etkiler, gercek yukte VRAM
-# tavanini DEGISTIRMEZ (bkz. asagidaki VRAM formulu).
+# CTranslate2 kuantizasyonu (17 Agustos, Marian ONNX'ten CTranslate2'ye
+# tasindi -- bkz. asagidaki "Canli altyazi" bolumu): fp16 -> float16
+# (GPU-native, kucuk) | fp32 -> float32. .env'deki isim degismedi,
+# export_models.py bunu CTranslate2'nin kendi adlandirmasina ceviriyor.
 MARIAN_EXPORT_DTYPE=fp16
 STT_RUNTIME=nvidia
 TRITON_URL=http://triton:8000
@@ -244,34 +245,111 @@ yoksa yazılımda ölçülen fark kanal başına **%14 yerine %142 CPU**.
 > **Sıfır yazmayın** (`ALTYAZI_HLS_GERIDE`): MediaMTX `PART-HOLD-BACK=0.5`
 > ilan ediyor, hls.js sıfır yerine onu kullanır ve bütçe yarım saniyeye düşer.
 
-#### Yeni bir dil eklediğinizde önyüzde nasıl görünür
+#### Yeni bir altyazı dili ekleme — adım adım
+
+Bu bölümü, projeyi hiç bilmeyen biri bile takip edip çalışır hale
+getirebilsin diye baştan sona yazdık. Örnek: **Fransızca (`fr`)** ekleyelim.
+
+**1. `.env`'de üç satırı düzenleyin:**
+
+```bash
+# Hedef dil listesine kodu ekleyin (virgülle ayrılmış, sıra önemli değil):
+STT_TARGET_LANGS=de,ru,es,fr
+
+# Aynı kod icin Hugging Face model repo'sunu ZORUNLU olarak ekleyin --
+# eklenmezse build hata verip durur, hicbir repo adi tahmin edilmez.
+# Cogu dil icin kalip: Helsinki-NLP/opus-mt-en-<kod>
+MARIAN_MODELS=de=Helsinki-NLP/opus-mt-en-de,ru=Helsinki-NLP/opus-mt-en-ru,es=Helsinki-NLP/opus-mt-en-es,fr=Helsinki-NLP/opus-mt-en-fr
+
+# (Opsiyonel) Bu dile ozel GPU kopya sayisi vermek isterseniz -- vermezseniz
+# MARIAN_INSTANCES_DEFAULT (varsayilan 1) kullanilir, hicbir sey yazmaniza
+# GEREK YOK:
+# MARIAN_INSTANCES=de=1,fr=2
+```
+
+> **Model repo'sunu nereden bulacağım?** `https://huggingface.co/Helsinki-NLP`
+> adresinde `opus-mt-en-<dil kodu>` arayın (ör. `opus-mt-en-fr`). Bazı diller
+> (örn. `tr`) standart isimle artık herkese açık değil — o zaman aynı model
+> ailesinin `tc-big` gibi başka bir varyantını kullanın
+> (`tr=Helsinki-NLP/opus-mt-tc-big-en-tr` gibi, `.env`'deki mevcut örneğe bakın).
+
+**2. Triton'ı yeniden kurun ve tüm ilgili servisleri yeniden başlatın:**
+
+```bash
+docker compose build triton                          # yeni dili export eder (dakikalar surer)
+docker compose up -d                                 # .env degisikligi agi yeniden kurabilir,
+                                                       # bu yuzden servis adi vermeden TUMUNU calistirin
+docker compose restart video-worker backend           # Java tarafinin da yeni listeyi okumasi icin
+```
+
+> **Neden `backend`/`video-worker`'ı da yeniden başlatmak gerekiyor:**
+> `STT_TARGET_LANGS` Java tarafında yalnızca konteyner **açılışında** bir kez
+> okunuyor. Yalnızca Triton'ı güncelleyip Java'yı yeniden başlatmazsanız,
+> `video-worker` hâlâ eski dil listesiyle çeviri isteği atmaya çalışır ve
+> yeni Triton'da o dil hiç yokmuş gibi (ya da eski dil artık yokmuş gibi)
+> hatalar alırsınız.
+
+**3. Doğrulayın:**
+
+```bash
+# Triton'da model gerçekten yüklendi mi:
+curl -s -X POST localhost:8100/v2/repository/index
+# Beklenen: [..., {"name":"marian_en_fr","version":"1","state":"READY"}, ...]
+
+# Backend yeni dili önyüze doğru bildiriyor mu:
+curl -s http://localhost:8090/api/ayarlar/oynatici
+# Beklenen: {"altyaziDilleri":["de","ru","es","fr"],"hlsGeride":8}
+```
+
+`http://localhost:3000` üzerinden bir kanal açıp altyazı dili seçicisinde
+yeni dilin göründüğünü kontrol edin — **başka hiçbir şey yapmanıza gerek
+yok**, frontend'i yeniden kurmanız (`docker compose build frontend`)
+GEREKMİYOR.
+
+#### Bu nasıl çalışıyor — arka plandaki eşleme zinciri
 
 `STT_TARGET_LANGS`'a eklenen bir dil, önyüzdeki altyazı dili seçicisine
 kadar şu zincirle ulaşır — hiçbir adımda kod değişikliği gerekmez:
 
 ```
-.env: STT_TARGET_LANGS=de,ru
+.env: STT_TARGET_LANGS=de,ru,es,fr
    → application.properties: stt.target-langs
    → OynaticiAyarResource (GET /api/ayarlar/oynatici, kimlik istemez)
-        → ham ISO kodu listesi döner: ["de","ru"]  (backend İSİM ÜRETMİYOR)
+        → ham ISO kodu listesi döner: ["de","ru","es","fr"]  (backend İSİM ÜRETMİYOR)
    → frontend: ayarlariYukle() bu kodları saklar (oynaticiAyarlari.ts)
    → SubtitleOverlay.tsx: subtitleLangs() her kod için görünen adı bulur
 ```
 
-Görünen isim yalnızca **frontend**'de, `SubtitleOverlay.tsx`'teki
-`DIL_ADLARI` sabit haritasından geliyor (~26 dil: tr, de, ru, fr, es, it,
-pt, nl, pl, ar, zh, ja, ko, uk, ro, bg, cs, sv, fi, da, el, hu, he, hi, id,
-vi). Eklediğiniz kod bu haritada varsa gerçek adıyla ("Русский") görünür;
-yoksa **kodu büyük harfle** ("FA" gibi) gösterir — altyazı üretimi/çevirisi
-bundan etkilenmez, yalnızca seçicideki etiket kozmetik kalır. Haritada
-olmayan bir dile güzel isim vermek isterseniz `DIL_ADLARI`'na tek satır
-ekleyip `docker compose build frontend` yeterli.
+**Backend tarafı (Java):** Hiçbir sınıf `tr`/`de`/`ru` gibi bir dili sabit
+kodlamıyor.
+- `VadService` (canlı kanal altyazısı) ve `VideoSubtitleWorker` (yüklenen
+  video altyazısı) — ikisi de açılışta `stt.target-langs`'ı okuyup
+  `dil → "marian_en_" + dil` eşlemesini **kendileri** kuruyor
+  (`@PostConstruct`). Triton'a hangi modele isteği atacaklarını buradan
+  biliyorlar.
+- `OynaticiAyarResource` aynı listeyi olduğu gibi (isim üretmeden) JSON
+  dizisi olarak frontend'e sunuyor.
+- `SubtitleLagMetrics` çeviri gecikmesi metriklerini (`altyazi_ceviri_gecikme_ms`)
+  hangi `dil` parametresi gelirse onunla etiketliyor — Grafana
+  dashboard'larında da sabit bir dil listesi/dropdown yok, hangi dil
+  etiketi Prometheus'ta varsa o gösteriliyor.
 
-Backend/video-worker tarafında da isim eşlemesi yok: `VadService`'teki
-çeviri döngüsü ve `SubtitleLagMetrics`'teki metrikler (`altyazi_ceviri_gecikme_ms{dil="..."}`)
-`STT_TARGET_LANGS`'taki kodu olduğu gibi kullanıyor — Grafana
-dashboard'larında da sabit bir dil listesi/dropdown'u yok, hangi dil
-etikedi Prometheus'ta varsa o gösteriliyor.
+**Frontend tarafı (React):** Görünen isim (`"Русский"` gibi) yalnızca
+`SubtitleOverlay.tsx`'teki `DIL_ADLARI` sabit haritasından geliyor (~26
+dil: tr, de, ru, fr, es, it, pt, nl, pl, ar, zh, ja, ko, uk, ro, bg, cs,
+sv, fi, da, el, hu, he, hi, id, vi). Eklediğiniz kod bu haritada varsa
+gerçek adıyla görünür; yoksa **kodu büyük harfle** ("FA" gibi) gösterir —
+altyazı üretimi/çevirisi bundan etkilenmez, yalnızca seçicideki etiket
+kozmetik kalır. Haritada olmayan bir dile güzel isim vermek isterseniz
+`DIL_ADLARI`'na tek satır ekleyip `docker compose build frontend` yeterli
+(zorunlu değil).
+
+**Triton tarafı:** `export_models.py`, `STT_TARGET_LANGS`'taki her dil
+için `triton/templates/marian_model.py` + `marian_config.pbtxt.tmpl`
+şablonlarını kopyalayıp `MARIAN_MODELS`'taki repo'yu CTranslate2 formatına
+dönüştürüyor (bkz. aşağıdaki "Canlı altyazı: darboğaz neydi" bölümü) —
+hiçbir dile özel kod yok, `triton/templates/` dosyalarına asla dokunmanız
+gerekmez.
 
 ---
 
@@ -297,6 +375,20 @@ VAD (konuşma tespiti) Triton'a taşınmadı, Java'da (`video-worker`) kaldı:
 konuşma/sessizlik kararı zaten ağsız, in-process çalışıyor; Triton'a
 taşımak bunu küçük ses çerçeveleri için sürekli ağ isteğine çevirir
 (saniyede onlarca kat daha fazla istek) ve gecikmeyi **düşürmez, artırır**.
+
+**Marian: ONNX Runtime → CTranslate2 (17 Ağustos, ikinci darboğaz).**
+Triton'daki gerçek paralellik VRAM'i tavana yaklaştırınca yeni bir sorun
+ortaya çıktı: ONNX Runtime'ın CUDA "caching allocator"ı, Marian'a gelen
+değişken cümle sayısı/uzunluğu yüzünden her yeni tensor şekli için ayrı
+bellek bloğu açıp bunu **hiç geri vermiyordu** — ölçüldü, 1 saatlik gerçek
+15-kanal yükünde 590 MB'tan 5,1 GB'a çıkıp kartı tıkadı, çeviri başarı
+oranı %5-30'a düştü. Whisper (`faster-whisper`/CTranslate2) aynı sorunu
+yaşamıyordu çünkü her girdiyi sabit 30 saniyelik pencereye dolduruyor —
+tensor şekli hiç değişmiyor, tek blok sürekli yeniden kullanılıyor
+(ölçüldü: 164 MB, saatlerce sabit). Marian da CTranslate2'ye taşınınca
+aynı sabit davranışı kazandı — ölçüldü: 452 MB, 3 dakikalık gerçek yükte
+**hiç büyümedi**, çeviri başarı oranı %100'e çıktı. Aynı model ağırlıkları
+kullanılıyor (`MARIAN_MODELS`), değişen yalnızca GPU'da nasıl çalıştığı.
 
 ### Instance sayısı ve VRAM hesabı
 

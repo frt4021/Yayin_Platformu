@@ -9,6 +9,8 @@ import type {
 } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { altyaziDilleriOku } from '@/player/oynaticiAyarlari'
+import { dilAdi } from '@/player/SubtitleOverlay'
 import { CheckCircle2Icon, Loader2Icon, XCircleIcon } from 'lucide-react'
 import { TUR_ETIKET, turVariant } from './AdminEtkinliklerPage'
 import { Olcum, StatKart } from './AdminAnalitikPage'
@@ -20,13 +22,22 @@ import {
   ADMIN_GENEL_BAKIS_TOUR_SEEN_KEY,
 } from '@/components/tour/adminGenelBakisSteps'
 
-/** Triton model adı → okunur etiket. Sıra kartların ekrandaki sırasını da belirliyor. */
-const TRITON_MODEL_ETIKET: [string, string][] = [
-  ['whisper', 'Whisper (çözümleme)'],
-  ['marian_en_tr', 'Türkçe çeviri'],
-  ['marian_en_de', 'Almanca çeviri'],
-  ['marian_en_ru', 'Rusça çeviri'],
-]
+/** Genel Bakış verisi bu aralıkla otomatik tazelenir (AdminSistemLoglarPage ile aynı). */
+const REFRESH_MS = 15000
+
+/**
+ * Triton model adı → okunur etiket. STT_TARGET_LANGS'a göre DİNAMİK —
+ * eskiden burada sabit bir dil listesi (tr/de/ru) vardı, bir dil
+ * eklenince/kaldırılınca panel güncel kalmıyordu. Artık sunucunun bildirdiği
+ * aktif dil listesinden (bkz. oynaticiAyarlari.ts) türetiliyor, `subtitleLangs()`
+ * ile aynı kaynak — yeni bir dil eklemek burada da kod değişikliği gerektirmez.
+ */
+function tritonModelEtiketleri(): [string, string][] {
+  return [
+    ['whisper', 'Whisper (çözümleme)'],
+    ...altyaziDilleriOku().map((kod): [string, string] => [`marian_en_${kod}`, `${dilAdi(kod)} çeviri`]),
+  ]
+}
 
 function BilesenKarti({ durum }: { durum: BilesenSaglikDurumu }) {
   return (
@@ -64,11 +75,18 @@ export function AdminGenelBakisPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    void Promise.all([
-      adminAnalitikApi.genelBakis().then(setVeri),
-      adminAnalitikApi.canliDurum().then(setCanliDurum),
-      adminAnalitikApi.servisMetrikleri().then(setServisMetrikleri),
-    ]).finally(() => setLoading(false))
+    const yukle = () =>
+      Promise.all([
+        adminAnalitikApi.genelBakis().then(setVeri),
+        adminAnalitikApi.canliDurum().then(setCanliDurum),
+        adminAnalitikApi.servisMetrikleri().then(setServisMetrikleri),
+      ]).finally(() => setLoading(false))
+
+    void yukle()
+    // Sayfa acildiktan sonra ELLE yenilemeden guncel kalsin diye periyodik
+    // tazeleme -- AdminSistemLoglarPage ile ayni desen/aralik.
+    const timer = setInterval(() => void yukle(), REFRESH_MS)
+    return () => clearInterval(timer)
   }, [])
 
   if (loading) {
@@ -130,7 +148,7 @@ export function AdminGenelBakisPage() {
               tek bir hedef altinda gruplamak icin -- sarmalayici kendi bir
               grid hucresi acmiyor, cocuklari direkt ust grid'e katiliyor. */}
           <div data-tour="triton-model-gecikme" className="contents">
-            {TRITON_MODEL_ETIKET.map(([model, etiket]) => (
+            {tritonModelEtiketleri().map(([model, etiket]) => (
               <StatKart key={model} baslik={`Triton — ${etiket} gecikme`}>
                 <Olcum deger={servisMetrikleri?.tritonModelGecikmeMs?.[model] ?? null} birim="ms" />
               </StatKart>
