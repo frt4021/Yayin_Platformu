@@ -121,18 +121,6 @@ export interface OynatmaOzeti {
   sonMesaj: string | null
 }
 
-export interface VideoAnalitikOzetDto {
-  videoId: string
-  baslik: string
-  oturumSayisi: number
-  tamamlanmaOrani: number
-}
-
-export interface VideoIsiHaritasiDto extends VideoAnalitikOzetDto {
-  /** Uzunluk her zaman 10 — sıfır-doldurulmuş. */
-  dilimSayaclari: number[]
-}
-
 export interface BilesenSaglikDurumu {
   bilesen: string
   saglikli: boolean

@@ -39,9 +39,7 @@ import type {
   UpdateVideoRequest,
   UploadTicket,
   UserDto,
-  VideoAnalitikOzetDto,
   VideoDto,
-  VideoIsiHaritasiDto,
   VideoIzlemeOzeti,
   VideoLinks,
 } from './types'
@@ -114,9 +112,6 @@ export const adminAnalitikApi = {
   depolama: () => api.get<DepolamaDto>('/api/admin/analitik/depolama'),
   teknik: () => api.get<TeknikDto>('/api/admin/analitik/teknik'),
   genel: () => api.get<GenelAktiviteDto>('/api/admin/analitik/genel'),
-  videoListesi: () => api.get<VideoAnalitikOzetDto[]>('/api/admin/analitik/videolar'),
-  videoIsiHaritasi: (id: string) =>
-    api.get<VideoIsiHaritasiDto>(`/api/admin/analitik/videolar/${id}`),
   kullaniciAktivitesi: (keycloakId: string) =>
     api.get<KullaniciAktiviteDto>(`/api/admin/analitik/kullanicilar/${keycloakId}`),
 }

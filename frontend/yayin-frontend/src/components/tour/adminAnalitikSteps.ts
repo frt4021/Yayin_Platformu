@@ -44,13 +44,4 @@ export const ADMIN_ANALITIK_TOUR_STEPS: TourStep[] = [
       + 'kullanım yoğunluğunu ve zamanlamasını özetler.',
     placement: 'top',
   },
-  {
-    target: 'analitik-video',
-    title: 'Video tamamlanma ve ısı haritası',
-    body:
-      'Her videonun kaç kez izlendiği ve ne kadarının tamamlandığı. Bir satıra tıklayınca '
-      + 'altta videonun 10 dilimlik izlenme ısı haritası açılır — izleyicilerin videonun '
-      + 'hangi bölümünde daha çok kaldığını/ayrıldığını gösterir.',
-    placement: 'top',
-  },
 ]

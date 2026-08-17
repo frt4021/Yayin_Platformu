@@ -178,6 +178,26 @@ export function HlsPlayer({
     }
   })
 
+  /**
+   * {@code video.play()}'i çağırır; sesli otomatik oynatma tarayıcı
+   * politikasınca reddedilirse (özellikle sitenin ilk ziyaretinde, henüz
+   * bir kullanıcı jesti yokken) sessize alıp tekrar dener — sessiz otomatik
+   * oynatma neredeyse her tarayıcıda izinlidir. Bu düşmeden bırakılırsa
+   * video hiç başlamaz ve ekran kalıcı olarak siyah kalır (ÖLÇÜLDÜ: LAN
+   * IP'siyle ilk kez açan bir tarayıcıda "Autoplay is only allowed..."
+   * konsol uyarısıyla birlikte). Kullanıcı istediğinde denetim
+   * çubuğundaki "Sesi aç" düğmesiyle sesi geri açabiliyor — bu tıklama
+   * gerçek bir kullanıcı jesti olduğu için engellenmiyor.
+   */
+  function oynatmayiDene(video: HTMLVideoElement) {
+    video.play().catch(() => {
+      if (!video.muted) {
+        video.muted = true
+        video.play().catch(() => {})
+      }
+    })
+  }
+
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
@@ -200,7 +220,7 @@ export function HlsPlayer({
     if (!Hls.isSupported()) {
       if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = src
-        video.play().catch(() => {})
+        oynatmayiDene(video)
         setStatus('playing')
         return
       }
@@ -235,7 +255,7 @@ export function HlsPlayer({
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       setStatus('playing')
-      video.play().catch(() => {})
+      oynatmayiDene(video)
     })
 
     hls.on(Hls.Events.ERROR, (_event, data) => {
@@ -268,7 +288,7 @@ export function HlsPlayer({
           })
           fresh.on(Hls.Events.MANIFEST_PARSED, () => {
             setStatus('playing')
-            video2.play().catch(() => {})
+            oynatmayiDene(video2)
           })
           fresh.on(Hls.Events.ERROR, (_e2, d2) => {
             if (d2.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
@@ -323,7 +343,7 @@ export function HlsPlayer({
     const live = hlsRef.current?.liveSyncPosition
     if (video && live != null) {
       video.currentTime = live
-      void video.play()
+      oynatmayiDene(video)
     }
   }
 

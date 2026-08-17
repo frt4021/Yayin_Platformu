@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { formatBytes } from '@/api/upload'
 import { adminAnalitikApi } from '@/api/endpoints'
-import { cn } from '@/lib/utils'
 import type {
   CanliDurumDto,
   DepolamaDto,
@@ -9,8 +8,6 @@ import type {
   IcerikPerformansiDto,
   TeknikDto,
   TopEtiketDto,
-  VideoAnalitikOzetDto,
-  VideoIsiHaritasiDto,
 } from '@/api/types'
 import {
   Table,
@@ -75,36 +72,8 @@ function TopListe({ baslik, veri }: { baslik: string; veri: TopEtiketDto[] }) {
 }
 
 /**
- * 10 dilimlik kaba tekrar-izleme dağılımı — el yapımı bar chart (projede
- * hiçbir chart kütüphanesi yok, mevcut sade-div üslubu korunuyor). Tek renk,
- * yoğunluk opaklıkla — tek seri olduğu için birden fazla tonu ayırt etme
- * derdi yok.
- */
-function DilimGrafigi({ dilimSayaclari }: { dilimSayaclari: number[] }) {
-  const maks = Math.max(1, ...dilimSayaclari)
-  return (
-    <div className="flex items-end gap-1 rounded-xl border p-4" style={{ height: 140 }}>
-      {dilimSayaclari.map((sayi, i) => (
-        <div key={i} className="flex flex-1 flex-col items-center gap-1">
-          <div
-            title={`İlk %${i * 10}–%${(i + 1) * 10}: ${sayi} oturum`}
-            className="w-full rounded-t bg-primary"
-            style={{
-              height: Math.max(4, (sayi / maks) * 96),
-              opacity: 0.15 + 0.85 * (sayi / maks),
-            }}
-          />
-          <span className="text-[10px] text-muted-foreground">%{i * 10}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-/**
- * Analitik dashboard'u — kullanıcının önerdiği beş modül + video tamamlanma
- * oranı/ısı haritası bölümü (Faz 2). Henüz enstrümantasyonu olmayan
- * alanlar (bant genişliği) sessizce sıfır
+ * Analitik dashboard'u — kullanıcının önerdiği beş modül. Henüz
+ * enstrümantasyonu olmayan alanlar (bant genişliği) sessizce sıfır
  * göstermek yerine açıkça "ölçülmüyor" olarak işaretleniyor.
  */
 export function AdminAnalitikPage() {
@@ -113,12 +82,7 @@ export function AdminAnalitikPage() {
   const [depolama, setDepolama] = useState<DepolamaDto | null>(null)
   const [teknik, setTeknik] = useState<TeknikDto | null>(null)
   const [genel, setGenel] = useState<GenelAktiviteDto | null>(null)
-  const [videolar, setVideolar] = useState<VideoAnalitikOzetDto[]>([])
   const [loading, setLoading] = useState(true)
-
-  const [secilenVideoId, setSecilenVideoId] = useState<string | null>(null)
-  const [isiHaritasi, setIsiHaritasi] = useState<VideoIsiHaritasiDto | null>(null)
-  const [isiHaritasiYukleniyor, setIsiHaritasiYukleniyor] = useState(false)
 
   const rehberTuru = usePageTour(ADMIN_ANALITIK_TOUR_SEEN_KEY)
 
@@ -129,18 +93,8 @@ export function AdminAnalitikPage() {
       adminAnalitikApi.depolama().then(setDepolama),
       adminAnalitikApi.teknik().then(setTeknik),
       adminAnalitikApi.genel().then(setGenel),
-      adminAnalitikApi.videoListesi().then(setVideolar),
     ]).finally(() => setLoading(false))
   }, [])
-
-  function videoSec(videoId: string) {
-    setSecilenVideoId(videoId)
-    setIsiHaritasiYukleniyor(true)
-    void adminAnalitikApi
-      .videoIsiHaritasi(videoId)
-      .then(setIsiHaritasi)
-      .finally(() => setIsiHaritasiYukleniyor(false))
-  }
 
   if (loading) {
     return (
@@ -253,59 +207,6 @@ export function AdminAnalitikPage() {
             {(genel?.ortalamaIzlemeBaslangici24s ?? 0).toFixed(1)}
           </StatKart>
         </div>
-      </section>
-
-      <section data-tour="analitik-video" className="flex flex-col gap-3">
-        <h2 className="text-lg font-medium">Video Tamamlanma Oranı & Isı Haritası</h2>
-        <div className="rounded-xl border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Başlık</TableHead>
-                <TableHead className="text-right">Oturum</TableHead>
-                <TableHead className="text-right">Tamamlanma %</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {videolar.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={3} className="py-6 text-center text-muted-foreground">
-                    Veri yok.
-                  </TableCell>
-                </TableRow>
-              )}
-              {videolar.map((v) => (
-                <TableRow
-                  key={v.videoId}
-                  onClick={() => videoSec(v.videoId)}
-                  className={cn(
-                    'cursor-pointer',
-                    secilenVideoId === v.videoId && 'bg-accent',
-                  )}
-                >
-                  <TableCell className="font-medium">{v.baslik}</TableCell>
-                  <TableCell className="text-right text-muted-foreground">{v.oturumSayisi}</TableCell>
-                  <TableCell className="text-right text-muted-foreground">
-                    {v.tamamlanmaOrani.toFixed(0)}%
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-
-        {secilenVideoId && (
-          <div className="grid gap-3 sm:grid-cols-[200px_1fr]">
-            <StatKart baslik="Tamamlanma oranı">
-              {isiHaritasiYukleniyor ? (
-                <Loader2Icon className="size-5 animate-spin text-muted-foreground" />
-              ) : (
-                `${(isiHaritasi?.tamamlanmaOrani ?? 0).toFixed(0)}%`
-              )}
-            </StatKart>
-            {isiHaritasi && <DilimGrafigi dilimSayaclari={isiHaritasi.dilimSayaclari} />}
-          </div>
-        )}
       </section>
 
       <GuidedTour

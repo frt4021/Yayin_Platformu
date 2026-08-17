@@ -218,6 +218,16 @@ NVENC için `CONTAINER_RUNTIME=nvidia` + `NVIDIA_VISIBLE_DEVICES=all` +
 `CONTAINER_RUNTIME=runc` + `MEDIA_DEVICE=/dev/dri:/dev/dri`. Donanım kodlayıcı
 yoksa yazılımda ölçülen fark kanal başına **%14 yerine %142 CPU**.
 
+### Kanal kapasitesi
+
+`CHANNELS_MAX_ACTIVE` (varsayılan **16**) — aynı anda **yayında** olabilecek
+kanal üst sınırı, `ChannelService` tarafından açık bir `409` hatası olarak
+uygulanıyor (MediaMTX kendisi bunu sınırlamıyor; aşılırsa **tüm** kanallarda
+sessizce bozulmaya yol açar). Bunu yükseltmek yalnızca "kaç kanal yayında
+olabilir"i büyütür — altyazı üretimi ayrı bir sınıra bağlı, bkz. yukarıdaki
+`VAD_MAX_CHANNELS`. İkisi **bağımsız**: biri yükseltilip diğeri
+yükseltilmezse fazla kanallar görüntü/ses yayınlar ama altyazısız kalır.
+
 ### Depolama: kota ve temizlik
 
 | Alan | Açıklama |
@@ -232,6 +242,7 @@ yoksa yazılımda ölçülen fark kanal başına **%14 yerine %142 CPU**.
 | Alan | Açıklama |
 |---|---|
 | `VAD_ENABLED` | Altyazı hattının anahtarı. Kapatmak: `false` |
+| `VAD_MAX_CHANNELS` | Aynı anda altyazı üretilecek kanal üst sınırı (varsayılan **20**). `CHANNELS_MAX_ACTIVE`'tan **bağımsız**: bu sayıyı aşan aktif kanallar yayınlanmaya devam eder ama **altyazı almaz** (video-worker logunda "VAD kanal sınırı dolu" uyarısı). Ölçmeden yükseltmeyin — GPU tavanı §"Canlı altyazı: darboğaz neydi" bölümünde |
 | `VAD_MAX_SEGMENT_MS` | Bölüt penceresi — gecikmenin en büyük parçası, kısaltmak Whisper'a bırakılan bağlamı azaltır |
 | `STT_MODEL` | `tiny`\|`base`\|`small`\|`medium`\|`large-v3` — model değişince **Triton yeniden kurulmalı** (`docker compose build triton`) |
 | `STT_DEVICE` / `STT_COMPUTE_TYPE` | `cpu`\|`cuda`, `int8`\|`int8_float16`\|`float16` |

@@ -114,7 +114,7 @@ baslat() {
     exit 1
   fi
   gri "  .env bulundu"
-  grep -E "^(CHANNELS_ENCODER|VIDEOS_ENCODER)=" "$ENV_DOSYASI" | sed 's/^/    /' || true
+  grep -E "^(CHANNELS_ENCODER|VIDEOS_ENCODER|CHANNELS_MAX_ACTIVE|VAD_MAX_CHANNELS)=" "$ENV_DOSYASI" | sed 's/^/    /' || true
 
   baslik "Uygulama paketleniyor"
   gri "  ./mvnw package — ilk çalıştırmada bağımlılıklar inecek, sürebilir"

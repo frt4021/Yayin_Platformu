@@ -22,6 +22,15 @@ sari()    { printf '\033[33m%s\033[0m\n' "$*"; }
 gri()     { printf '\033[90m%s\033[0m\n' "$*"; }
 baslik()  { echo; mavi "── $* ─────────────────────────────────"; }
 
+# Var olan .env'den bir değeri okur — --zorla ile yeniden üretilirken elle
+# ayarlanmış bir değer (ör. kapasite sınırları) sessizce varsayılana
+# dönmesin diye. .env yoksa ya da anahtar yoksa $varsayilan döner.
+env_al() {
+  local anahtar="$1" varsayilan="${2:-}" deger
+  deger="$(grep -m1 "^${anahtar}=" "$ENV_DOSYASI" 2>/dev/null | cut -d= -f2-)"
+  echo "${deger:-$varsayilan}"
+}
+
 # Makinenin LAN adresi. Bu adres TARAYICIDA açılıyor: HLS ve MinIO adresleri
 # bundan türüyor. "localhost" yazılsaydı ağdaki başka bir cihaz onu KENDİ
 # makinesi sanardı ve ne yayın ne indirme çalışırdı.
@@ -287,6 +296,19 @@ NVIDIA_DRIVER_CAPABILITIES=$nv_caps
 MEDIA_DEVICE=$media_dev
 WORKER_MEDIA_DEVICE=$worker_dev
 
+# --- Kanal kapasitesi ---
+# Ayni anda AKTIF/YAYINDA olabilecek kanal ust siniri. MediaMTX'in kendisi
+# bu siniri UYGULAMIYOR -- asilirsa sessizce kabul edip TUM kanallarda
+# bozulmaya yol aciyor, bu yuzden ChannelService bunu acik bir hata (409)
+# olarak kendi uyguluyor.
+#
+# DIKKAT: VAD_MAX_CHANNELS'tan TAMAMEN BAGIMSIZ bir sinir. Bu sayiyi
+# yukseltmek yalnizca "kac kanal YAYINDA olabilir"i degistirir -- ustteki
+# VAD_MAX_CHANNELS sinirini asan kanallar goruntu/ses yayinlamaya devam
+# eder ama HICBIR ALTYAZI ALMAZ (video-worker loglarinda "VAD kanal siniri
+# dolu" uyarisi duser). Ikisini birlikte yukseltin.
+CHANNELS_MAX_ACTIVE=$(env_al CHANNELS_MAX_ACTIVE 16)
+
 # --- Depolama: kota ve temizlik ---
 # Süreler GÜN ya da SAAT olarak: P30D = 30 gün · 720h = aynı · 0 = KAPALI
 # Varsayılan olarak kullanıcı verisi silinmiyor; baskıyı kota kuruyor.
@@ -320,8 +342,10 @@ VAD_MODEL_PATH=/models/silero_vad.onnx
 VAD_MODEL_VERSION=v5
 
 # Ayni anda VAD calistirilacak kanal ust siniri. Olculen: kanal basina
-# ~%0,8 CPU, 20 kanal ~%20 CPU ve ~1 GB RAM.
-VAD_MAX_CHANNELS=20
+# ~%0,8 CPU, 20 kanal ~%20 CPU ve ~1 GB RAM. CHANNELS_MAX_ACTIVE'tan
+# BAGIMSIZ (yukarida) -- bu sayidan fazla AKTIF kanal olursa fazlalar
+# yayinlanir ama altyazi almaz, sessizce degil bir WARN logu ile.
+VAD_MAX_CHANNELS=$(env_al VAD_MAX_CHANNELS 20)
 VAD_SEGMENT_DIR=/vad-bolutler
 
 # --- STT (konusma tanima) — ayri servis ---
