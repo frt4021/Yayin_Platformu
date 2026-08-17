@@ -19,21 +19,32 @@ import sys
 TARGET_LANGS = [p.strip() for p in os.environ.get("STT_TARGET_LANGS", "tr,de,ru").split(",") if p.strip()]
 WHISPER_MODEL = os.environ.get("STT_MODEL", "small")
 
-# stt-worker/app/config.py'deki TRANSLATION_MODELS ile AYNI -- ADLANDIRMA
-# TEK BICIMLI DEGIL, formulle uretilemez, esleme sart (bkz. o dosyadaki not).
+# .env'den MARIAN_<DIL>_MODEL ile GEZILEBILIR (16 Agustos) -- daha once
+# TRANSLATION_MODELS sozlugu sabit kodluydu, model degistirmek icin bu
+# dosyayi elle duzenleyip commit atmak gerekiyordu. Asagidaki varsayilanlar
+# su anki bilinen, calisan modeller; ".env"de MARIAN_TR_MODEL=... gibi bir
+# satir varsa o kullanilir.
 #
 # tr icin standart boyutlu "Helsinki-NLP/opus-mt-en-tr" DENENDI (16 Agustos)
 # ama Hugging Face Hub'da artik herkese acik degil (401 -- Helsinki-NLP bu
 # kucuk modeli kisitlamis, yalnizca "tc-big" varyanti public kalmis).
-# tc-big'e GERI DONULDU -- boyutu diger ikisinin (~1.2GB) ~2.5 kati (~3GB)
-# olmasina ragmen calisan tek secenek bu. fp16 export (asagida) hepsinin
-# boyutunu yariya indirmesi bekleniyor, bu da tr'nin fazlaligini kismen
-# telafi ediyor.
+# tc-big VARSAYILAN -- boyutu diger ikisinin (~1.2GB) ~2.5 kati (~3GB)
+# olmasina ragmen calisan tek secenek bu; .env ile daha kucuk, erisilebilir
+# bir alternatif bulununca kod degismeden denenebilir.
+# "or" ile: Dockerfile'daki ARG'lar bos string varsayilanla geliyor
+# (docker-compose'da tanimlanmamislarsa) -- os.environ.get(...,varsayilan)
+# BOS STRING'i "ayarlanmis" sayip varsayilana DUSMEZDI, "or" bunu duzeltiyor.
 TRANSLATION_MODELS: dict[str, str] = {
-    "tr": "Helsinki-NLP/opus-mt-tc-big-en-tr",
-    "de": "Helsinki-NLP/opus-mt-en-de",
-    "ru": "Helsinki-NLP/opus-mt-en-ru",
+    "tr": os.environ.get("MARIAN_TR_MODEL") or "Helsinki-NLP/opus-mt-tc-big-en-tr",
+    "de": os.environ.get("MARIAN_DE_MODEL") or "Helsinki-NLP/opus-mt-en-de",
+    "ru": os.environ.get("MARIAN_RU_MODEL") or "Helsinki-NLP/opus-mt-en-ru",
 }
+
+# fp16 (16 Agustos DENEME) -- VRAM'i yariya indirdi (bkz. docs/altyazi-hata-
+# analizi-16-agustos.md) ama kalite etkisi OLCULMEDI. Sorun cikarsa .env'de
+# MARIAN_EXPORT_DTYPE=fp32 ile eski davranisa TEK SATIRLA donulebilir,
+# kod degismez.
+EXPORT_DTYPE = os.environ.get("MARIAN_EXPORT_DTYPE") or "fp16"
 
 REPO_ROOT = os.environ.get(
     "MODEL_REPOSITORY",
@@ -68,16 +79,16 @@ def export_marian(language: str) -> None:
     # token icin encoder'i yeniden calistirmamak icin sart, yoksa
     # ORTModelForSeq2SeqLM cok daha yavas calisir.
     #
-    # dtype="fp16" (16 Agustos DENEME): agirliklari yariya indirmesi
-    # bekleniyor -- ONNX Runtime CUDA'da fp16'yi native destekliyor. Export
-    # bu makinede GPU'suz (device="cpu") calisiyor; main_export CPU'da da
-    # torch_dtype=float16 ile modeli yukleyip export ediyor (CPU fp16 matmul
-    # bu imajda dogrulandi, calisiyor). Kalite etkisi OLCULMEDI.
+    # EXPORT_DTYPE (yukarida, .env'den) -- fp16 ONNX Runtime CUDA'da native
+    # destekleniyor. Export bu makinede GPU'suz (device="cpu") calisiyor;
+    # main_export CPU'da da torch_dtype=float16 ile modeli yukleyip export
+    # ediyor (CPU fp16 matmul bu imajda dogrulandi, calisiyor).
+    print(f"    (dtype={EXPORT_DTYPE})", flush=True)
     main_export(
         model_name_or_path=repo,
         output=out,
         task="text2text-generation-with-past",
-        dtype="fp16",
+        dtype=EXPORT_DTYPE,
     )
     # main_export tokenizer'i zaten output'a kaydediyor; local_files_only ile
     # calisma aninda ac agdan hic denenmesin diye ayrica emin oluyoruz.

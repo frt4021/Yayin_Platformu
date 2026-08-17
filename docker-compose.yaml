@@ -288,6 +288,15 @@ services:
       args:
         STT_MODEL: ${STT_MODEL:-small}
         STT_TARGET_LANGS: ${STT_TARGET_LANGS:-tr,de,ru}
+        # Bos birakilirsa export_models.py kendi varsayilanini kullanir
+        # (Helsinki-NLP/opus-mt-*) -- burada .env'den GECIRMEK icin var,
+        # zorunlu degil. Farkli/daha kucuk bir model denerken TEK satirlik
+        # .env degisikligi + `docker compose build triton` yeterli, koda
+        # dokunulmaz.
+        MARIAN_TR_MODEL: ${MARIAN_TR_MODEL:-}
+        MARIAN_DE_MODEL: ${MARIAN_DE_MODEL:-}
+        MARIAN_RU_MODEL: ${MARIAN_RU_MODEL:-}
+        MARIAN_EXPORT_DTYPE: ${MARIAN_EXPORT_DTYPE:-fp16}
     image: yayin/triton:${IMAGE_TAG:-latest}
     container_name: triton
     restart: unless-stopped

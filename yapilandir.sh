@@ -111,6 +111,9 @@ env_uret() {
   # Gecikme degerleri: CPU varsayilanlari. NVENC dalinda eziliyor.
   local vad_segment_ms=6000 stt_concurrency=2
   local stt_beam=5 whisper_instances=2
+  # ONNX export hassasiyeti (Marian) -- CPU'da hic export GPU'ya gitmeyecegi
+  # icin anlamsiz, fp32'de kaliyor. NVENC dalinda fp16'ya cekiliyor.
+  local marian_dtype="fp32"
   # Izleyicinin canli kenardan kac bolut geriden izleyecegi = ALTYAZININ
   # BUTCESI. CPU'da uretim gecikmesi buyuk (olculdu: p95 ~23 sn), bu yuzden
   # yuksek. GPU dalinda dusuruluyor.
@@ -138,6 +141,14 @@ env_uret() {
       # hizlanirsa 24 saniye geriden izlemenin anlami yok. OLCTUKTEN SONRA
       # ayarlayin -- kural: butce >= p95 gecikme.
       altyazi_hls_geride=5
+
+      # fp16 export (16 Agustos OLCULDU): Marian agirliklarini yariya
+      # indiriyor (~3GB -> ~1.5GB tr icin), ONNX Runtime CUDA'da native
+      # destekleniyor. DIKKAT: bu, GERCEK 15 kanallik yukte tavani TEK
+      # BASINA cozmuyor (asil darbogaz model boyutu degil, aninda islenen
+      # istek sayisi) ama bos/soguk durumda VRAM'i gercekten dusuruyor ve
+      # gozlenen bir dezavantaji yok -- bu yuzden varsayilan.
+      marian_dtype="fp16"
 
       # 16 Agustos oturumunda ELLE OGRENILEN, ACI VERICI ders: 6GB'lik bir
       # kartta (ornegin RTX 4050) "small" + beam=5 + 2 whisper instance'i
@@ -338,6 +349,23 @@ STT_MAX_CONCURRENCY=$stt_concurrency
 # Hedef diller. Whisper pivotu sagladigi icin yalnizca EN->X modelleri
 # gerekiyor; kaynak dil kumesi genislese bile bu set SABIT kalir.
 STT_TARGET_LANGS=tr,de,ru
+
+# Hangi Marian modelinin hangi dile export edildigi -- HEPSI burada, tek
+# yerden gorunsun diye (16 Agustos'tan once export_models.py icinde gomuluydu,
+# .env'den hicbiri gorunmuyordu). Bos birakilirsa export_models.py'nin kendi
+# varsayilanina duser (bu satirlardaki degerlerle AYNI).
+#
+# tr icin "tc-big" varyant (~3GB) kullaniliyor cunku standart boyutlu
+# "opus-mt-en-tr" artik Hugging Face Hub'da herkese acik degil (401).
+# 16 Agustos'ta daha kucuk alternatifler (fp16, en-fr, en-eo) DENENDI --
+# hicbiri gercek 15 kanallik yukte GPU tavanini degistirmedi (darbogaz
+# model boyutu degil, aninda islenen istek sayisi -- docs/altyazi-hata-
+# analizi-16-agustos.md). Kalite feda etmenin faydasi olculmedigi icin
+# GERCEK model varsayilan.
+MARIAN_TR_MODEL=Helsinki-NLP/opus-mt-tc-big-en-tr
+MARIAN_DE_MODEL=Helsinki-NLP/opus-mt-en-de
+MARIAN_RU_MODEL=Helsinki-NLP/opus-mt-en-ru
+MARIAN_EXPORT_DTYPE=$marian_dtype
 
 VAD_STT_ENABLED=true
 

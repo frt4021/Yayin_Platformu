@@ -15,6 +15,13 @@ FROM nvcr.io/nvidia/tritonserver:${TRITON_TAG}
 
 ARG STT_MODEL=small
 ARG STT_TARGET_LANGS=tr,de,ru
+# Ceviri modeli secimi ve export hassasiyeti -- .env'den MARIAN_TR_MODEL vb.
+# ile degistirilebilir, varsayilanlar export_models.py icinde (bkz. o
+# dosyadaki not, 16 Agustos).
+ARG MARIAN_TR_MODEL=""
+ARG MARIAN_DE_MODEL=""
+ARG MARIAN_RU_MODEL=""
+ARG MARIAN_EXPORT_DTYPE=fp16
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -56,6 +63,8 @@ RUN pip install \
 COPY export_models.py /build/export_models.py
 
 RUN STT_MODEL=${STT_MODEL} STT_TARGET_LANGS=${STT_TARGET_LANGS} \
+    MARIAN_TR_MODEL=${MARIAN_TR_MODEL} MARIAN_DE_MODEL=${MARIAN_DE_MODEL} \
+    MARIAN_RU_MODEL=${MARIAN_RU_MODEL} MARIAN_EXPORT_DTYPE=${MARIAN_EXPORT_DTYPE} \
     python3 /build/export_models.py
 
 # Agirlik eksikse SESSIZCE indirmeye calismak yerine acikca patlasin
