@@ -310,7 +310,12 @@ ClipWorker {
      */
     private List<String> altyaziUret(UUID channelId, String objectKey, Instant bas, Instant bit) {
         try {
-            List<Subtitle> altyazilar = Subtitle.between(channelId, bas, bit);
+            // process() kendisi @Transactional DEGIL (crop+yukleme uzun surebiliyor,
+            // baglantiyi o sure boyunca acik tutmamak icin) -- Subtitle.between()'in
+            // Panache sorgusu ise aktif bir transaction/CDI istek baglami istiyor.
+            // Kisa, ayri bir transaction'la sariyoruz (ayni desen: dvrBekle() yukarida).
+            List<Subtitle> altyazilar = io.quarkus.narayana.jta.QuarkusTransaction.requiringNew()
+                .call(() -> Subtitle.between(channelId, bas, bit));
             if (altyazilar.isEmpty()) {
                 return List.of();
             }

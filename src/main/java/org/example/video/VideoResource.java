@@ -111,39 +111,6 @@ public class VideoResource {
         return videoService.links(id, jwt.getSubject(), isAdmin());
     }
 
-    @POST
-    @Path("/{id}/izleme-basladi")
-    @Operation(summary = "Gerçek oynatma başlangıcını bildir",
-        description = "viewCount /links çağrıldığında (izleme NİYETİ) artıyor; bu, "
-            + "tarayıcının video elementinin gerçekten oynatmaya başladığı andır. "
-            + "Kullanıcı davranışı denetim izi içindir.")
-    public void izlemeBasladi(@PathParam("id") UUID id) {
-        etkinlikService.kaydet(EtkinlikTuru.VIDEO_IZLEME_BASLADI, jwt.getSubject(), "video", id, Map.of());
-    }
-
-    @POST
-    @Path("/{id}/izleme-ozeti")
-    @Operation(summary = "İzleme oturumu özetini bildir",
-        description = "Tamamlanma oranı ve kaba (10 dilim) tekrar-izleme ısı haritası için. "
-            + "İstemci yalnızca kendi oturumunun özetini bildirir; oynatıcının akışını etkilemez.")
-    public void izlemeOzeti(@PathParam("id") UUID id, IzlemeOzetiRequest request) {
-        List<Integer> dilimler = request.ziyaretEdilenDilimler() == null ? List.of()
-            : request.ziyaretEdilenDilimler().stream()
-                .filter(d -> d != null && d >= 0 && d <= 9)
-                .distinct()
-                .sorted()
-                .toList();
-        etkinlikService.kaydet(EtkinlikTuru.VIDEO_IZLEME_BITTI, jwt.getSubject(), "video", id, Map.of(
-            "ziyaretEdilenDilimler", dilimler,
-            "tamamlandi", request.tamamlandi(),
-            "duraklatmaSayisi", Math.max(0, request.duraklatmaSayisi()),
-            "sarmaSayisi", Math.max(0, request.sarmaSayisi()),
-            "sureMs", Math.max(0, request.sureMs())));
-    }
-
-    public record IzlemeOzetiRequest(List<Integer> ziyaretEdilenDilimler, boolean tamamlandi,
-                                      int duraklatmaSayisi, int sarmaSayisi, long sureMs) {
-    }
 
     @RolesAllowed({Roles.YONETICI, Roles.MODERATOR})
     @POST

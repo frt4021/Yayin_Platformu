@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { channelsApi, recordingsApi, subtitlesApi } from '@/api/endpoints'
+import { toast } from 'sonner'
+import { ApiError } from '@/api/client'
+import { channelsApi, clipsApi, recordingsApi, subtitlesApi } from '@/api/endpoints'
 import type { ActiveRecordingDto, ChannelDto } from '@/api/types'
 import { HlsPlayer, type CaptureHandle } from '@/components/HlsPlayer'
 import { TileActions } from './TileActions'
 import { subtitleLangs, SubtitleOverlay } from './SubtitleOverlay'
+import { dvrAltyaziAcikMi } from '@/player/oynaticiAyarlari'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -21,9 +24,10 @@ export const WATCH_PATH = '/izle'
 
 /**
  * Zincirleme geri sarmada ("-10 sn" ile bir DVR parçasının da başına
- * gelince) bir sonraki parçanın kaç saniyelik olacağı — LiveRewind'deki
- * CHUNK_SECONDS ile aynı fikir, burada da tekrarlanıyor çünkü Tile,
- * LiveRewind'in iç sabitine erişemiyor.
+ * gelince) bir sonraki parçanın kaç saniyelik olacağı — LiveRewind'in
+ * tıklama varsayılanından (o, tıklanan andan şimdiye kadarki her şeyi
+ * getirir) BAĞIMSIZ, sabit bir adım büyüklüğü seçildi çünkü burada "şimdi"
+ * değil bir önceki parçanın BAŞI referans alınıyor.
  */
 const CHAIN_STEP_SECONDS = 120
 
@@ -361,6 +365,15 @@ function Tile({
   const [rewindStart, setRewindStart] = useStateReact<Date | null>(null)
 
   /**
+   * Geri sarılmışken işaretlenmiş klibin başlangıç anı — TileActions'ta
+   * DEĞİL burada tutuluyor: geri sarılan bölüm kendiliğinden bitip
+   * {@link backToLive} tetiklenirse (aşağıya bkz.) klibin de o anda
+   * otomatik bitirilmesi gerekiyor, bu karar TileActions'ın dışında verilmek
+   * zorunda.
+   */
+  const [pendingClipStart, setPendingClipStart] = useStateReact<Date | null>(null)
+
+  /**
    * Denetim çubuğunun bağlanacağı video elementi.
    *
    * <p>Ref değil <b>state</b>: elementin gelmesi yeniden render tetiklemeli,
@@ -406,7 +419,39 @@ function Tile({
         : captureRef.current,
   }
 
+  /**
+   * Canlıya dönüş — geri sarılan bölüm kendiliğinden bitince ({@code onEnded})
+   * ya da kullanıcı "Canlı" düğmesine basınca çağrılıyor.
+   *
+   * <p>İşaretlenmiş bir klip varsa ({@code pendingClipStart}) burada otomatik
+   * bitiriliyor: kullanıcı "durdur"a hiç basmadan bölüm bitip canlıya
+   * dönerse, klip aralığın SONUNA kadar değil bitmemiş kalırdı (bir sonraki
+   * "durdur" tıklamasında bitiş artık gerçek "şimdi" olurdu — rewind
+   * noktasından çok daha ileriye giden KOCAMAN bir aralık, tam da
+   * TileActions'taki simetri düzeltmesinin önlemeye çalıştığı bug). Bitiş
+   * anı burada, state temizlenmeden ÖNCE hesaplanıyor: rewindStart +
+   * videoEl.currentTime, yani bölümün GERÇEKTEN bittiği an.
+   */
   function backToLive() {
+    if (pendingClipStart) {
+      const bitisAni =
+        rewindStart && videoEl
+          ? new Date(rewindStart.getTime() + videoEl.currentTime * 1000)
+          : new Date()
+      const baslangicAni = pendingClipStart
+      setPendingClipStart(null)
+      void clipsApi
+        .create(channel.id, { start: baslangicAni.toISOString(), end: bitisAni.toISOString() })
+        .then(() => {
+          toast.success('Bölüm bitti, klip kuyruğa alındı.', {
+            description: 'Hazır olunca Klipler sayfasından indirebilirsiniz.',
+          })
+          onRecordingChanged()
+        })
+        .catch((e) => {
+          toast.error(e instanceof ApiError ? e.message : 'Klip oluşturulamadı.')
+        })
+    }
     if (rewindUrl) URL.revokeObjectURL(rewindUrl)
     setRewindUrl(null)
     setRewindStart(null)
@@ -497,12 +542,20 @@ function Tile({
         />
       )}
 
-      {/* Altyazı bindirmesi. Geri sarılan bölümde gösterilmiyor: o düz bir
-          mp4 ve playingDate() canlı yayın anını veremez. */}
-      {subtitleLang !== 'kapali' && !rewindUrl && (
+      {/* Altyazı bindirmesi geri sarılan bölümde de çalışabiliyor:
+          tileCapture'ın playingDate()'i (yukarıda) rewindStart +
+          video.currentTime ile geçmişteki GERÇEK anı veriyor — canlı
+          altyazı satırları zaten mutlak zaman damgasıyla eşleşiyor,
+          kaynağın canlı mı geri sarılmış mı olduğu SubtitleOverlay için
+          fark etmiyor. captureRef DEĞİL tileCapture kullanılmalı: geri
+          sarılmışken captureRef.current HlsPlayer'ın unmount'uyla null
+          kalıyor. Geri sarmadaki altyazı üretimde hiç denenmedi, bu yüzden
+          rewindUrl varken DVR_ALTYAZI_ACIK'a bağlı (canlıda her zaman açık,
+          bu zaten doğrulanmış). */}
+      {subtitleLang !== 'kapali' && (!rewindUrl || dvrAltyaziAcikMi()) && (
         <SubtitleOverlay
           channelId={channel.id}
-          capture={captureRef}
+          capture={tileCapture}
           language={subtitleLang}
           // Denetim çubuğu açıkken altyazı yukarı kalkıyor; aksi halde çubuğun
           // arkasında kalıp okunmuyordu.
@@ -547,6 +600,8 @@ function Tile({
             capture={tileCapture}
             recording={recording}
             rewound={rewindUrl !== null}
+            pendingClipStart={pendingClipStart}
+            onPendingClipStartChange={setPendingClipStart}
             onRecordingChanged={onRecordingChanged}
           />
           {/* Altyazı dili karo başına: mozaikte farklı kanallar farklı dilde

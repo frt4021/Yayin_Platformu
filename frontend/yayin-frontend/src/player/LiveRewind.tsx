@@ -25,9 +25,6 @@ const STEPS = [
  */
 const DVR_WINDOW_HOURS = 2
 
-/** Tek seferde DVR'dan çekilecek bölüm. Bittiğinde canlıya dönülüyor. */
-const CHUNK_SECONDS = 120
-
 /**
  * Sürükleyerek seçilen aralığın belleğe (blob) indirilebilecek en uzun
  * hâli. Whole-blob indirme yaklaşımı aynı `DvrPage.tsx`'teki gibi: çok uzun
@@ -36,9 +33,21 @@ const CHUNK_SECONDS = 120
  */
 const MAX_RANGE_SECONDS = 30 * 60
 
+/**
+ * Çubuğa TIKLANDIĞINDA (sürükleme değil) ne kadarı getirilecek — tıklanan
+ * andan ŞİMDİYE kadarki her şey, {@link MAX_RANGE_SECONDS} ile sınırlı
+ * (sürüklemedeki aynı bellek/bant genişliği kaygısı). Önceden sabit 2
+ * dakikaydı: o süre bitince kayıt daha fazla olsa bile otomatik canlıya
+ * dönülüyordu (gerçek istek, kaldırıldı).
+ */
+function tiklamaSuresi(time: Date): number {
+  const simdiyeKadarSn = Math.round((Date.now() - time.getTime()) / 1000)
+  return Math.max(5, Math.min(simdiyeKadarSn, MAX_RANGE_SECONDS))
+}
+
 /** {@link LiveRewind}'in dışarı açtığı komut — canlı oynatıcının kendi
  *  "geri git" düğmesi, canlı HLS tamponu (~14 sn) tükenince DEVRALMASI için.
- *  {@code durationSeconds} verilmezse {@link CHUNK_SECONDS} kullanılır. */
+ *  {@code durationSeconds} verilmezse {@link tiklamaSuresi} kullanılır. */
 export type LiveRewindHandle = {
   seekTo: (time: Date, durationSeconds?: number) => Promise<void>
 }
@@ -52,11 +61,11 @@ export type LiveRewindHandle = {
  *
  * <p><b>Üç yol var:</b> sabit 30sn/3dk/5dk düğmeleri "az önce ne oldu"yu tek
  * tıkla karşılıyor (o kadarlık sürenin TAMAMI getirilir). Yanındaki DVR
- * çubuğuna <b>tıklamak</b> o andan varsayılan bir süre oynatır;
- * <b>sürüklemek</b> ise seçilen ARALIĞIN TAMAMINI getirir — bittiğinde
- * otomatik canlıya dönülür. Üçü de aynı {@code seekTo}'ya çıkıyor:
- * istenen an kayıtlıysa DVR'den bölüm çekilir ve oynatıcıya verilir,
- * değilse uyarı verilir.
+ * çubuğuna <b>tıklamak</b> o andan ŞİMDİYE kadar oynatır ({@link tiklamaSuresi},
+ * {@link MAX_RANGE_SECONDS} ile sınırlı); <b>sürüklemek</b> ise seçilen
+ * ARALIĞIN TAMAMINI getirir — ikisi de bittiğinde otomatik canlıya dönülür.
+ * Üçü de aynı {@code seekTo}'ya çıkıyor: istenen an kayıtlıysa DVR'den
+ * bölüm çekilir ve oynatıcıya verilir, değilse uyarı verilir.
  *
  * <p>Kanalda DVR kapalıysa hiç gösterilmiyor: kayıt yoksa geri sarılacak
  * bir şey de yok.
@@ -118,7 +127,7 @@ export const LiveRewind = forwardRef<LiveRewindHandle, {
     )
   }
 
-  async function seekTo(time: Date, durationSeconds: number = CHUNK_SECONDS) {
+  async function seekTo(time: Date, durationSeconds: number = tiklamaSuresi(time)) {
     if (!channel.dvrEnabled) return
 
     let recorded = isRecorded(time)
@@ -258,11 +267,10 @@ export const LiveRewind = forwardRef<LiveRewindHandle, {
               variant="secondary"
               className="h-7 px-2 text-xs"
               disabled={busy}
-              // durationSeconds = s.seconds + pay: yalnızca CHUNK_SECONDS
-              // (2 dk) değil, TAM olarak o kadar geriden şimdiye kadarki
-              // bütün bölümü getirsin -- "5 dk" tıklayınca 2 dakikada
-              // bitip canlıya dönmesin, gerçekten 5 dakikanın tamamını
-              // izleyebilsin.
+              // durationSeconds ACIKCA veriliyor (tiklamaSuresi'nin
+              // varsayilanina birakilmiyor): "5 dk" tıklayınca gerçekten
+              // 5 dakikanın tamamı getirilsin, o an "şimdi"ye ne kadar
+              // yakın olduğuna bakılmasın.
               onClick={() => void seekTo(new Date(Date.now() - s.seconds * 1000), s.seconds + 10)}
               title={`${s.label} geri sar`}
             >

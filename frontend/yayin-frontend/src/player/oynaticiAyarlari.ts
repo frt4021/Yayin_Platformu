@@ -38,12 +38,23 @@ let hlsGeride = 8
  */
 let altyaziDilleri: readonly string[] = ['tr', 'de', 'ru']
 
+/**
+ * DVR önizlemesinde altyazı gösterilsin mi. Altyapı hazır ama üretimde hiç
+ * denenmedi (`.env`: `DVR_ALTYAZI_ACIK`, varsayılan kapalı) — kapalıyken
+ * DvrPage dil seçiciyi/bindirmeyi hiç göstermiyor.
+ */
+let dvrAltyaziAcik = false
+
 export function hlsGerideOku(): number {
   return hlsGeride
 }
 
 export function altyaziDilleriOku(): readonly string[] {
   return altyaziDilleri
+}
+
+export function dvrAltyaziAcikMi(): boolean {
+  return dvrAltyaziAcik
 }
 
 /**
@@ -54,9 +65,11 @@ export function altyaziDilleriOku(): readonly string[] {
  */
 export async function ayarlariYukle(): Promise<void> {
   try {
-    const gelen = await api.get<{ hlsGeride: number; altyaziDilleri: string[] }>(
-      '/api/ayarlar/oynatici',
-    )
+    const gelen = await api.get<{
+      hlsGeride: number
+      altyaziDilleri: string[]
+      dvrAltyaziAcik: boolean
+    }>('/api/ayarlar/oynatici')
     // Sifir ve negatif REDDEDILIYOR: hls.js'te kullanici ayari verilmemis
     // sayilir ve sunucunun PART-HOLD-BACK=0.5 onerisine duser -- butce yarim
     // saniyeye iner ve altyazi hicbir kosulda yetismez.
@@ -66,6 +79,7 @@ export async function ayarlariYukle(): Promise<void> {
     if (Array.isArray(gelen.altyaziDilleri) && gelen.altyaziDilleri.length > 0) {
       altyaziDilleri = gelen.altyaziDilleri
     }
+    dvrAltyaziAcik = gelen.dvrAltyaziAcik === true
   } catch {
     // Varsayilanlarla devam.
   }

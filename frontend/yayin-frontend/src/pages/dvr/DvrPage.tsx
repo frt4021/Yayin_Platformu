@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { CameraIcon, Loader2Icon, PlayIcon, ScissorsIcon, XIcon } from 'lucide-react'
 import { Timeline, type Selection } from './Timeline'
+import { subtitleLangs, SubtitleOverlay } from '@/player/SubtitleOverlay'
+import { dvrAltyaziAcikMi } from '@/player/oynaticiAyarlari'
 import { GuidedTour } from '@/components/tour/GuidedTour'
 import { usePageTour } from '@/components/tour/usePageTour'
 import { TourTrigger } from '@/components/tour/TourTrigger'
@@ -81,6 +83,7 @@ export function DvrPage() {
   const [previewRange, setPreviewRange] = useState<{ start: Date; seconds: number } | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [capturing, setCapturing] = useState(false)
+  const [subtitleLang, setSubtitleLang] = useState<string>('kapali')
 
   /**
    * Seçim boyunca eşit aralıklı kareler — "neyi klip alıyorum" sorusunun
@@ -334,6 +337,27 @@ export function DvrPage() {
     ? Math.round((selection.end.getTime() - selection.start.getTime()) / 1000)
     : 0
 
+  /**
+   * SubtitleOverlay için tutamak — {@code captureFromPreview}'daki AYNI
+   * hesap: {@code previewRange.start + video.currentTime}, önizlemenin
+   * gösterdiği GERÇEK geçmiş anı verir. Canlı altyazı satırları mutlak
+   * zaman damgasıyla eşleştiği için (bkz. SubtitleOverlay) kaynağın canlı
+   * mı DVR önizlemesi mi olduğu fark etmiyor — aynı mekanizma burada da
+   * çalışıyor, yalnızca "şimdi" yerine "previewRange"e göre hesaplanıyor.
+   */
+  const dvrCapture = {
+    current:
+      previewRange && videoRef.current
+        ? {
+            video: videoRef.current,
+            playingDate: () =>
+              new Date(previewRange.start.getTime() + (videoRef.current?.currentTime ?? 0) * 1000),
+            liveEdge: () => null,
+            goLive: () => {},
+          }
+        : null,
+  }
+
   const tur = usePageTour(DVR_TOUR_SEEN_KEY)
 
   return (
@@ -446,6 +470,21 @@ export function DvrPage() {
                         {formatDuration(previewRange.seconds)}
                       </span>
                     )}
+                    {dvrAltyaziAcikMi() && (
+                      <select
+                        aria-label="Altyazı"
+                        title="Altyazı dili"
+                        className="h-7 rounded-md border bg-secondary px-1.5 text-xs text-secondary-foreground"
+                        value={subtitleLang}
+                        onChange={(e) => setSubtitleLang(e.target.value)}
+                      >
+                        {subtitleLangs().map((l) => (
+                          <option key={l.kod} value={l.kod}>
+                            {l.ad}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     <Button
                       size="icon"
                       variant="secondary"
@@ -471,6 +510,14 @@ export function DvrPage() {
                     playsInline
                     className="aspect-video w-full rounded-lg bg-black"
                   />
+                  {dvrAltyaziAcikMi() && subtitleLang !== 'kapali' && channelId && (
+                    <SubtitleOverlay
+                      channelId={channelId}
+                      capture={dvrCapture}
+                      language={subtitleLang}
+                      className="pb-10"
+                    />
+                  )}
                   {previewLoading && (
                     <div className="absolute inset-0 grid place-items-center rounded-lg bg-black/60">
                       <Loader2Icon className="size-6 animate-spin text-white" />

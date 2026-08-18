@@ -41,14 +41,25 @@ public class OynaticiAyarResource {
     String hedefDillerHam;
 
     /**
+     * Altyapı hazır (DVR önizlemesi de canlı ile aynı mutlak zaman damgası
+     * eşlemesini kullanıyor) ama üretimde hiç denenmedi — bu yüzden ayrı bir
+     * anahtar, {@code stt.target-langs}'a bağlı değil. Kapalıyken önyüz DVR
+     * sayfasında dil seçiciyi/bindirmeyi hiç göstermiyor.
+     */
+    @ConfigProperty(name = "dvr.altyazi-acik")
+    boolean dvrAltyaziAcik;
+
+    /**
      * @param hlsGeride      izleyicinin canlı kenardan kaç bölüt geriden izleyeceği.
      *                       Ayrıntı: {@link #ayarlar()}
      * @param altyaziDilleri altyazının üretildiği hedef diller (ISO kodu,
      *                       ör. {@code ["tr","de","ru"]}) — pivot {@code en}
      *                       ve {@code kapali} seçeneği bu listede DEĞİL,
      *                       önyüz onları sabit ekliyor.
+     * @param dvrAltyaziAcik DVR önizlemesinde altyazı gösterilsin mi
+     *                       ({@code DVR_ALTYAZI_ACIK}, varsayılan kapalı).
      */
-    public record OynaticiAyarlari(int hlsGeride, List<String> altyaziDilleri) {
+    public record OynaticiAyarlari(int hlsGeride, List<String> altyaziDilleri, boolean dvrAltyaziAcik) {
     }
 
     /**
@@ -80,6 +91,6 @@ public class OynaticiAyarResource {
             .map(String::strip)
             .filter(dil -> !dil.isEmpty())
             .toList();
-        return new OynaticiAyarlari(hlsGeride, diller);
+        return new OynaticiAyarlari(hlsGeride, diller, dvrAltyaziAcik);
     }
 }

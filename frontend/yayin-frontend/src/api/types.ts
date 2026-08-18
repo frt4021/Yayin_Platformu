@@ -34,8 +34,6 @@ export const ETKINLIK_TURLERI = [
   'KULLANICI_ROLU_DEGISTI',
   'VIDEO_YUKLENDI',
   'VIDEO_SILINDI',
-  'VIDEO_IZLEME_BASLADI',
-  'VIDEO_IZLEME_BITTI',
   'OYNATMA_HATASI',
   'OYNATMA_TAKILMA',
 ] as const
@@ -105,14 +103,6 @@ export interface GenelAktiviteDto {
   mau: number
   saatBazliGiris: Record<string, number>
   ortalamaIzlemeBaslangici24s: number
-}
-
-export interface VideoIzlemeOzeti {
-  ziyaretEdilenDilimler: number[]
-  tamamlandi: boolean
-  duraklatmaSayisi: number
-  sarmaSayisi: number
-  sureMs: number
 }
 
 export interface OynatmaOzeti {

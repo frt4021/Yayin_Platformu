@@ -54,8 +54,6 @@ export const TUR_ETIKET: Record<EtkinlikTuru, string> = {
   KULLANICI_ROLU_DEGISTI: 'Kullanıcı rolü değişti',
   VIDEO_YUKLENDI: 'Video yüklendi',
   VIDEO_SILINDI: 'Video silindi',
-  VIDEO_IZLEME_BASLADI: 'Video izleme başladı',
-  VIDEO_IZLEME_BITTI: 'Video izleme bitti',
   OYNATMA_HATASI: 'Oynatma hatası',
   OYNATMA_TAKILMA: 'Oynatma takılması',
 }
@@ -88,10 +86,6 @@ function detaySummary(kayit: EtkinlikDto): string {
       return `${String(d.dakika ?? '?')} dk`
     case 'KAYIT_DURDU':
       return `${String(d.sureSn ?? '?')} sn`
-    case 'VIDEO_IZLEME_BITTI': {
-      const dilimler = Array.isArray(d.ziyaretEdilenDilimler) ? d.ziyaretEdilenDilimler.length : 0
-      return `${dilimler}/10 dilim${d.tamamlandi ? ', tamamlandı' : ''}`
-    }
     case 'OYNATMA_HATASI':
     case 'OYNATMA_TAKILMA':
       return `${String(d.sayi ?? '?')} olay`

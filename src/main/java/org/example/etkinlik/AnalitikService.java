@@ -31,8 +31,6 @@ import org.example.etkinlik.dto.ServisMetrikleriDto;
 import org.example.etkinlik.dto.SistemSagligiOzetDto;
 import org.example.etkinlik.dto.TeknikDto;
 import org.example.etkinlik.dto.TopEtiketDto;
-import org.example.etkinlik.dto.VideoAnalitikOzetDto;
-import org.example.etkinlik.dto.VideoIsiHaritasiDto;
 import org.example.radio.entity.Radio;
 import org.example.storage.QuotaService;
 import org.example.user.entity.AppUser;
@@ -186,57 +184,6 @@ public class AnalitikService {
                 + "where tur in ('OYNATMA_HATASI', 'OYNATMA_TAKILMA')")
             .getSingleResult();
         return 100.0 * olayToplami.longValue() / baslangicSayisi;
-    }
-
-    public List<VideoAnalitikOzetDto> videoListesi() {
-        @SuppressWarnings("unchecked")
-        List<Object[]> satirlar = EtkinlikKaydi.getEntityManager()
-            .createNativeQuery(
-                "select v.id, v.title, count(e.id), "
-                    + "  coalesce(avg(case when (e.detay->>'tamamlandi')::boolean then 1.0 else 0.0 end), 0) * 100 "
-                    + "from videos v "
-                    + "join etkinlik_kayitlari e on e.hedef_id = v.id and e.tur = 'VIDEO_IZLEME_BITTI' "
-                    + "group by v.id, v.title "
-                    + "order by count(e.id) desc "
-                    + "limit 200")
-            .getResultList();
-        return satirlar.stream()
-            .map(r -> new VideoAnalitikOzetDto(
-                (UUID) r[0], (String) r[1], ((Number) r[2]).longValue(), ((Number) r[3]).doubleValue()))
-            .toList();
-    }
-
-    public VideoIsiHaritasiDto videoIsiHaritasi(UUID videoId) {
-        Object[] ozet = (Object[]) EtkinlikKaydi.getEntityManager()
-            .createNativeQuery(
-                "select count(*), coalesce(avg(case when (detay->>'tamamlandi')::boolean then 1.0 else 0.0 end), 0) * 100 "
-                    + "from etkinlik_kayitlari where tur = 'VIDEO_IZLEME_BITTI' and hedef_id = :id")
-            .setParameter("id", videoId)
-            .getSingleResult();
-        long oturumSayisi = ((Number) ozet[0]).longValue();
-        double tamamlanmaOrani = ((Number) ozet[1]).doubleValue();
-
-        @SuppressWarnings("unchecked")
-        List<Object[]> dilimSatirlari = EtkinlikKaydi.getEntityManager()
-            .createNativeQuery(
-                "select (elem)::int as dilim, count(*) "
-                    + "from etkinlik_kayitlari e "
-                    + "cross join lateral jsonb_array_elements_text(e.detay -> 'ziyaretEdilenDilimler') as elem "
-                    + "where e.tur = 'VIDEO_IZLEME_BITTI' and e.hedef_id = :id "
-                    + "group by dilim")
-            .setParameter("id", videoId)
-            .getResultList();
-
-        long[] dilimSayaclari = new long[10];
-        for (Object[] satir : dilimSatirlari) {
-            int i = ((Number) satir[0]).intValue();
-            if (i >= 0 && i < 10) {
-                dilimSayaclari[i] = ((Number) satir[1]).longValue();
-            }
-        }
-        Video video = Video.findById(videoId);
-        String baslik = video == null ? "Silinmiş video" : video.title;
-        return new VideoIsiHaritasiDto(videoId, baslik, oturumSayisi, tamamlanmaOrani, dilimSayaclari);
     }
 
     public GenelAktiviteDto genel() {

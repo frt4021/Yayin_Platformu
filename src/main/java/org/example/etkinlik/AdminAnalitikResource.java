@@ -17,12 +17,7 @@ import org.example.etkinlik.dto.KullaniciAktiviteDto;
 import org.example.etkinlik.dto.ServisMetrikleriDto;
 import org.example.etkinlik.dto.SistemSagligiOzetDto;
 import org.example.etkinlik.dto.TeknikDto;
-import org.example.etkinlik.dto.VideoAnalitikOzetDto;
-import org.example.etkinlik.dto.VideoIsiHaritasiDto;
 import org.example.user.Roles;
-
-import java.util.List;
-import java.util.UUID;
 
 /**
  * Faz 1 analitik dashboard'u — beş uç, kullanıcının önerdiği beş dashboard
@@ -100,22 +95,6 @@ public class AdminAnalitikResource {
         description = "DAU/MAU, saat bazlı giriş dağılımı (peak hours), zapping vekili.")
     public GenelAktiviteDto genel() {
         return analitikService.genel();
-    }
-
-    @GET
-    @Path("/videolar")
-    @Operation(summary = "İzlenen video listesi (özet)",
-        description = "Oturum sayısı ve tamamlanma oranına göre azalan sırada; en fazla 200.")
-    public List<VideoAnalitikOzetDto> videoListesi() {
-        return analitikService.videoListesi();
-    }
-
-    @GET
-    @Path("/videolar/{id}")
-    @Operation(summary = "Video izleme ısı haritası",
-        description = "10 dilimlik kaba tekrar-izleme dağılımı ve tamamlanma oranı.")
-    public VideoIsiHaritasiDto videoIsiHaritasi(@PathParam("id") UUID id) {
-        return analitikService.videoIsiHaritasi(id);
     }
 
     @GET

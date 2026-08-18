@@ -57,6 +57,9 @@ export function VideosPage() {
   const [playing, setPlaying] = useState<VideoDto | null>(null)
   const [links, setLinks] = useState<VideoLinks | null>(null)
   const [linksError, setLinksError] = useState<string | null>(null)
+  const playerVideoRef = useRef<HTMLVideoElement>(null)
+  /** 'kapali' ya da links.subtitles içindeki bir srcLang. */
+  const [aktifAltyazi, setAktifAltyazi] = useState<string>('kapali')
 
   const tur = usePageTour(VIDEOS_TOUR_SEEN_KEY)
 
@@ -108,6 +111,8 @@ export function VideosPage() {
         if (!cancelled) {
           setLinks(result)
           setLinksError(null)
+          // <track default> ile aynı fikir: ilk üretilen dil varsayılan gösterilsin.
+          setAktifAltyazi(result.subtitles[0]?.lang ?? 'kapali')
         }
       } catch (e) {
         if (!cancelled) {
@@ -119,6 +124,21 @@ export function VideosPage() {
       cancelled = true
     }
   }, [playing])
+
+  /**
+   * Tarayıcının kendi "CC" menüsü çoğu kullanıcı için gizli/keşfedilmesi
+   * zor kaldığı için (gerçek geri bildirim, bkz. ClipsPage.tsx'teki aynı
+   * çözüm) burada açık bir seçici sunuluyor. `<track>`'lar zaten DOM'da —
+   * bu yalnızca hangisinin {@code mode}'unu "showing" yaptığını
+   * değiştiriyor, ek bir istek atmıyor.
+   */
+  useEffect(() => {
+    const el = playerVideoRef.current
+    if (!el) return
+    for (const t of Array.from(el.textTracks)) {
+      t.mode = t.language === aktifAltyazi ? 'showing' : 'hidden'
+    }
+  }, [aktifAltyazi, links?.stream])
 
   // Oynatılan video listede değişmiş olabilir (durum güncellenmiş); en
   // taze halini tut.
@@ -188,28 +208,55 @@ export function VideosPage() {
         // YouTube tarzı: solda oynatıcı + başlık/açıklama, sağda liste.
         <div className="flex flex-col gap-6 lg:flex-row">
           <div className="min-w-0 flex-1">
-            <div className="aspect-video overflow-hidden rounded-xl bg-black">
+            <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
+              {/* Videonun kendi üzerinde, sağ üstte -- tarayıcının native
+                  "CC" menüsü gizli/keşfedilmesi zor kaldığı için (gerçek
+                  geri bildirim). Denetim çubuğu ALTTA olduğu için çakışma
+                  yok. */}
+              {links && links.subtitles.length > 0 && (
+                <label className="absolute right-2 top-2 z-10 flex items-center gap-2 rounded-md bg-black/70 px-2 py-1 text-sm text-white backdrop-blur-sm">
+                  Altyazı
+                  <select
+                    aria-label="Altyazı dili"
+                    className="h-7 rounded-md border border-white/30 bg-black/60 px-1.5 text-sm text-white"
+                    value={aktifAltyazi}
+                    onChange={(e) => setAktifAltyazi(e.target.value)}
+                  >
+                    <option value="kapali">Kapalı</option>
+                    {links.subtitles.map((t) => (
+                      <option key={t.lang} value={t.lang}>
+                        {subtitleLangs().find((l) => l.kod === t.lang)?.ad ?? t.lang}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               {linksError ? (
                 <div className="grid size-full place-items-center p-4 text-center text-sm text-status-error">
                   {linksError}
                 </div>
               ) : links ? (
-                // key: adres degisince oynatici yeniden kurulmali.
+                // key: adres degisince oynatici yeniden kurulmali. crossOrigin
+                // ŞART: MinIO CORS başlığı doğru dönse bile bu olmadan
+                // tarayıcı <track> isteğini "no-cors" atıp yanıtı opak sayar,
+                // altyazı sessizce hiç yüklenmez (bkz. ClipsPage.tsx'teki
+                // aynı düzeltme).
                 <video
                   key={links.stream}
+                  ref={playerVideoRef}
                   src={links.stream}
+                  crossOrigin="anonymous"
                   controls
                   autoPlay
                   className="size-full"
                 >
-                  {links.subtitles.map((t, i) => (
+                  {links.subtitles.map((t) => (
                     <track
                       key={t.lang}
                       kind="subtitles"
                       srcLang={t.lang}
                       label={subtitleLangs().find((l) => l.kod === t.lang)?.ad ?? t.lang}
                       src={t.url}
-                      default={i === 0}
                     />
                   ))}
                 </video>

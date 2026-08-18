@@ -47,6 +47,8 @@ export function TileActions({
   capture,
   recording,
   rewound,
+  pendingClipStart,
+  onPendingClipStartChange,
   onRecordingChanged,
 }: {
   channel: ChannelDto
@@ -55,23 +57,26 @@ export function TileActions({
   recording: ActiveRecordingDto | null
   /** Oynatıcı şu an geri sarılmış bir DVR bölümünü mü gösteriyor. */
   rewound: boolean
+  /**
+   * Geri sarılmışken "kayda başla"nın işaretlediği GEÇMİŞ an — PersistentPlayers'ta
+   * tutuluyor (bu bileşende DEĞİL) çünkü geri sarılan bölüm kendiliğinden
+   * bitip canlıya dönerse (bkz. backToLive) klibin de o an otomatik
+   * bitirilmesi gerekiyor; o karar burada değil üst bileşende veriliyor.
+   *
+   * <p>Sunucuda bir kayıt AÇILMIYOR — {@code recordingsApi.start/stop} hep
+   * "şimdi"den başlar, geçmiş bir andan başlamayı desteklemiyor. Bunun yerine
+   * başlangıç anı istemcide hatırlanıyor; "durdur"a basıldığında bu andan
+   * ŞİMDİYE kadar DVR'dan doğrudan bir klip istenip aynı sonuca ulaşılıyor —
+   * DVR zaten sürekli kaydettiği için bu geriye dönük istek her zaman
+   * karşılanabilir.
+   */
+  pendingClipStart: Date | null
+  onPendingClipStartChange: (an: Date | null) => void
   onRecordingChanged: () => void
 }) {
   const [busy, setBusy] = useState(false)
   const [, tick] = useState(0)
   const shotBusy = useRef(false)
-
-  /**
-   * Geri sarılmışken "kayda başla"nın işaretlediği GEÇMİŞ an.
-   *
-   * <p>Sunucuda bir kayıt AÇILMIYOR — {@code recordingsApi.start/stop} hep
-   * "şimdi"den başlar, geçmiş bir andan başlamayı desteklemiyor. Bunun yerine
-   * başlangıç anı burada, istemcide hatırlanıyor; "durdur"a basıldığında bu
-   * andan ŞİMDİYE kadar DVR'dan doğrudan bir klip istenip aynı sonuca
-   * ulaşılıyor — DVR zaten sürekli kaydettiği için bu geriye dönük istek
-   * her zaman karşılanabilir.
-   */
-  const [pendingClipStart, setPendingClipStart] = useState<Date | null>(null)
 
   // Kayıt/klip işaretleme sürerken saniye sayacını ilerlet. Süre istemcide
   // hesaplanıyor; sunucudan saniye saniye çekmek gereksiz trafik olurdu.
@@ -98,7 +103,7 @@ export function TileActions({
         // "sonsuza dek kaydediyor" görünümünde takılı kalmasın.
         const start = pendingClipStart
         const end = capture.current?.playingDate() ?? new Date()
-        setPendingClipStart(null)
+        onPendingClipStartChange(null)
         await clipsApi.create(channel.id, {
           start: start.toISOString(),
           end: end.toISOString(),
@@ -128,7 +133,7 @@ export function TileActions({
         if (!an) {
           toast.error('Hangi andan başlanacağı belirlenemedi.')
         } else {
-          setPendingClipStart(an)
+          onPendingClipStartChange(an)
           toast.success(
             `${channel.name} — ${an.toLocaleTimeString('tr-TR')} anından itibaren klip işaretlendi.`,
             { description: 'Bitirmek için tekrar basın.' },

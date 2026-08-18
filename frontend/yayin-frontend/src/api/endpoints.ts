@@ -40,7 +40,6 @@ import type {
   UploadTicket,
   UserDto,
   VideoDto,
-  VideoIzlemeOzeti,
   VideoLinks,
 } from './types'
 
@@ -220,13 +219,6 @@ export const videosApi = {
   },
 
   remove: (id: string) => api.delete<void>(`/api/videos/${id}`),
-
-  /** Gerçek oynatma başlangıcı — viewCount'un artığı link-fetch NİYETİNDEN farklı. */
-  izlemeBasladi: (id: string) => api.post<void>(`/api/videos/${id}/izleme-basladi`, {}),
-
-  /** Dialog kapanırken TEK beacon; tamamlanma oranı ve ısı haritası için. */
-  izlemeOzeti: (id: string, ozet: VideoIzlemeOzeti) =>
-    api.post<void>(`/api/videos/${id}/izleme-ozeti`, ozet),
 }
 
 export const recordingsApi = {

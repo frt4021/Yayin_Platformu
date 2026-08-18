@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { ApiError } from '@/api/client'
 import { clipsApi } from '@/api/endpoints'
@@ -73,6 +73,23 @@ export function ClipsPage() {
     url: string | null
     subtitles: SubtitleTrackDto[]
   } | null>(null)
+  const watchVideoRef = useRef<HTMLVideoElement>(null)
+  /** 'kapali' ya da watching.subtitles içindeki bir srcLang. */
+  const [aktifAltyazi, setAktifAltyazi] = useState<string>('kapali')
+
+  /**
+   * Tarayıcının kendi "CC" menüsü çoğu kullanıcı için gizli/keşfedilmesi
+   * zor kaldığı için (gerçek geri bildirim) burada açık bir seçici
+   * sunuluyor. `<track>`'lar zaten DOM'da — bu yalnızca hangisinin
+   * {@code mode}'unu "showing" yaptığını değiştiriyor, ek bir istek atmıyor.
+   */
+  useEffect(() => {
+    const video = watchVideoRef.current
+    if (!video) return
+    for (const t of Array.from(video.textTracks)) {
+      t.mode = t.language === aktifAltyazi ? 'showing' : 'hidden'
+    }
+  }, [aktifAltyazi, watching?.url])
 
   const load = useCallback(async () => {
     try {
@@ -117,9 +134,12 @@ export function ClipsPage() {
 
   async function watch(clip: ClipDto) {
     setWatching({ clip, url: null, subtitles: [] })
+    setAktifAltyazi('kapali')
     try {
       const { stream, subtitles } = await clipsApi.links(clip.id)
       setWatching({ clip, url: stream, subtitles })
+      // <track default> ile aynı fikir: ilk dil varsayılan gösterilsin.
+      setAktifAltyazi(subtitles[0]?.lang ?? 'kapali')
     } catch (e) {
       setWatching(null)
       toast.error(e instanceof ApiError ? e.message : 'İzleme adresi alınamadı.')
@@ -312,32 +332,56 @@ export function ClipsPage() {
       <Dialog open={watching !== null} onOpenChange={(open) => !open && setWatching(null)}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>{watching?.clip.channelName}</DialogTitle>
-            <DialogDescription>
-              {watching && new Date(watching.clip.start).toLocaleString('tr-TR')} ·{' '}
-              {watching && formatDuration(watching.clip.durationSeconds)}
-            </DialogDescription>
+            <div className="flex items-center justify-between gap-3 pr-6">
+              <div>
+                <DialogTitle>{watching?.clip.channelName}</DialogTitle>
+                <DialogDescription>
+                  {watching && new Date(watching.clip.start).toLocaleString('tr-TR')} ·{' '}
+                  {watching && formatDuration(watching.clip.durationSeconds)}
+                </DialogDescription>
+              </div>
+              {/* Denetim çubuğunun (video controls) üstüne değil, oynatıcının
+                  DIŞINA konuyor -- native denetimlerle karışıp tıklamayı
+                  yutmasın diye. */}
+              {watching?.url && watching.subtitles.length > 0 && (
+                <label className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
+                  Altyazı
+                  <select
+                    aria-label="Altyazı dili"
+                    className="h-8 rounded-md border bg-secondary px-2 text-sm text-secondary-foreground"
+                    value={aktifAltyazi}
+                    onChange={(e) => setAktifAltyazi(e.target.value)}
+                  >
+                    <option value="kapali">Kapalı</option>
+                    {watching.subtitles.map((t) => (
+                      <option key={t.lang} value={t.lang}>
+                        {subtitleLabel(t.lang)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
           </DialogHeader>
 
           {watching?.url ? (
             // key: adres degisince <video> yeniden kurulsun, onceki klip
-            // acik kalmasin.
+            // acik kalmasin. crossOrigin ŞART: MinIO'nun altyazı dosyası
+            // için doğru CORS başlığı dönmesi YETMEZ -- <video>'da bu
+            // özellik yoksa tarayıcı track isteğini "no-cors" modunda atar
+            // ve yanıtı opak sayıp cue'ları hiç ayrıştırmaz (ÖLÇÜLDÜ: video
+            // sorunsuz oynuyordu, altyazı sessizce hiç yüklenmiyordu).
             <video
               key={watching.url}
+              ref={watchVideoRef}
               src={watching.url}
+              crossOrigin="anonymous"
               controls
               autoPlay
               className="aspect-video w-full rounded-lg bg-black"
             >
-              {watching.subtitles.map((t, i) => (
-                <track
-                  key={t.lang}
-                  kind="subtitles"
-                  srcLang={t.lang}
-                  label={subtitleLabel(t.lang)}
-                  src={t.url}
-                  default={i === 0}
-                />
+              {watching.subtitles.map((t) => (
+                <track key={t.lang} kind="subtitles" srcLang={t.lang} label={subtitleLabel(t.lang)} src={t.url} />
               ))}
             </video>
           ) : (
