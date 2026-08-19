@@ -27,6 +27,7 @@ import type {
   SistemLogDto,
   SistemSagligiOzetDto,
   TeknikDto,
+  KullaniciSayfasiDto,
   RadioDto,
   RadioRequest,
   QuotaUsage,
@@ -67,7 +68,7 @@ export const adminUsersApi = {
   list: (search?: string, first = 0, max = 50) => {
     const params = new URLSearchParams({ first: String(first), max: String(max) })
     if (search) params.set('search', search)
-    return api.get<UserDto[]>(`/api/admin/users?${params}`)
+    return api.get<KullaniciSayfasiDto>(`/api/admin/users?${params}`)
   },
 
   create: (request: CreateUserRequest) => api.post<UserDto>('/api/admin/users', request),

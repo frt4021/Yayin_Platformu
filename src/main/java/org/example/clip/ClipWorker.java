@@ -13,14 +13,18 @@ import org.example.subtitle.entity.Subtitle;
 import org.jboss.logging.Logger;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Bir klip işini üreten birim. Ne zaman çalışacağına {@link ClipConsumer}
@@ -58,6 +62,21 @@ ClipWorker {
      */
     @ConfigProperty(name = "clips.dvr-bekleme")
     Duration dvrBekleme;
+
+    @ConfigProperty(name = "clips.preview-enabled")
+    boolean previewEnabled;
+
+    @ConfigProperty(name = "clips.preview-seconds")
+    int previewSeconds;
+
+    @ConfigProperty(name = "clips.preview-width")
+    int previewWidth;
+
+    @ConfigProperty(name = "clips.preview-timeout-seconds")
+    int previewTimeoutSeconds;
+
+    /** {@code MediaTools}'taki (kütüphane videoları) sabitle aynı değer. */
+    private static final int PREVIEW_CRF = 30;
 
     /**
      * Tek bir işi talep eder: Redis'ten gelen bildirimin karşılığı.
@@ -154,8 +173,10 @@ ClipWorker {
 
                 long size = storage.put(job.objectKey(), body, "video/mp4");
                 List<String> uretilenDiller = altyaziUret(job.channelId(), job.objectKey(), bas, bit);
+                OnizlemeSonucu onizleme = onizlemeUret(job.objectKey(), duration.getSeconds());
                 markReady(clipId, job.objectKey(), size,
-                    uretilenDiller.isEmpty() ? null : String.join(",", uretilenDiller));
+                    uretilenDiller.isEmpty() ? null : String.join(",", uretilenDiller),
+                    onizleme.previewKey(), onizleme.thumbnailKey());
                 LOG.infof("Klip hazır: %s (%,d bayt)", clipId, size);
             }
         } catch (Exception e) {
@@ -282,7 +303,8 @@ ClipWorker {
     }
 
     @Transactional
-    void markReady(UUID clipId, String objectKey, long size, String subtitleLangs) {
+    void markReady(UUID clipId, String objectKey, long size, String subtitleLangs,
+                   String previewKey, String thumbnailKey) {
         Clip clip = Clip.findById(clipId);
         if (clip == null) {
             return;
@@ -291,6 +313,8 @@ ClipWorker {
         clip.objectKey = objectKey;
         clip.sizeBytes = size;
         clip.subtitleLangs = subtitleLangs;
+        clip.previewKey = previewKey;
+        clip.thumbnailKey = thumbnailKey;
         clip.completedAt = Instant.now();
         clip.error = null;
     }
@@ -360,6 +384,105 @@ ClipWorker {
         } catch (Exception e) {
             LOG.warnf(e, "Klip altyazısı üretilemedi, klip yine de hazır olacak.");
             return List.of();
+        }
+    }
+
+    /**
+     * Izgarada fare kartın üzerine geldiğinde oynayan kısa, sessiz önizleme
+     * klibini üretir — {@code VideoWorker.buildPreview}'la aynı ürün, ama
+     * ayrı bir yol: {@code MediaTools}/{@code VideoEncoder} burada
+     * KULLANILMIYOR. O soyutlama {@code videos.encoder} (varsayılan NVENC)
+     * ayarına bağlı ve yalnızca {@code video-worker} konteynerinde donanım
+     * hızlandırması var; {@code ClipWorker} ise backend'de çalışıyor, orada
+     * düz bir ffmpeg ikili dosyası var ama VAAPI/NVENC yok. Bu yüzden
+     * kodlayıcı burada SABİT yazılım (libx264).
+     *
+     * <p><b>Hata ölümcül değil</b> — {@link #altyaziUret} ile aynı ilke:
+     * önizleme ikincil, klip sağlamsa yine HAZIR olmalı, kart yalnızca ikon
+     * yer tutucuya düşer.
+     *
+     * <p>Kapak resmi önizleme klibinden çıkarılıyor (ayrıca kaynaktan değil):
+     * tek okuma yeterli oluyor, ikinci bir MinIO okuması gerekmiyor.
+     */
+    private OnizlemeSonucu onizlemeUret(String objectKey, long clipSeconds) {
+        if (!previewEnabled) {
+            return new OnizlemeSonucu(null, null);
+        }
+        Path onizleme = null;
+        Path kapak = null;
+        try {
+            onizleme = Files.createTempFile("klip-onizleme", ".mp4");
+            int uzunluk = (int) Math.max(1, Math.min(previewSeconds, clipSeconds));
+            String kaynak = storage.internalReadUrl(objectKey);
+
+            ffmpegCalistir(List.of(
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+                "-t", String.valueOf(uzunluk),
+                "-i", kaynak,
+                "-an",
+                "-vf", "scale=" + previewWidth + ":-2",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", String.valueOf(PREVIEW_CRF),
+                "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart", "-y", onizleme.toString()),
+                "ffmpeg (klip önizlemesi)");
+            if (Files.size(onizleme) == 0) {
+                throw new IOException("önizleme boş üretildi");
+            }
+
+            kapak = Files.createTempFile("klip-kapak", ".jpg");
+            ffmpegCalistir(List.of(
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+                "-i", onizleme.toString(),
+                "-frames:v", "1",
+                "-q:v", "4",
+                "-y", kapak.toString()),
+                "ffmpeg (klip kapağı)");
+            if (Files.size(kapak) == 0) {
+                throw new IOException("kapak boş üretildi");
+            }
+
+            String previewKey = objectKey.replace(".mp4", "-onizleme.mp4");
+            String thumbnailKey = objectKey.replace(".mp4", "-kapak.jpg");
+            storage.putFile(previewKey, onizleme, "video/mp4");
+            storage.putFile(thumbnailKey, kapak, "image/jpeg");
+            return new OnizlemeSonucu(previewKey, thumbnailKey);
+        } catch (Exception e) {
+            LOG.warnf(e, "Klip önizlemesi/kapağı üretilemedi, klip yine de hazır olacak: %s", objectKey);
+            return new OnizlemeSonucu(null, null);
+        } finally {
+            silQuietly(onizleme);
+            silQuietly(kapak);
+        }
+    }
+
+    private record OnizlemeSonucu(String previewKey, String thumbnailKey) {
+    }
+
+    private void silQuietly(Path file) {
+        if (file == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(file);
+        } catch (IOException e) {
+            LOG.debugf("Geçici dosya silinemedi: %s", file);
+        }
+    }
+
+    /** {@code MediaTools.run}'la (org.example.video) aynı idiom — burada tekrarlanıyor çünkü o sınıf donanım kodlayıcı seçimine bağlı, bu ise SABİT yazılım. */
+    private void ffmpegCalistir(List<String> cmd, String etiket) throws IOException, InterruptedException {
+        Process process = new ProcessBuilder(cmd).redirectErrorStream(false).start();
+        String stderr;
+        try (var stdout = process.getInputStream(); var stderrStream = process.getErrorStream()) {
+            stdout.readAllBytes();
+            stderr = new String(stderrStream.readAllBytes());
+        }
+        if (!process.waitFor(previewTimeoutSeconds, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            throw new IOException(etiket + " zaman aşımına uğradı");
+        }
+        if (process.exitValue() != 0) {
+            throw new IOException(etiket + " başarısız (kod " + process.exitValue() + "): " + stderr.strip());
         }
     }
 

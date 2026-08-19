@@ -11,9 +11,21 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { altyaziDilleriOku } from '@/player/oynaticiAyarlari'
 import { dilAdi } from '@/player/SubtitleOverlay'
-import { CheckCircle2Icon, Loader2Icon, XCircleIcon } from 'lucide-react'
+import {
+  BrainCircuitIcon,
+  CheckCircle2Icon,
+  DatabaseIcon,
+  HardDriveIcon,
+  KeyIcon,
+  Loader2Icon,
+  RadioTowerIcon,
+  ServerIcon,
+  XCircleIcon,
+  ZapIcon,
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { TUR_ETIKET, turVariant } from './AdminEtkinliklerPage'
-import { Olcum, StatKart } from './AdminAnalitikPage'
+import { BolumBasligi, Olcum, StatKart } from './AdminAnalitikPage'
 import { GuidedTour } from '@/components/tour/GuidedTour'
 import { usePageTour } from '@/components/tour/usePageTour'
 import { TourTrigger } from '@/components/tour/TourTrigger'
@@ -39,22 +51,44 @@ function tritonModelEtiketleri(): [string, string][] {
   ]
 }
 
+/** Bileşen adına göre ikon — yalnızca görsel kimlik, sağlık durumunu etkilemez. */
+const BILESEN_IKON: Record<string, LucideIcon> = {
+  'Veritabanı': DatabaseIcon,
+  'Yayınlar': RadioTowerIcon,
+  'MediaMTX': ServerIcon,
+  'Depolama (MinIO)': HardDriveIcon,
+  'Yapay Zeka (Triton)': BrainCircuitIcon,
+  'Keycloak': KeyIcon,
+  'Redis': ZapIcon,
+}
+
 function BilesenKarti({ durum }: { durum: BilesenSaglikDurumu }) {
+  const Ikon = BILESEN_IKON[durum.bilesen] ?? ServerIcon
   return (
     <div
       className={cn(
-        'flex items-start gap-3 rounded-xl border p-4',
+        'flex items-center gap-3 rounded-2xl border bg-panel p-4',
         !durum.saglikli && 'border-destructive/40 bg-destructive/5',
       )}
     >
-      {durum.saglikli ? (
-        <CheckCircle2Icon className="mt-0.5 size-5 shrink-0 text-status-success" />
-      ) : (
-        <XCircleIcon className="mt-0.5 size-5 shrink-0 text-destructive" />
-      )}
-      <div>
-        <div className="font-medium">{durum.bilesen}</div>
-        <div className="text-sm text-muted-foreground">{durum.detay}</div>
+      <span
+        className={cn(
+          'grid size-10 shrink-0 place-items-center rounded-full',
+          durum.saglikli ? 'bg-status-success-bg text-status-success' : 'bg-destructive/15 text-destructive',
+        )}
+      >
+        <Ikon className="size-5" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          {durum.saglikli ? (
+            <CheckCircle2Icon className="size-4 shrink-0 text-status-success" />
+          ) : (
+            <XCircleIcon className="size-4 shrink-0 text-destructive" />
+          )}
+          <span className="truncate font-medium">{durum.bilesen}</span>
+        </div>
+        <div className="truncate text-sm text-muted-foreground">{durum.detay}</div>
       </div>
     </div>
   )
@@ -110,8 +144,11 @@ export function AdminGenelBakisPage() {
       </div>
 
       <section data-tour="canli-durum" className="flex flex-col gap-3">
-        <h2 className="text-lg font-medium">Canlı Durum</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <BolumBasligi>Canlı Durum</BolumBasligi>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <StatKart baslik="Yayındaki kanal">
+            <Olcum deger={canliDurum?.yayindakiKanal ?? null} />
+          </StatKart>
           <StatKart baslik="Eşzamanlı izleyici">{canliDurum?.esZamanliIzleyici ?? 0}</StatKart>
           <StatKart baslik="Eşzamanlı dinleyici">{canliDurum?.esZamanliDinleyici ?? 0}</StatKart>
           <StatKart baslik="Aktif DVR kaydı">{canliDurum?.aktifDvrKaydi ?? 0}</StatKart>
@@ -122,7 +159,7 @@ export function AdminGenelBakisPage() {
       </section>
 
       <section data-tour="sistem-sagligi" className="flex flex-col gap-3">
-        <h2 className="text-lg font-medium">Sistem Sağlığı</h2>
+        <BolumBasligi>Sistem Sağlığı</BolumBasligi>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {(veri?.bilesenler ?? []).map((durum) => (
             <BilesenKarti key={durum.bilesen} durum={durum} />
@@ -131,7 +168,7 @@ export function AdminGenelBakisPage() {
       </section>
 
       <section data-tour="servis-metrikleri" className="flex flex-col gap-3">
-        <h2 className="text-lg font-medium">Servis Metrikleri</h2>
+        <BolumBasligi>Servis Metrikleri</BolumBasligi>
         <p className="text-sm text-muted-foreground">
           Yukarıdaki sağlık kartları yalnızca erişilebilir mi diyor — burası Prometheus'tan
           okunan gerçek sayılar. Bir servisin Prometheus'a henüz hiç veri göndermediği ya da
@@ -208,26 +245,29 @@ export function AdminGenelBakisPage() {
       </section>
 
       <section data-tour="son-etkinlikler" className="flex flex-col gap-3">
-        <h2 className="text-lg font-medium">Son Etkinlikler</h2>
-        <div className="rounded-xl border">
+        <BolumBasligi>Son Etkinlikler</BolumBasligi>
+        <div className="rounded-2xl border bg-panel">
           {(veri?.sonEtkinlikler ?? []).length === 0 ? (
             <div className="py-8 text-center text-sm text-muted-foreground">Henüz etkinlik yok.</div>
           ) : (
             <ul className="divide-y">
               {(veri?.sonEtkinlikler ?? []).map((kayit) => (
-                <li key={kayit.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                <li
+                  key={kayit.id}
+                  className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-accent/40"
+                >
                   <div className="flex min-w-0 items-center gap-3">
                     <Badge variant={turVariant(kayit.tur)}>{TUR_ETIKET[kayit.tur]}</Badge>
                     <span className="text-sm text-muted-foreground">
                       {kayit.kullaniciAdi ?? '—'}
                     </span>
                     {kayit.hedefAdi && (
-                      <span className="truncate text-sm text-muted-foreground">
+                      <span className="truncate text-sm font-medium">
                         · {kayit.hedefAdi}
                       </span>
                     )}
                   </div>
-                  <span className="whitespace-nowrap text-xs text-muted-foreground">
+                  <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
                     {new Date(kayit.olusturmaZamani).toLocaleString('tr-TR')}
                   </span>
                 </li>

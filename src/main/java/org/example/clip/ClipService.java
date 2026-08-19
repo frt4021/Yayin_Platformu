@@ -241,6 +241,12 @@ ClipService {
         if (clip.objectKey != null) {
             storage.delete(clip.objectKey);
         }
+        if (clip.previewKey != null) {
+            storage.delete(clip.previewKey);
+        }
+        if (clip.thumbnailKey != null) {
+            storage.delete(clip.thumbnailKey);
+        }
         clip.delete();
         LOG.infof("Klip silindi: %s", id);
     }
@@ -304,7 +310,9 @@ ClipService {
             clip.requestedBy.username,
             clip.createdAt,
             clip.completedAt,
-            parseLangs(clip.subtitleLangs)
+            parseLangs(clip.subtitleLangs),
+            clip.previewKey == null ? null : storage.streamUrl(clip.previewKey),
+            clip.thumbnailKey == null ? null : storage.streamUrl(clip.thumbnailKey)
         );
     }
 }

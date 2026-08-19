@@ -3,7 +3,7 @@ import { ApiError } from '@/api/client'
 import { adminSistemLogApi } from '@/api/endpoints'
 import { SISTEM_LOG_SEVIYE, type SistemLogDto, type SistemLogSeviye } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
@@ -19,7 +19,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Loader2Icon } from 'lucide-react'
+import { Loader2Icon, RefreshCwIcon, SearchIcon } from 'lucide-react'
+import { Sayfalama } from './Sayfalama'
 import { GuidedTour } from '@/components/tour/GuidedTour'
 import { usePageTour } from '@/components/tour/usePageTour'
 import { TourTrigger } from '@/components/tour/TourTrigger'
@@ -30,6 +31,12 @@ import {
 
 /** Sayfa açıkken sık, aksi halde de makul bir sıklıkla — diğer admin sayfalarıyla aynı tempo. */
 const REFRESH_MS = 15000
+
+/** Loki'den tek seferde çekilen üst sınır — backend zaten 1000'de kesiyor. */
+const CEKME_LIMIT = 500
+
+/** Ekranda sayfa başına gösterilen satır — çekilen küme üzerinde İSTEMCİ tarafında bölünüyor. */
+const SAYFA_BOYU = 20
 
 const SEVIYE_ETIKET: Record<SistemLogSeviye, string> = {
   HATA: 'Hata',
@@ -65,6 +72,7 @@ export function AdminSistemLoglarPage() {
   const [servis, setServis] = useState('')
   const [seviye, setSeviye] = useState<SistemLogSeviye | 'HEPSI'>('HEPSI')
   const [acikSatir, setAcikSatir] = useState<string | null>(null)
+  const [first, setFirst] = useState(0)
 
   const rehberTuru = usePageTour(ADMIN_SISTEM_LOGLAR_TOUR_SEEN_KEY)
 
@@ -73,6 +81,7 @@ export function AdminSistemLoglarPage() {
       const sonuc = await adminSistemLogApi.list({
         servis: s || undefined,
         seviye: sv === 'HEPSI' ? undefined : sv,
+        limit: CEKME_LIMIT,
       })
       setLoglar(sonuc)
       setError(null)
@@ -84,8 +93,12 @@ export function AdminSistemLoglarPage() {
   }, [])
 
   // Servis alanında her tuşta istek atmamak için gecikme; seviye değişince hemen tazele.
+  // Filtre değişince ilk sayfaya dönülüyor.
   useEffect(() => {
-    const timer = setTimeout(() => void load(servis, seviye), 300)
+    const timer = setTimeout(() => {
+      setFirst(0)
+      void load(servis, seviye)
+    }, 300)
     return () => clearTimeout(timer)
   }, [load, servis, seviye])
 
@@ -94,22 +107,44 @@ export function AdminSistemLoglarPage() {
     return () => clearInterval(timer)
   }, [load, servis, seviye])
 
+  // Sayfalama İSTEMCİ tarafında: Loki bir SQL tablosu değil, sunucudan
+  // "sayfa N'i ver" diye istenemiyor — zaten çekilmiş son 24 saatlik küme
+  // üzerinde bölünüyor.
+  const gorunenler = loglar.slice(first, first + SAYFA_BOYU)
+
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Sistem Logları</h1>
-          <p className="text-sm text-muted-foreground">
-            Tüm servislerin logları Türkçeye yorumlanmış halde — rutin gürültü süzülüyor,
-            yalnızca bilinen bir hata/uyarı/başarı örüntüsüne uyan satırlar gösteriliyor.
-          </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-2">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight">Sistem Logları</h1>
+            <p className="text-sm text-muted-foreground">
+              Tüm servislerin logları Türkçeye yorumlanmış halde — rutin gürültü süzülüyor,
+              yalnızca bilinen bir hata/uyarı/başarı örüntüsüne uyan satırlar gösteriliyor.
+            </p>
+          </div>
+          <TourTrigger onClick={rehberTuru.start} />
         </div>
-        <TourTrigger onClick={rehberTuru.start} />
+
+        <div className="relative">
+          <SearchIcon className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            data-tour="sistemlog-servis-filtre"
+            type="search"
+            placeholder="Servis adına göre ara (örn. triton, video-worker)…"
+            aria-label="Servis adına göre ara"
+            value={servis}
+            onChange={(e) => setServis(e.target.value)}
+            className="h-10 w-80 rounded-full border bg-card pl-11 pr-4 text-sm
+                       placeholder:text-muted-foreground focus:outline-none
+                       focus:ring-2 focus:ring-[var(--ring)]"
+          />
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <Select value={seviye} onValueChange={(v) => setSeviye(v as SistemLogSeviye | 'HEPSI')}>
-          <SelectTrigger data-tour="sistemlog-seviye-filtre" className="h-9 w-40">
+          <SelectTrigger data-tour="sistemlog-seviye-filtre" className="h-9 w-40 rounded-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -122,13 +157,16 @@ export function AdminSistemLoglarPage() {
           </SelectContent>
         </Select>
 
-        <Input
-          data-tour="sistemlog-servis-filtre"
-          placeholder="Servis adına göre ara (örn. triton, video-worker)…"
-          value={servis}
-          onChange={(e) => setServis(e.target.value)}
-          className="max-w-xs"
-        />
+        <Button
+          variant="outline"
+          size="icon"
+          className="rounded-full"
+          disabled={loading}
+          onClick={() => void load(servis, seviye)}
+          title="Şimdi yenile"
+        >
+          <RefreshCwIcon className={loading ? 'animate-spin' : undefined} />
+        </Button>
       </div>
 
       {error ? (
@@ -136,14 +174,16 @@ export function AdminSistemLoglarPage() {
           {error}
         </div>
       ) : (
-        <div data-tour="sistemlog-tablo" className="rounded-xl border">
+        <div data-tour="sistemlog-tablo" className="rounded-2xl border bg-panel shadow-sm">
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>Zaman</TableHead>
-                <TableHead>Servis</TableHead>
-                <TableHead data-tour="sistemlog-seviye-sutun">Seviye</TableHead>
-                <TableHead>Mesaj</TableHead>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="uppercase tracking-wide text-[11px]">Zaman</TableHead>
+                <TableHead className="uppercase tracking-wide text-[11px]">Servis</TableHead>
+                <TableHead data-tour="sistemlog-seviye-sutun" className="uppercase tracking-wide text-[11px]">
+                  Seviye
+                </TableHead>
+                <TableHead className="uppercase tracking-wide text-[11px]">Mesaj</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -165,8 +205,8 @@ export function AdminSistemLoglarPage() {
               )}
 
               {!loading &&
-                loglar.map((log, i) => {
-                  const anahtar = `${log.zaman}-${i}`
+                gorunenler.map((log, i) => {
+                  const anahtar = `${log.zaman}-${first + i}`
                   const acik = acikSatir === anahtar
                   return (
                     <Fragment key={anahtar}>
@@ -179,7 +219,10 @@ export function AdminSistemLoglarPage() {
                         </TableCell>
                         <TableCell className="font-medium">{log.servis}</TableCell>
                         <TableCell>
-                          <Badge variant={seviyeRozetVaryanti(log.seviye)}>
+                          <Badge variant={seviyeRozetVaryanti(log.seviye)} className="gap-1.5">
+                            {log.seviye === 'HATA' && (
+                              <span className="size-1.5 animate-pulse rounded-full bg-status-error" />
+                            )}
                             {SEVIYE_ETIKET[log.seviye]}
                           </Badge>
                         </TableCell>
@@ -199,6 +242,28 @@ export function AdminSistemLoglarPage() {
                 })}
             </TableBody>
           </Table>
+        </div>
+      )}
+
+      {!error && !loading && loglar.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <Sayfalama
+            first={first}
+            max={SAYFA_BOYU}
+            total={loglar.length}
+            loading={loading}
+            onSayfaDegis={setFirst}
+          />
+          {/* Loki bir SQL tablosu degil -- bu gercek toplam sistem-genelindeki
+              eslesme sayisi degil, son 24 saatten cekilen (en fazla
+              CEKME_LIMIT) kumenin boyutu. Bunu acikca soylemezsek "toplam
+              12.450 log" gibi yanlis bir izlenim verirdi. */}
+          {loglar.length >= CEKME_LIMIT && (
+            <p className="text-xs text-muted-foreground">
+              Son 24 saatten en fazla {CEKME_LIMIT} kayıt çekiliyor — daha eski ya da fazlası için
+              servis/seviye ile daraltın.
+            </p>
+          )}
         </div>
       )}
 

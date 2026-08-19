@@ -425,6 +425,10 @@ services:
       DVR_BUCKET: ${DVR_BUCKET:-dvr}
       DVR_RETENTION_DAYS: ${DVR_RETENTION_DAYS:-7}
 
+      # Kanal ön izleme kareleri BURADA: ffmpeg gerektiriyor, ayni gerekce.
+      CHANNELS_SNAPSHOT_ENABLED: "true"
+      CHANNELS_SNAPSHOT_INTERVAL: ${CHANNELS_SNAPSHOT_INTERVAL:-30s}
+
       # Sorumluluk ayrimi: video isleri BURADA, klipler backend'de.
       VIDEOS_WORKER_ENABLED: "true"
       CLIPS_WORKER_ENABLED: "false"

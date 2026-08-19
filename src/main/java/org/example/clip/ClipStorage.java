@@ -6,6 +6,7 @@ import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import io.minio.UploadObjectArgs;
 import io.minio.http.Method;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -16,6 +17,7 @@ import org.example.exception.AppException;
 import org.jboss.logging.Logger;
 
 import java.io.InputStream;
+import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -81,6 +83,47 @@ public class ClipStorage {
             return sizeOf(response.object());
         } catch (Exception e) {
             throw AppException.internalError("Klip depolamaya yazılamadı: " + objectKey, e);
+        }
+    }
+
+    /**
+     * Yerel bir dosyayı (önizleme klibi gibi) nesne olarak yazar.
+     *
+     * <p>{@link #put(String, InputStream, String)}'ten farkı: boyut önceden
+     * biliniyor, ffmpeg zaten diske bir dosya üretti — akış sarmalamaya
+     * gerek yok.
+     */
+    public void putFile(String objectKey, Path file, String contentType) {
+        try {
+            minio.uploadObject(UploadObjectArgs.builder()
+                .bucket(bucket)
+                .object(objectKey)
+                .filename(file.toString())
+                .contentType(contentType)
+                .build());
+        } catch (Exception e) {
+            throw AppException.internalError("Dosya klip depolamaya yazılamadı: " + objectKey, e);
+        }
+    }
+
+    /**
+     * İşçinin ffmpeg'e vereceği imzalı adres — <b>iç ağ</b> üzerinden.
+     *
+     * <p>{@code ClipWorker} backend konteynerinin İÇİNDE çalışıyor: dış
+     * adresle imzalanmış bir adres kullansaydı trafik konteynerden çıkıp
+     * host üzerinden geri dönerdi (bkz. {@code VideoStorage.internalReadUrl}
+     * ile aynı gerekçe).
+     */
+    public String internalReadUrl(String objectKey) {
+        try {
+            return minio.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
+                .method(Method.GET)
+                .bucket(bucket)
+                .object(objectKey)
+                .expiry(urlTtlMinutes, TimeUnit.MINUTES)
+                .build());
+        } catch (Exception e) {
+            throw AppException.internalError("İç okuma adresi üretilemedi: " + objectKey, e);
         }
     }
 

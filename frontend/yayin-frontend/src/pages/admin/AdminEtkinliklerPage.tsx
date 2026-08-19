@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { ApiError } from '@/api/client'
 import { adminEtkinlikApi } from '@/api/endpoints'
 import { ETKINLIK_TURLERI, type EtkinlikDto, type EtkinlikTuru } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -20,7 +20,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { ChevronLeftIcon, ChevronRightIcon, Loader2Icon } from 'lucide-react'
+import { DownloadIcon, Loader2Icon, SearchIcon } from 'lucide-react'
+import { Sayfalama } from './Sayfalama'
 import { GuidedTour } from '@/components/tour/GuidedTour'
 import { usePageTour } from '@/components/tour/usePageTour'
 import { TourTrigger } from '@/components/tour/TourTrigger'
@@ -64,6 +65,16 @@ export function turVariant(tur: EtkinlikTuru) {
   }
   if (tur.endsWith('BASLADI') || tur.endsWith('EKLENDI') || tur === 'GIRIS') return 'default' as const
   return 'secondary' as const
+}
+
+/** Sunucunun {@code AdminEtkinlikResource}'ta izin verdiği üst sınır — dışa aktarımda sayfa başına bu kadar çekiliyor. */
+const DISA_AKTAR_PARCA = 200
+
+function csvHucre(deger: string): string {
+  if (/[",\n]/.test(deger)) {
+    return '"' + deger.replace(/"/g, '""') + '"'
+  }
+  return deger
 }
 
 /** {@code detay} JSON'undan kısa, okunabilir bir özet — kolon başına ham JSON basmak yerine. */
@@ -141,21 +152,90 @@ export function AdminEtkinliklerPage() {
     void load(yeniFirst, tur, kullaniciAdi)
   }
 
+  const [disaAktariliyor, setDisaAktariliyor] = useState(false)
+
+  /**
+   * Şu anki filtreyle eşleşen TÜM kayıtları (yalnızca ekrandaki sayfayı
+   * değil) CSV olarak indirir. Sunucuda ayrı bir uç yok — mevcut listeleme
+   * ucu {@code AdminEtkinlikResource}'un izin verdiği üst sınırla
+   * ({@code DISA_AKTAR_PARCA}) sayfalanarak tüketiliyor.
+   */
+  async function disaAktar() {
+    setDisaAktariliyor(true)
+    try {
+      const hepsi: EtkinlikDto[] = []
+      let f = 0
+      while (true) {
+        const sayfa = await adminEtkinlikApi.list({
+          tur: tur === 'HEPSI' ? undefined : tur,
+          kullaniciAdi: kullaniciAdi || undefined,
+          first: f,
+          max: DISA_AKTAR_PARCA,
+        })
+        hepsi.push(...sayfa.items)
+        if (sayfa.items.length === 0 || hepsi.length >= sayfa.total) break
+        f += DISA_AKTAR_PARCA
+      }
+
+      const basliklar = ['Zaman', 'Kullanıcı', 'Tür', 'Hedef', 'Detay']
+      const satirlar = hepsi.map((k) => [
+        new Date(k.olusturmaZamani).toLocaleString('tr-TR'),
+        k.kullaniciAdi ?? '',
+        TUR_ETIKET[k.tur],
+        k.hedefAdi ?? k.hedefTuru ?? '',
+        detaySummary(k),
+      ])
+      // BOM: Excel, BOM'suz UTF-8'de Türkçe karakterleri bozuk gösteriyor.
+      const BOM = '﻿'
+      const csv = BOM + [basliklar, ...satirlar].map((s) => s.map(csvHucre).join(',')).join('\n')
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `etkinlikler-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Dışa aktarılamadı.')
+    } finally {
+      setDisaAktariliyor(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Kullanıcı Etkinliği</h1>
-          <p className="text-sm text-muted-foreground">
-            Giriş/çıkış, izleme/dinleme oturumları ve admin/içerik eylemlerinin denetim izi.
-          </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-2">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight">Kullanıcı Etkinliği</h1>
+            <p className="text-sm text-muted-foreground">
+              Giriş/çıkış, izleme/dinleme oturumları ve admin/içerik eylemlerinin denetim izi.
+            </p>
+          </div>
+          <TourTrigger onClick={rehberTuru.start} />
         </div>
-        <TourTrigger onClick={rehberTuru.start} />
+
+        <div className="relative">
+          <SearchIcon className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            data-tour="etkinlik-kullanici-filtre"
+            type="search"
+            placeholder="Kullanıcı adına göre ara…"
+            aria-label="Kullanıcı adına göre ara"
+            value={kullaniciAdi}
+            onChange={(e) => setKullaniciAdi(e.target.value)}
+            className="h-10 w-72 rounded-full border bg-card pl-11 pr-4 text-sm
+                       placeholder:text-muted-foreground focus:outline-none
+                       focus:ring-2 focus:ring-[var(--ring)]"
+          />
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <Select value={tur} onValueChange={(v) => setTur(v as EtkinlikTuru | 'HEPSI')}>
-          <SelectTrigger data-tour="etkinlik-tur-filtre" className="h-9 w-56">
+          <SelectTrigger data-tour="etkinlik-tur-filtre" className="h-9 w-56 rounded-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -168,13 +248,16 @@ export function AdminEtkinliklerPage() {
           </SelectContent>
         </Select>
 
-        <Input
-          data-tour="etkinlik-kullanici-filtre"
-          placeholder="Kullanıcı adına göre ara…"
-          value={kullaniciAdi}
-          onChange={(e) => setKullaniciAdi(e.target.value)}
-          className="max-w-xs"
-        />
+        <Button
+          variant="secondary"
+          className="rounded-full"
+          disabled={disaAktariliyor || total === 0}
+          onClick={() => void disaAktar()}
+          title="Şu anki filtreyle eşleşen tüm kayıtları CSV olarak indir"
+        >
+          {disaAktariliyor ? <Loader2Icon className="animate-spin" /> : <DownloadIcon />}
+          Dışa Aktar
+        </Button>
       </div>
 
       {error ? (
@@ -182,15 +265,15 @@ export function AdminEtkinliklerPage() {
           {error}
         </div>
       ) : (
-        <div data-tour="etkinlik-tablo" className="rounded-xl border">
+        <div data-tour="etkinlik-tablo" className="rounded-2xl border bg-panel shadow-sm">
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>Zaman</TableHead>
-                <TableHead>Kullanıcı</TableHead>
-                <TableHead>Tür</TableHead>
-                <TableHead>Hedef</TableHead>
-                <TableHead>Detay</TableHead>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="uppercase tracking-wide text-[11px]">Zaman</TableHead>
+                <TableHead className="uppercase tracking-wide text-[11px]">Kullanıcı</TableHead>
+                <TableHead className="uppercase tracking-wide text-[11px]">Tür</TableHead>
+                <TableHead className="uppercase tracking-wide text-[11px]">Hedef</TableHead>
+                <TableHead className="uppercase tracking-wide text-[11px]">Detay</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -231,30 +314,8 @@ export function AdminEtkinliklerPage() {
         </div>
       )}
 
-      <div data-tour="etkinlik-sayfalama" className="flex items-center justify-between text-sm text-muted-foreground">
-        <span>
-          {total === 0 ? '0' : `${first + 1}–${Math.min(first + MAX, total)}`} / {total}
-        </span>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={first === 0 || loading}
-            onClick={() => sayfaDegis(Math.max(0, first - MAX))}
-          >
-            <ChevronLeftIcon />
-            Önceki
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={first + MAX >= total || loading}
-            onClick={() => sayfaDegis(first + MAX)}
-          >
-            Sonraki
-            <ChevronRightIcon />
-          </Button>
-        </div>
+      <div data-tour="etkinlik-sayfalama">
+        <Sayfalama first={first} max={MAX} total={total} loading={loading} onSayfaDegis={sayfaDegis} />
       </div>
 
       <GuidedTour

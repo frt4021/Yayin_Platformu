@@ -76,14 +76,6 @@ export const WATCH_TOUR_STEPS: TourStep[] = [
     placement: 'bottom',
   },
   {
-    target: 'yayin-paneli',
-    title: 'Etkin yayın',
-    body:
-      'Yayındaki kanalların durumu: çözünürlük, hangisi açık, hangisinde ses '
-      + 'var. Kaynağı düşmüş kanallar "bekliyor" olarak görünür.',
-    placement: 'left',
-  },
-  {
     target: 'hesap',
     title: 'Hesabınız',
     body:

@@ -99,6 +99,22 @@ public class Clip extends PanacheEntityBase {
     @Column(name = "subtitle_langs")
     public String subtitleLangs;
 
+    /**
+     * Fare ızgarada kartın üzerine geldiğinde oynayan kısa önizleme klibinin
+     * nesne anahtarı. {@code null} = henüz üretilmedi ya da üretim başarısız
+     * oldu — {@link org.example.video.VideoWorker}'daki önizleme
+     * toleransıyla aynı ilke, klip yine de HAZIR sayılır.
+     */
+    @Column(name = "preview_key", length = 512)
+    public String previewKey;
+
+    /**
+     * Önizleme klibinden çıkarılan tek karelik kapak görseli. {@code null} =
+     * önizlemeyle aynı gerekçeyle henüz üretilmedi ya da başarısız oldu.
+     */
+    @Column(name = "thumbnail_key", length = 512)
+    public String thumbnailKey;
+
     @Column
     public String error;
 

@@ -20,8 +20,9 @@ import java.util.concurrent.TimeUnit;
  *
  * <h2>Komut</h2>
  * <pre>
- * ffmpeg -v error -rtsp_transport tcp -i rtsp://mediamtx:8554/&lt;path&gt; \
- *        -c copy -f mpegts -
+ * ffmpeg -v warning -rtsp_transport tcp \
+ *        -analyzeduration 5000000 -probesize 10000000 \
+ *        -i rtsp://mediamtx:8554/&lt;path&gt; -c copy -f mpegts -
  * </pre>
  *
  * <table>
@@ -31,6 +32,10 @@ import java.util.concurrent.TimeUnit;
  *           kayıt sessizce boşalıyordu</td></tr>
  *   <tr><td>{@code -rtsp_transport tcp}</td>
  *       <td>UDP'de paket kaybı kayda kalıcı bozulma olarak işlenir</td></tr>
+ *   <tr><td>{@code -analyzeduration}/{@code -probesize}</td>
+ *       <td>Varsayılanları bu kaynakta bazen yetmiyordu — ffmpeg kodek
+ *           parametrelerini bulamadan "Could not find codec parameters"
+ *           ile düşüyor, kaydedici gereksiz yere yeniden başlıyordu</td></tr>
  *   <tr><td>{@code -f mpegts -}</td>
  *       <td>Rastgele sınırdan kesilebilen tek biçim; bkz. {@link SegmentStream}</td></tr>
  * </table>
@@ -222,6 +227,13 @@ final class ChannelDvrRecorder implements Runnable, AutoCloseable {
             // stderr bos kaliyor ve sebep hic gorunmuyordu.
             "ffmpeg", "-v", "warning",
             "-rtsp_transport", "tcp",
+            // Varsayilan analyzeduration/probesize bu kaynakta yetmiyordu:
+            // "Could not find codec parameters" ile kaydedici baslamadan
+            // dusuyordu (bkz. sinif dosyasi ustundeki acik is notu).
+            // Buyutulen deger ilk baglanmada birkac yuz ms ek gecikme
+            // demek ama kod cozme YOK (-c copy), akisi etkilemiyor.
+            "-analyzeduration", "5000000",
+            "-probesize", "10000000",
             "-i", rtspBase + "/" + mediamtxPath,
             "-c", "copy",
             "-f", "mpegts", "-");

@@ -18,10 +18,16 @@ import java.util.UUID;
  *                  kaynak erişilemiyorsa {@code active=true} iken
  *                  {@code streaming=false} olur. MediaMTX'e ulaşılamadıysa
  *                  {@code null}.
- * @param viewers   o an izleyen SEKME sayısı ({@code ViewerPresence}, tarayıcı
- *                  heartbeat'i) — MediaMTX'in reader sayısı DEĞİL, o yeniden
- *                  bağlanmalarda çok sayıyordu. MediaMTX'ten bağımsız olduğu
- *                  için artık her zaman gerçek bir sayı, {@code null} olmaz.
+ * @param viewers    o an izleyen SEKME sayısı ({@code ViewerPresence}, tarayıcı
+ *                   heartbeat'i) — MediaMTX'in reader sayısı DEĞİL, o yeniden
+ *                   bağlanmalarda çok sayıyordu. MediaMTX'ten bağımsız olduğu
+ *                   için artık her zaman gerçek bir sayı, {@code null} olmaz.
+ * @param previewUrl kanalın son yakalanan karesinin imzalı adresi. Nesnenin
+ *                   var olup olmadığı kontrol edilmeden üretiliyor — henüz
+ *                   hiç yakalanmamışsa tarayıcı 404 alır, arayüz ikon yer
+ *                   tutucuya düşer. Her zaman dolu (sahte veri değil, adres
+ *                   her zaman üretilebilir); asıl belirsizlik nesnenin MinIO'da
+ *                   var olup olmadığında.
  */
 public record ChannelDto(
     UUID id,
@@ -43,6 +49,7 @@ public record ChannelDto(
     String hlsUrl,
     Boolean streaming,
     Integer viewers,
+    String previewUrl,
     String createdBy,
     Instant createdAt
 ) {

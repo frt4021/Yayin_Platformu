@@ -13,6 +13,7 @@ import org.example.etkinlik.EtkinlikTuru;
 import org.example.exception.AppException;
 import org.example.user.dto.ChangePasswordRequest;
 import org.example.user.dto.CreateUserRequest;
+import org.example.user.dto.KullaniciSayfasiDto;
 import org.example.user.dto.ResetPasswordRequest;
 import org.example.user.dto.SyncResultDto;
 import org.example.user.dto.UserDto;
@@ -90,14 +91,21 @@ public class UserService {
      * içinde gelmediği için her kullanıcı başına bir ek istek atılır; bu yüzden
      * uç sayfalıdır ve {@code max} sınırlıdır.
      */
-    public List<UserDto> list(String search, int first, int max) {
-        List<UserRepresentation> reps = (search == null || search.isBlank())
+    public KullaniciSayfasiDto list(String search, int first, int max) {
+        boolean bos = search == null || search.isBlank();
+        List<UserRepresentation> reps = bos
             ? realm().users().list(first, max)
             : realm().users().search(search.trim(), first, max);
 
-        return reps.stream()
+        List<UserDto> items = reps.stream()
             .map(rep -> toDto(rep, effectiveRole(rep.getId())))
             .toList();
+
+        // Keycloak'ın AYRI, ucuz bir sayım ucu var (kullanıcı başına rol
+        // sorgusu gerektirmiyor) -- toplamı sayfa boyu kadar tahmin etmek
+        // yerine gerçek sayıyı burada alıyoruz.
+        long toplam = bos ? realm().users().count() : realm().users().count(search.trim());
+        return new KullaniciSayfasiDto(items, toplam, first, max);
     }
 
     // ------------------------------------------------------------------

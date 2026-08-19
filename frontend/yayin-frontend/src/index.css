@@ -45,72 +45,44 @@
  * imkânsız hale getirirdi.
  */
 .dark {
-  /* --- Temel katmanlar ---
-     Dört kademe: zemin → panel → yüzey → yükseltilmiş yüzey. Zemin eskisinden
-     (#111114) daha koyuya indi ve araya "panel" katmanı girdi.
-     Sebebi tasarımdaki temel hamle: içerik, zeminden ayrışan büyük ve yuvarlak
-     bir panelin içinde duruyor. Zemin ile panel arasında görünür bir fark
-     olmasaydı o panelin kenarları kaybolur ve düzen yine "siyah boşluk" gibi
-     okunurdu. */
-  --background: #0B0B0D;        /* bg-main: en dış zemin */
-  --foreground: #FFFFFF;        /* text-primary */
+  /* --- Temel katmanlar --- */
+  --background: #08110F;
+  --foreground: #FFFFFF;
 
-  /* İçeriği taşıyan büyük yuvarlak panel. Zeminden yalnızca birkaç ton
-     açık: fark hissedilmeli ama "kutu içinde kutu" gibi durmamalı. */
-  --panel: #131316;
-
-  --card: #1A1B1F;              /* bg-surface: kartlar, tablo satırları */
+  --panel: #0E1A18;
+  --card: #132220;
   --card-foreground: #FFFFFF;
-  /* Açılır menü ve dialog, karttan bir kademe yukarıda dursun diye
-     hover tonunu kullanıyor — paletteki en açık nötr yüzey bu. */
-  --popover: #24262C;
+  --popover: #1B2D2A;
   --popover-foreground: #FFFFFF;
 
-  /* accent = "üzerine gelince" yüzeyi. shadcn'de hover:bg-accent bu
-     değişkeni okuduğu için palet doğrudan buraya bağlandı. */
-  --accent: #24262C;            /* bg-surface-hover */
+  --accent: #1B2D2A;
   --accent-foreground: #FFFFFF;
 
-  --input-bg: #16171B;          /* bg-input */
-  --border: #2B2D35;            /* border-color */
-  --input: #2B2D35;             /* input çerçevesi */
+  --input-bg: #101C1A;
+  --border: #243531;
+  --input: #243531;
 
-  /* Çerçeveli düğmeler için bir ton açık kenarlık. Varsayılan --border
-     ayırıcı çizgiler için doğru ama düğme çerçevesi olarak zeminde
-     kayboluyor ve düğme tıklanabilir görünmüyordu. */
-  --border-strong: #33343B;
-  --border-strong-hover: #4A4B54;
+  --border-strong: #344943;
+  --border-strong-hover: #475E56;
 
-  --muted: #24262C;
-  --muted-foreground: #9CA3AF;  /* text-secondary */
-  --text-disabled: #4B5563;     /* pasifleşmiş metin */
+  --muted: #1B2D2A;
+  --muted-foreground: #9CA3AF;
+  --text-disabled: #4B5563;
 
-  /* Palette secondary yüzey tanımlı değil. Kenarlık tonu seçildi: hover
-     yüzeyiyle aynı olsaydı ikincil düğmeler zeminden ayrışmazdı. */
-  --secondary: #2B2D35;
+  --secondary: #243531;
   --secondary-foreground: #FFFFFF;
 
-  /* --- Vurgu ---
-   * Tasarımın karakteri: arayüzün tamamı nötr gri, TEK doygun renk var.
-   * O yüzden vurgu maviden soluk nane yeşiline geçti.
-   *
-   * Renk AÇIK olduğu için üzerine gelen yazı koyu (--primary-foreground).
-   * Eski mavi koyuydu ve beyaz yazı taşıyordu; bu ikisi birlikte
-   * değiştirilmeli, yoksa açık zemin üzerine beyaz yazı okunmaz hale gelir.
-   * Mevcut kullanımların tamamı (ilerleme çubukları, seçim kenarlıkları,
-   * DVR küçük resim etiketi) bu çiftle uyumlu -- tek tek denetlendi. */
-  --primary: #A7E0C4;           /* accent-primary: nane */
-  --primary-hover: #93D5B4;
-  --primary-foreground: #0B0B0D;  /* açık zemin üzerine koyu yazı */
-  --primary-light: #C9EEDC;      /* daha soluk nane: etiket ve ipuçları */
-  --accent-purple: #8B5CF6;     /* grafiklerde kalan mor */
-  --accent-cyan: #06B6D4;       /* ikincil ikonlar, bilgi ipuçları */
+  /* --- Vurgu: Turkuaz --- */
+  --primary: #2DD4BF;
+  --primary-hover: #14B8A6;
+  --primary-foreground: #08110F;
+  --primary-light: #99F6E4;
+  --accent-purple: #A78BFA;
+  --accent-cyan: #06B6D4;
 
-  --ring: rgba(167, 224, 196, 0.5);
+  --ring: rgba(45, 212, 191, 0.5);
 
-  /* --- Durum ve sinyal ---
-     Her durumun bir metin rengi ve %15 opaklıkta bir zemini var: dolu renkli
-     rozet koyu arayüzde fazla bağırıyor, saydam zemin hem okunur hem sakin. */
+  /* --- Durum ve sinyal --- */
   --status-live: #FF4B4B;
   --status-live-bg: rgba(255, 75, 75, 0.15);
   --status-success: #34D399;
@@ -120,17 +92,16 @@
   --status-error: #EF4444;
   --status-error-bg: rgba(239, 68, 68, 0.15);
 
-  /* shadcn'in destructive'i silme/hata anlamında; palette karşılığı error. */
   --destructive: #EF4444;
   --destructive-foreground: #FFFFFF;
   --success: #34D399;
   --warning: #FBBF24;
 
   /* --- Ses ve grafik --- */
-  --audio-wave-active: #4285F4;
-  --audio-wave-inactive: #374151;
+  --audio-wave-active: #2DD4BF;
+  --audio-wave-inactive: #243531;
   --audio-peak: #FF4B4B;
-  --chart-1: #4285F4;
+  --chart-1: #2DD4BF;
   --chart-2: #22D3EE;
   --chart-3: #A78BFA;
   --chart-4: #F472B6;
@@ -224,6 +195,20 @@
     outline-offset: 2px;
   }
 
+  /* Tarayıcının varsayılanı <button> için imleci OK BIRAKIYOR, "el" yapmıyor
+     — bu yüzden düz <button>'larla kurulan onlarca özel kart/çip/menü
+     tıklanabilir gibi görünmüyordu. Devre dışı olan gerçekten tıklanamaz. */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  a,
+  summary {
+    cursor: pointer;
+  }
+  button:disabled,
+  [role='button'][aria-disabled='true'] {
+    cursor: not-allowed;
+  }
+
   /* Varsayılan kaydırma çubuğu koyu temada parlak bir şerit gibi duruyor. */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -232,4 +217,20 @@
     border-radius: 6px;
   }
   ::-webkit-scrollbar-thumb:hover { background: var(--secondary); }
+
+  /* Ok düğmeleriyle kaydırılan şeritlerde: çubuk yerine düğmeler kullanılıyor. */
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+
+  /* "Çalıyor" göstergesi — radyo istasyon kartlarında ekolayzer çubukları. */
+  @keyframes eq-bar {
+    0%, 100% { transform: scaleY(0.35); }
+    50% { transform: scaleY(1); }
+  }
+  .eq-bars span {
+    animation: eq-bar 0.9s ease-in-out infinite;
+    transform-origin: bottom;
+  }
+  .eq-bars span:nth-child(2) { animation-delay: 0.2s; }
+  .eq-bars span:nth-child(3) { animation-delay: 0.4s; }
 }

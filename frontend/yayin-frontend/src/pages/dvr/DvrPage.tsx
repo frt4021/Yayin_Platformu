@@ -7,10 +7,10 @@ import type { ChannelDto, TimelineSpan } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { ScheduledRecordingCard } from './ScheduledRecordingCard'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { CameraIcon, Loader2Icon, PlayIcon, ScissorsIcon, XIcon } from 'lucide-react'
 import { Timeline, type Selection } from './Timeline'
 import { subtitleLangs, SubtitleOverlay } from '@/player/SubtitleOverlay'
+import { SubtitlePicker } from '@/player/SubtitlePicker'
 import { dvrAltyaziAcikMi } from '@/player/oynaticiAyarlari'
 import { GuidedTour } from '@/components/tour/GuidedTour'
 import { usePageTour } from '@/components/tour/usePageTour'
@@ -361,27 +361,22 @@ export function DvrPage() {
   const tur = usePageTour(DVR_TOUR_SEEN_KEY)
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Geriye sarma</h1>
-          <p className="text-sm text-muted-foreground">
-            Kayıtlı bir noktaya tıklayıp izleyin, sürükleyerek aralık seçip klip çıkarın.
-          </p>
-        </div>
+    <div className="flex h-full flex-col gap-4">
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">Geriye sarma</h1>
         <TourTrigger onClick={tur.start} />
       </div>
 
       {dvrChannels.length === 0 ? (
-        <Card>
-          <CardContent className="p-6 text-sm text-muted-foreground">
-            Geriye sarma açık kanal yok. Kanallar sayfasından bir kanalı düzenleyip
-            “Geriye sarma kaydı” seçeneğini açın.
-          </CardContent>
-        </Card>
+        <div className="rounded-2xl border bg-panel p-6 text-sm text-muted-foreground">
+          Geriye sarma açık kanal yok. Kanallar sayfasından bir kanalı düzenleyip
+          “Geriye sarma kaydı” seçeneğini açın.
+        </div>
       ) : (
         <>
-          <div className="flex flex-wrap items-center gap-3">
+          {/* Tüm denetimler tek bir araç çubuğunda: kanal, pencere, "şimdiye
+              getir" — ayrı satırlar yerine dikey alan kazanmak için. */}
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border bg-panel px-3 py-2">
             {/* Kanallar açılır liste değil, YAN YANA sıralı çipler.
                 Açılır listede hangi kanalların olduğunu görmek için tıklamak
                 gerekiyordu ve seçili olan dışındakiler görünmüyordu; geriye
@@ -395,6 +390,7 @@ export function DvrPage() {
                   <Button
                     key={channel.id}
                     size="sm"
+                    className="rounded-full"
                     variant={channel.id === channelId ? 'default' : 'secondary'}
                     onClick={() => setChannelId(channel.id)}
                     title={
@@ -408,11 +404,14 @@ export function DvrPage() {
                 ))}
             </div>
 
+            <span className="h-6 w-px bg-border" />
+
             <div data-tour="dvr-pencere" className="flex gap-1">
               {WINDOWS.map((w) => (
                 <Button
                   key={w.hours}
                   size="sm"
+                  className="rounded-full"
                   variant={windowHours === w.hours ? 'default' : 'outline'}
                   onClick={() => {
                     setWindowHours(w.hours)
@@ -424,9 +423,12 @@ export function DvrPage() {
               ))}
             </div>
 
+            <span className="h-6 w-px bg-border" />
+
             <Button
               size="sm"
               variant="ghost"
+              className="rounded-full"
               onClick={() => setNow(new Date())}
               title="Zaman çizelgesini şu ana getir"
             >
@@ -442,161 +444,140 @@ export function DvrPage() {
             </div>
           )}
 
-          <Card data-tour="dvr-zaman-cizelgesi">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Zaman çizelgesi</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Timeline
-                from={from}
-                to={now}
-                spans={spans}
-                selection={selection}
-                onSelectionChange={setSelection}
-                onSeek={(at) => void playFrom(at, PREVIEW_DEFAULT_SECONDS)}
-              />
-            </CardContent>
-          </Card>
+          <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+            {/* SOL: önizleme + zaman çizelgesi + şerit — tek panelde, video
+                editörlerindeki gibi doğrudan üst üste. Ayrı kartlara bölünmüş
+                haliyle aynı içerik dikeyde çok daha fazla yer kaplıyordu. */}
+            <div data-tour="dvr-onizleme" className="flex flex-col gap-3 rounded-2xl border bg-panel p-3">
+              <div className="relative">
+                <video
+                  ref={videoRef}
+                  controls
+                  playsInline
+                  className="aspect-video w-full rounded-lg bg-black"
+                />
 
-          <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-            <Card data-tour="dvr-onizleme">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="text-base">Önizleme</CardTitle>
-                  <div className="flex items-center gap-2">
-                    {previewRange && (
-                      <span className="text-xs text-muted-foreground">
-                        {previewRange.start.toLocaleTimeString('tr-TR')} +
-                        {formatDuration(previewRange.seconds)}
-                      </span>
-                    )}
-                    {dvrAltyaziAcikMi() && (
-                      <select
-                        aria-label="Altyazı"
-                        title="Altyazı dili"
-                        className="h-7 rounded-md border bg-secondary px-1.5 text-xs text-secondary-foreground"
-                        value={subtitleLang}
-                        onChange={(e) => setSubtitleLang(e.target.value)}
-                      >
-                        {subtitleLangs().map((l) => (
-                          <option key={l.kod} value={l.kod}>
-                            {l.ad}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    <Button
-                      size="icon"
-                      variant="secondary"
-                      className="size-7"
-                      disabled={!previewRange || capturing}
-                      onClick={() => void captureFromPreview()}
-                      title="Bu andan kare yakala"
-                    >
-                      {capturing ? (
-                        <Loader2Icon className="animate-spin" />
-                      ) : (
-                        <CameraIcon />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
-                <div className="relative">
-                  <video
-                    ref={videoRef}
-                    controls
-                    playsInline
-                    className="aspect-video w-full rounded-lg bg-black"
-                  />
-                  {dvrAltyaziAcikMi() && subtitleLang !== 'kapali' && channelId && (
-                    <SubtitleOverlay
-                      channelId={channelId}
-                      capture={dvrCapture}
-                      language={subtitleLang}
-                      className="pb-10"
+                {/* Denetimler videonun ÜZERİNDE, sağ üstte — ayrı bir başlık
+                    satırı açmak yerine diğer sayfalardaki (Klipler, Videolar)
+                    aynı yerleşim. */}
+                <div className="absolute right-2 top-2 flex items-center gap-2">
+                  {previewRange && (
+                    <span className="rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
+                      {previewRange.start.toLocaleTimeString('tr-TR')} +
+                      {formatDuration(previewRange.seconds)}
+                    </span>
+                  )}
+                  {dvrAltyaziAcikMi() && (
+                    <SubtitlePicker
+                      tracks={subtitleLangs()
+                        .filter((l) => l.kod !== 'kapali')
+                        .map((l) => ({ lang: l.kod, label: l.ad }))}
+                      value={subtitleLang}
+                      onChange={setSubtitleLang}
                     />
                   )}
-                  {previewLoading && (
-                    <div className="absolute inset-0 grid place-items-center rounded-lg bg-black/60">
-                      <Loader2Icon className="size-6 animate-spin text-white" />
-                    </div>
-                  )}
+                  <Button
+                    size="icon"
+                    variant="secondary"
+                    className="size-8 rounded-full border-white/30 bg-black/70 text-white hover:bg-black/80"
+                    disabled={!previewRange || capturing}
+                    onClick={() => void captureFromPreview()}
+                    title="Bu andan kare yakala"
+                  >
+                    {capturing ? <Loader2Icon className="animate-spin" /> : <CameraIcon />}
+                  </Button>
                 </div>
 
-                {/* Seçimin doğruluğunu anlamak için oynatmaya gerek yok.
-                    Şerit, seçim boyunca eşit aralıklı kareler gösteriyor:
-                    kullanıcı yalnızca sınırları değil NE kaydettiğini görüyor.
-                    Kareler seçim değiştikçe kendiliğinden tazeleniyor. */}
-                {selection ? (
-                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-                    {frames.map(({ at, image }, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        // Kareye tiklamak o andan oynatiyor: serit hem ozet
-                        // hem de secimin ICINE giris noktasi. Uzun bir secimi
-                        // bastan sona indirmek mumkun olmadigi icin
-                        // "hepsini gorme" pratikte boyle saglaniyor.
-                        title={`${at.toLocaleTimeString('tr-TR')} anından oynat`}
-                        onClick={() => void playFrom(at, PREVIEW_DEFAULT_SECONDS)}
-                        className="flex flex-col gap-1 text-left"
-                      >
-                        <div className="relative aspect-video overflow-hidden rounded-md border bg-black transition hover:border-primary-light">
-                          {image ? (
-                            <img src={image} alt="" className="size-full object-cover" />
-                          ) : (
-                            <div className="grid size-full place-items-center text-[10px] text-muted-foreground">
-                              {framesLoading ? (
-                                <Loader2Icon className="size-3 animate-spin" />
-                              ) : (
-                                'yok'
-                              )}
-                            </div>
-                          )}
-                          {/* Ilk ve son kare isaretli: seride bakan kisi
-                              siniri ortadaki karelerden ayirt edebilsin. */}
-                          {(i === 0 || i === frames.length - 1) && (
-                            <span className="absolute left-1 top-1 rounded bg-primary-light/90 px-1 text-[9px] font-medium text-black">
-                              {i === 0 ? 'baş' : 'son'}
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-center text-[10px] tabular-nums text-muted-foreground">
-                          {at.toLocaleTimeString('tr-TR')}
-                        </span>
-                      </button>
-                    ))}
+                {dvrAltyaziAcikMi() && subtitleLang !== 'kapali' && channelId && (
+                  <SubtitleOverlay
+                    channelId={channelId}
+                    capture={dvrCapture}
+                    language={subtitleLang}
+                    className="pb-10"
+                  />
+                )}
+                {previewLoading && (
+                  <div className="absolute inset-0 grid place-items-center rounded-lg bg-black/60">
+                    <Loader2Icon className="size-6 animate-spin text-white" />
                   </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Çizelgeye tıklayarak o andan {formatDuration(PREVIEW_DEFAULT_SECONDS)} izleyin,
-                    sürükleyerek aralık seçin.
-                  </p>
                 )}
+              </div>
 
-                {selection && (
-                  <p className="text-xs text-muted-foreground">
-                    Şerit seçimin başından sonuna eşit aralıklarla alınır — klipte
-                    göreceğiniz içerik budur. Bir kareye tıklayarak o andan
-                    izleyebilirsiniz.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+              <div data-tour="dvr-zaman-cizelgesi">
+                <Timeline
+                  from={from}
+                  to={now}
+                  spans={spans}
+                  selection={selection}
+                  onSelectionChange={setSelection}
+                  onSeek={(at) => void playFrom(at, PREVIEW_DEFAULT_SECONDS)}
+                />
+              </div>
 
-            <Card data-tour="dvr-secim">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Seçilen aralık</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
+              {/* Seçimin doğruluğunu anlamak için oynatmaya gerek yok.
+                  Şerit, seçim boyunca eşit aralıklı kareler gösteriyor:
+                  kullanıcı yalnızca sınırları değil NE kaydettiğini görüyor.
+                  Kareler seçim değiştikçe kendiliğinden tazeleniyor. */}
+              {selection ? (
+                <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+                  {frames.map(({ at, image }, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      // Kareye tiklamak o andan oynatiyor: serit hem ozet
+                      // hem de secimin ICINE giris noktasi. Uzun bir secimi
+                      // bastan sona indirmek mumkun olmadigi icin
+                      // "hepsini gorme" pratikte boyle saglaniyor.
+                      title={`${at.toLocaleTimeString('tr-TR')} anından oynat`}
+                      onClick={() => void playFrom(at, PREVIEW_DEFAULT_SECONDS)}
+                      className="flex flex-col gap-1 text-left"
+                    >
+                      <div className="relative aspect-video overflow-hidden rounded-md border bg-black transition hover:border-primary-light">
+                        {image ? (
+                          <img src={image} alt="" className="size-full object-cover" />
+                        ) : (
+                          <div className="grid size-full place-items-center text-[10px] text-muted-foreground">
+                            {framesLoading ? (
+                              <Loader2Icon className="size-3 animate-spin" />
+                            ) : (
+                              'yok'
+                            )}
+                          </div>
+                        )}
+                        {/* Ilk ve son kare isaretli: seride bakan kisi
+                            siniri ortadaki karelerden ayirt edebilsin. */}
+                        {(i === 0 || i === frames.length - 1) && (
+                          <span className="absolute left-1 top-1 rounded bg-primary-light/90 px-1 text-[9px] font-medium text-black">
+                            {i === 0 ? 'baş' : 'son'}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-center text-[10px] tabular-nums text-muted-foreground">
+                        {at.toLocaleTimeString('tr-TR')}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Çizelgeye tıklayarak o andan {formatDuration(PREVIEW_DEFAULT_SECONDS)} izleyin,
+                  sürükleyerek aralık seçin.
+                </p>
+              )}
+            </div>
+
+            {/* SAĞ: seçim özeti + planlı kayıt — dar sabit sütun, gerekirse
+                kendi içinde kayar ki sol taraftaki önizleme boyu sayfanın
+                yüksekliğini belirlesin. */}
+            <div className="flex flex-col gap-3">
+              <div data-tour="dvr-secim" className="rounded-2xl border bg-panel p-4">
+                <h2 className="mb-3 text-sm font-medium text-muted-foreground">Seçilen aralık</h2>
                 {!selection ? (
                   <p className="text-sm text-muted-foreground">
                     Zaman çizelgesinde sürükleyerek aralık seçin.
                   </p>
                 ) : (
-                  <>
+                  <div className="flex flex-col gap-3">
                     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
                       <dt className="text-muted-foreground">Başlangıç</dt>
                       <dd>{selection.start.toLocaleString('tr-TR')}</dd>
@@ -674,16 +655,16 @@ export function DvrPage() {
                         <XIcon />
                       </Button>
                     </div>
-                  </>
+                  </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
 
-            {/* Çizelge yalnızca GEÇMİŞİ gösterebiliyor; gelecekteki bir aralık
-                orada seçilemez. Planlı kayıt formu o boşluğu kapatıyor ve
-                seçim varsa ondan doldurulabiliyor. */}
-            <div data-tour="dvr-planli-kayit">
-              <ScheduledRecordingCard channelId={channelId} selection={selection} />
+              {/* Çizelge yalnızca GEÇMİŞİ gösterebiliyor; gelecekteki bir aralık
+                  orada seçilemez. Planlı kayıt formu o boşluğu kapatıyor ve
+                  seçim varsa ondan doldurulabiliyor. */}
+              <div data-tour="dvr-planli-kayit">
+                <ScheduledRecordingCard channelId={channelId} selection={selection} />
+              </div>
             </div>
           </div>
         </>

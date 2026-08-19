@@ -5,7 +5,6 @@ import { scheduledRecordingsApi } from '@/api/endpoints'
 import type { ScheduledRecordingDto, ScheduledStatus } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { CalendarClockIcon, Loader2Icon, XIcon } from 'lucide-react'
@@ -97,18 +96,15 @@ export function ScheduledRecordingCard({
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <CalendarClockIcon className="size-4" />
-          Planlı kayıt
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <p className="text-xs text-muted-foreground">
-          Gelecekteki bir saat aralığı için kayıt emri verin. Kanalın geriye sarması
-          kapalıysa yalnızca o aralık boyunca açılır.
-        </p>
+    <div className="flex flex-col gap-3 rounded-2xl border bg-panel p-4">
+      <h2 className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+        <CalendarClockIcon className="size-4" />
+        Planlı kayıt
+      </h2>
+      <p className="-mt-1 text-xs text-muted-foreground">
+        Gelecekteki bir saat aralığı için kayıt emri verin. Kanalın geriye sarması
+        kapalıysa yalnızca o aralık boyunca açılır.
+      </p>
 
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="flex flex-col gap-1">
@@ -154,39 +150,42 @@ export function ScheduledRecordingCard({
         {plans.length > 0 && (
           <div className="flex flex-col gap-1.5 border-t pt-3">
             <span className="text-xs text-muted-foreground">Emirlerim</span>
-            {plans.slice(0, 8).map((plan) => (
-              <div
-                key={plan.id}
-                className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium">{plan.channelName}</div>
-                  <div className="text-muted-foreground">
-                    {new Date(plan.baslangic).toLocaleString('tr-TR')} —{' '}
-                    {new Date(plan.bitis).toLocaleTimeString('tr-TR')}
+            {/* Yükseklik sınırlı: uzun bir liste sayfayı boyuna büyütüp
+                önizleme+çizelgeyi ekrandan taşırmasın, kendi içinde kaysın. */}
+            <div className="flex max-h-40 flex-col gap-1.5 overflow-y-auto pr-1">
+              {plans.slice(0, 8).map((plan) => (
+                <div
+                  key={plan.id}
+                  className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{plan.channelName}</div>
+                    <div className="text-muted-foreground">
+                      {new Date(plan.baslangic).toLocaleString('tr-TR')} —{' '}
+                      {new Date(plan.bitis).toLocaleTimeString('tr-TR')}
+                    </div>
+                    {/* Basarisiz emirde sebebi gostermek sart: kullanici aksi
+                        halde neden klip olusmadigini hicbir yerden ogrenemez. */}
+                    {plan.hata && <div className="mt-0.5 text-destructive">{plan.hata}</div>}
                   </div>
-                  {/* Basarisiz emirde sebebi gostermek sart: kullanici aksi
-                      halde neden klip olusmadigini hicbir yerden ogrenemez. */}
-                  {plan.hata && <div className="mt-0.5 text-destructive">{plan.hata}</div>}
+                  <Badge variant={DURUM_RENGI[plan.durum]}>{DURUM_ETIKETI[plan.durum]}</Badge>
+                  {(plan.durum === 'BEKLIYOR' || plan.durum === 'KAYITTA') && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-6"
+                      title="İptal et"
+                      onClick={() => void cancel(plan.id)}
+                    >
+                      <XIcon className="size-3" />
+                    </Button>
+                  )}
                 </div>
-                <Badge variant={DURUM_RENGI[plan.durum]}>{DURUM_ETIKETI[plan.durum]}</Badge>
-                {(plan.durum === 'BEKLIYOR' || plan.durum === 'KAYITTA') && (
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-6"
-                    title="İptal et"
-                    onClick={() => void cancel(plan.id)}
-                  >
-                    <XIcon className="size-3" />
-                  </Button>
-                )}
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
-      </CardContent>
-    </Card>
+    </div>
   )
 }
 

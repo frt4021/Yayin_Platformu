@@ -16,10 +16,13 @@ import {
 } from '@/components/ui/table'
 import {
   CopyIcon,
+  EyeIcon,
   Loader2Icon,
   PencilIcon,
   PlusIcon,
+  RadioTowerIcon,
   RefreshCwIcon,
+  SearchIcon,
   Trash2Icon,
 } from 'lucide-react'
 import { ChannelFormDialog } from './channels/ChannelFormDialog'
@@ -61,6 +64,9 @@ export function ChannelsPage() {
   /** Silme onayı bekleyen kanal; null ise iletişim kutusu kapalı. */
   const [silinecek, setSilinecek] = useState<ChannelDto | null>(null)
   const tur = usePageTour(CHANNELS_TOUR_SEEN_KEY)
+
+  /** Yalnızca istemcide süzülüyor — liste zaten tamamen belleğe alınmış durumda. */
+  const [arama, setArama] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -125,6 +131,15 @@ export function ChannelsPage() {
     }
   }
 
+  const q = arama.trim().toLocaleLowerCase('tr')
+  const gorunenler = channels.filter(
+    (c) =>
+      !q ||
+      c.name.toLocaleLowerCase('tr').includes(q) ||
+      c.mediamtxPath.toLowerCase().includes(q) ||
+      c.sourceUrl.toLowerCase().includes(q),
+  )
+
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -144,7 +159,8 @@ export function ChannelsPage() {
               </Badge>
             )}
           </div>
-          <p className="text-sm text-muted-foreground">
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <RefreshCwIcon className="size-3.5" />
             Durum MediaMTX'ten okunur, {REFRESH_MS / 1000} saniyede bir tazelenir.
           </p>
         </div>
@@ -168,24 +184,38 @@ export function ChannelsPage() {
         )}
       </div>
 
+      <div className="relative max-w-sm">
+        <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="search"
+          value={arama}
+          onChange={(e) => setArama(e.target.value)}
+          placeholder="Kanal, path ya da kaynak ara…"
+          aria-label="Kanal ara"
+          className="h-10 w-full rounded-full border bg-card pl-10 pr-4 text-sm
+                     placeholder:text-muted-foreground focus:outline-none
+                     focus:ring-2 focus:ring-[var(--ring)]"
+        />
+      </div>
+
       {error ? (
         <div className="rounded-lg border border-destructive/40 p-4 text-sm text-destructive">
           {error}
         </div>
       ) : (
-        <div data-tour="kanal-tablo" className="rounded-xl border">
+        <div data-tour="kanal-tablo" className="rounded-2xl border bg-panel shadow-sm">
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>Kanal</TableHead>
-                <TableHead>Kaynak</TableHead>
-                <TableHead>Path</TableHead>
-                <TableHead>Durum</TableHead>
-                <TableHead>DVR</TableHead>
-                <TableHead>Kalite</TableHead>
-                <TableHead>İzleyici</TableHead>
-                <TableHead>Ekleyen</TableHead>
-                <TableHead className="text-right">İşlem</TableHead>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="uppercase tracking-wide text-[11px]">Kanal</TableHead>
+                <TableHead className="uppercase tracking-wide text-[11px]">Kaynak</TableHead>
+                <TableHead className="uppercase tracking-wide text-[11px]">Path</TableHead>
+                <TableHead className="uppercase tracking-wide text-[11px]">Durum</TableHead>
+                <TableHead className="uppercase tracking-wide text-[11px]">DVR</TableHead>
+                <TableHead className="uppercase tracking-wide text-[11px]">Kalite</TableHead>
+                <TableHead className="uppercase tracking-wide text-[11px]">İzleyici</TableHead>
+                <TableHead className="uppercase tracking-wide text-[11px]">Ekleyen</TableHead>
+                <TableHead className="text-right uppercase tracking-wide text-[11px]">İşlem</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -205,20 +235,37 @@ export function ChannelsPage() {
                 </TableRow>
               )}
 
+              {!loading && channels.length > 0 && gorunenler.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
+                    Arama sonucu bulunamadı.
+                  </TableCell>
+                </TableRow>
+              )}
+
               {!loading &&
-                channels.map((channel) => {
+                gorunenler.map((channel) => {
                   const busy = pending.has(channel.id)
                   return (
                     <TableRow key={channel.id}>
-                      <TableCell className="font-medium">{channel.name}</TableCell>
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2.5">
+                          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-secondary text-muted-foreground">
+                            <RadioTowerIcon className="size-4" />
+                          </span>
+                          {channel.name}
+                        </div>
+                      </TableCell>
                       <TableCell
-                        className="max-w-[16rem] truncate text-muted-foreground"
+                        className="max-w-[16rem] truncate font-mono text-xs text-muted-foreground"
                         title={channel.sourceUrl}
                       >
                         {channel.sourceUrl}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {channel.mediamtxPath}
+                      <TableCell>
+                        <code className="rounded bg-secondary/60 px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+                          {channel.mediamtxPath}
+                        </code>
                       </TableCell>
                       <TableCell>{statusBadge(channel)}</TableCell>
                       <TableCell>
@@ -247,43 +294,55 @@ export function ChannelsPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {channel.viewers ?? '—'}
+                        {channel.viewers != null ? (
+                          <span className="inline-flex items-center gap-1">
+                            <EyeIcon className="size-3.5" />
+                            {channel.viewers}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {channel.createdBy ?? '—'}
                       </TableCell>
                       <TableCell>
-                        <div data-tour="kanal-islemler" className="flex justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="HLS adresini kopyala"
-                            onClick={() => void copyHls(channel)}
-                          >
-                            <CopyIcon />
-                          </Button>
-                          {canManage && (
-                            <>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                disabled={busy}
-                                title="Düzenle"
-                                onClick={() => openEdit(channel)}
-                              >
-                                <PencilIcon />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                disabled={busy}
-                                title="Sil"
-                                onClick={() => void remove(channel)}
-                              >
-                                <Trash2Icon className="text-destructive" />
-                              </Button>
-                            </>
-                          )}
+                        <div data-tour="kanal-islemler" className="flex justify-end">
+                          <div className="inline-flex items-center gap-0.5 rounded-full bg-secondary/40 p-0.5">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="rounded-full"
+                              title="HLS adresini kopyala"
+                              onClick={() => void copyHls(channel)}
+                            >
+                              <CopyIcon />
+                            </Button>
+                            {canManage && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="rounded-full"
+                                  disabled={busy}
+                                  title="Düzenle"
+                                  onClick={() => openEdit(channel)}
+                                >
+                                  <PencilIcon />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="rounded-full"
+                                  disabled={busy}
+                                  title="Sil"
+                                  onClick={() => void remove(channel)}
+                                >
+                                  <Trash2Icon className="text-destructive" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </TableCell>
                     </TableRow>

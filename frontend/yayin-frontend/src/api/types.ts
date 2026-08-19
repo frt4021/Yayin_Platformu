@@ -65,6 +65,8 @@ export interface CanliDurumDto {
   esZamanliDinleyici: number
   aktifDvrKaydi: number
   anlikTrafikMbps: number | null
+  /** "Yayınlar" sağlık kartıyla aynı hesap; MediaMTX'e ulaşılamazsa null. */
+  yayindakiKanal: number | null
 }
 
 export interface TopEtiketDto {
@@ -184,6 +186,14 @@ export interface UserDto {
   createdAt: string | null
 }
 
+/** EtkinlikSayfasiDto ile aynı desen — gerçek toplam sayı, numaralı sayfalama için. */
+export interface KullaniciSayfasiDto {
+  items: UserDto[]
+  total: number
+  first: number
+  max: number
+}
+
 export interface CreateUserRequest {
   username: string
   email: string
@@ -224,6 +234,12 @@ export interface ChannelDto {
   /** MediaMTX'ten anlık durum; sunucuya ulaşılamadıysa null. */
   streaming: boolean | null
   viewers: number | null
+  /**
+   * Son yakalanan ön izleme karesinin imzalı adresi. Nesnenin var olup
+   * olmadığı sunucuda kontrol edilmiyor — henüz hiç yakalanmamışsa 404
+   * döner, arayüz bunu `onError` ile ikon yer tutucuya düşerek karşılıyor.
+   */
+  previewUrl: string | null
   createdBy: string | null
   createdAt: string | null
 }
@@ -338,6 +354,10 @@ export interface ClipDto {
   completedAt: string | null
   /** WebVTT altyazısı üretilen diller; boşsa altyazı yok. */
   subtitleLangs: string[]
+  /** Izgarada fare kartın üzerine gelince oynayan kısa önizleme klibi; üretilmediyse null. */
+  previewUrl: string | null
+  /** Önizleme klibinden çıkarılan tek karelik kapak görseli; üretilmediyse null. */
+  thumbnailUrl: string | null
 }
 
 /** Süreli imzalı adresler; dosya doğrudan nesne depolamasından gelir. */

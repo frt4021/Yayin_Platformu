@@ -22,12 +22,12 @@ import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 import org.example.user.dto.CreateUserRequest;
+import org.example.user.dto.KullaniciSayfasiDto;
 import org.example.user.dto.ResetPasswordRequest;
 import org.example.user.dto.SyncResultDto;
 import org.example.user.dto.UpdateRoleRequest;
 import org.example.user.dto.UserDto;
 
-import java.util.List;
 
 /**
  * Yönetici kullanıcı yönetimi. Sınıf düzeyindeki {@code @RolesAllowed} tüm
@@ -55,7 +55,7 @@ AdminUserResource {
     @GET
     @Operation(summary = "Kullanıcıları listele",
         description = "search verilirse kullanıcı adı, ad, soyad ve e-postada aranır.")
-    public List<UserDto> list(
+    public KullaniciSayfasiDto list(
         @QueryParam("search") String search,
         @QueryParam("first") @DefaultValue("0") @Min(0) int first,
         // Rol bilgisi kullanıcı başına ek bir Keycloak isteği gerektiriyor,

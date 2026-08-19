@@ -177,10 +177,13 @@ manuel kayıtlar "Bu aralıkta diske yazılmış kayıt yok" veriyordu.
 
 `SegmentStreamTest`'teki üç yeni kesme testi **koşulmadı**.
 
-### 5. ffmpeg kaydedici çırpınıyor
+### 5. ffmpeg kaydedici çırpınıyor — düzeltme uygulandı, ÖLÇÜLMEDİ
 
-Teşhis edildi, **uygulanmadı**: `Could not find codec parameters … analyzeduration (0)`.
-Öneri: `-analyzeduration 5000000 -probesize 10000000`.
+`Could not find codec parameters … analyzeduration (0)` belirtisine karşı
+`ChannelDvrRecorder`'a `-analyzeduration 5000000 -probesize 10000000`
+eklendi (19 Ağustos 2026). Kopmaların gerçekten azaldığı henüz ölçülmedi —
+üretimde bir süre çalıştırıp `docker compose logs video-worker | grep -c
+"DVR ffmpeg beklenmedik"` ile öncesi/sonrasını karşılaştırmak gerekiyor.
 
 ---
 

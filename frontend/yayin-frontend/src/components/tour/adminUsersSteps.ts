@@ -30,12 +30,20 @@ export const ADMIN_USERS_TOUR_STEPS: TourStep[] = [
     placement: 'bottom',
   },
   {
+    target: 'kullanici-adi',
+    title: 'Kullanıcı bilgi ekranı',
+    body:
+      'Bir kullanıcının adına tıklayınca, izlediği kanallar/radyolar ve genel '
+      + 'aktivitesini gösteren bir bilgi ekranı açılır — satırdan çıkmadan hızlı bir '
+      + 'özet almanın yolu budur.',
+    placement: 'right',
+  },
+  {
     target: 'kullanici-tablosu',
     title: 'Kullanıcı listesi',
     body:
-      'Kullanıcı adına tıklayınca o kişinin aktivite geçmişini görürsünüz. Rol '
-      + 'sütunundaki açılır menüden anında rol değiştirebilirsiniz — ayrı bir kaydet '
-      + 'düğmesi yok, seçim yapınca hemen uygulanır.',
+      'Rol sütunundaki açılır menüden anında rol değiştirebilirsiniz — ayrı bir '
+      + 'kaydet düğmesi yok, seçim yapınca hemen uygulanır.',
     placement: 'top',
   },
   {

@@ -7,6 +7,7 @@ import type { ActiveRecordingDto, ChannelDto } from '@/api/types'
 import { HlsPlayer, type CaptureHandle } from '@/components/HlsPlayer'
 import { TileActions } from './TileActions'
 import { subtitleLangs, SubtitleOverlay } from './SubtitleOverlay'
+import { SubtitlePicker } from './SubtitlePicker'
 import { dvrAltyaziAcikMi } from '@/player/oynaticiAyarlari'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -17,7 +18,18 @@ import { LiveRewind, type LiveRewindHandle } from './LiveRewind'
 import { PlayerControls } from './PlayerControls'
 import { usePresence } from './usePresence'
 import { useEffect as useEffectReact, useState as useStateReact } from 'react'
-import { SearchIcon, SettingsIcon, Volume2Icon, VolumeXIcon, XIcon } from 'lucide-react'
+import type { ReactNode } from 'react'
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  EyeIcon,
+  RadioTowerIcon,
+  SearchIcon,
+  SettingsIcon,
+  Volume2Icon,
+  VolumeXIcon,
+  XIcon,
+} from 'lucide-react'
 
 /** İzleme sayfasının yolu; katman bu yolda içerik alanını kaplar, diğerlerinde mini olur. */
 export const WATCH_PATH = '/izle'
@@ -40,6 +52,29 @@ function columnsFor(count: number) {
 }
 
 /**
+ * Kanalın son yakalanan ön izleme karesi, yoksa/yüklenemezse yer tutucu.
+ *
+ * <p>Sunucu nesnenin var olup olmadığını kontrol etmeden adres üretiyor —
+ * henüz hiç yakalanmamış bir kanal 404 döner. {@code onError} bunu
+ * yakalayıp yer tutucuya düşüyor; adres bir sonraki tazelemede değişince
+ * ({@code url} bağımlılığı) yeniden denenir.
+ */
+function ChannelPreview({
+  url,
+  className,
+  fallback,
+}: {
+  url: string | null
+  className?: string
+  fallback: ReactNode
+}) {
+  const [yuklendi, setYuklendi] = useStateReact(true)
+  useEffectReact(() => setYuklendi(true), [url])
+  if (!url || !yuklendi) return <>{fallback}</>
+  return <img src={url} alt="" className={className} onError={() => setYuklendi(false)} />
+}
+
+/**
  * Tüm HLS oynatıcılarını barındıran kalıcı katman.
  *
  * <p><b>Neden burada:</b> oynatıcılar route'un içinde yaşasaydı, kullanıcı
@@ -54,7 +89,7 @@ function columnsFor(count: number) {
  * {@link HlsPlayer} var — büyük ekran ayrı bir oynatıcı kurmuyor, sadece
  * diğer karolar gizleniyor.
  */
-export function PersistentPlayers() {
+export function PersistentPlayers({ sidebarCollapsed = false }: { sidebarCollapsed?: boolean }) {
   const location = useLocation()
   const onWatchPage = location.pathname === WATCH_PATH
 
@@ -74,6 +109,22 @@ export function PersistentPlayers() {
    * fazla birkaç düzine satır.
    */
   const [arama, setArama] = useState('')
+
+  /** Kanal şeridini yatayda kaydırmak için — ok düğmeleri scroll çubuğunun yerini alıyor. */
+  const seritRef = useRef<HTMLDivElement>(null)
+  const [seritSolaKayar, setSeritSolaKayar] = useState(false)
+  const [seritSagaKayar, setSeritSagaKayar] = useState(false)
+
+  const seritDurumGuncelle = useCallback(() => {
+    const el = seritRef.current
+    if (!el) return
+    setSeritSolaKayar(el.scrollLeft > 4)
+    setSeritSagaKayar(el.scrollLeft + el.clientWidth < el.scrollWidth - 4)
+  }, [])
+
+  function seritKaydir(yon: 1 | -1) {
+    seritRef.current?.scrollBy({ left: yon * seritRef.current.clientWidth * 0.8, behavior: 'smooth' })
+  }
 
   const loadRecordings = useCallback(async () => {
     try {
@@ -112,6 +163,12 @@ export function PersistentPlayers() {
   // Mini görünümde tek karo gösterilir: sesi olan, yoksa ilk açık kanal.
   const miniChannel = expanded ?? open.find((c) => c.id === audioId) ?? open[0] ?? null
 
+  // Kanal sayısı değiştiğinde şerit taşıyor mu diye yeniden hesapla — yeni
+  // kanal eklenmesi/kaldırılması ok düğmelerinin görünürlüğünü etkiler.
+  useEffect(() => {
+    seritDurumGuncelle()
+  }, [playable.length, seritDurumGuncelle])
+
   // Hiç açık kanal yoksa ve izleme sayfasında değilsek gösterilecek bir şey yok.
   // Bu durumda korunacak bir oynatıcı da olmadığı için unmount sakıncasız.
   if (open.length === 0 && !onWatchPage) return null
@@ -128,10 +185,14 @@ export function PersistentPlayers() {
     <div
       className={cn(
         onWatchPage
-          // Sol yan cubuk (w-60) ve sag yayin paneli (w-80) sabit konumlu;
-          // katman onlarin ARASINA oturmali yoksa altlarina kayar.
-          // Bu degerler AppLayout'takilerle birlikte degismek zorunda.
-          ? 'fixed bottom-0 left-60 right-80 top-0 z-10 flex flex-col gap-5 bg-background px-6 pb-6 pt-5'
+          // Sol yan cubuk (w-60/w-16, daraltilmaya gore) sabit konumlu;
+          // katman onun sagina oturmali yoksa altina kayar. Sol deger
+          // AppLayout'taki sidebarCollapsed durumuyla birlikte degismek
+          // zorunda.
+          ? cn(
+              'fixed bottom-0 right-0 top-0 z-10 flex flex-col gap-5 bg-background px-6 pb-6 pt-5 transition-[left] duration-200',
+              sidebarCollapsed ? 'left-16' : 'left-60',
+            )
           : 'fixed right-4 z-50 w-80 overflow-hidden rounded-2xl border bg-card shadow-lg',
         // Radyo çubuğu (h-16) sayfanın altını kaplıyor; mini oynatıcı onun
         // üstüne çıkmalı yoksa ikisi üst üste biner.
@@ -155,9 +216,8 @@ export function PersistentPlayers() {
 
       {/* Kanal seçim şeridi — mini görünümde gizli, ama DOM'da kalıyor ki
           kardeş sıralaması değişmesin ve karolar remount olmasın. */}
-      {/* Başlık solda, denetimler sağda. Eskiden hepsi tek sıra hâlinde
-          soldan diziliyordu ve sayfa başlığı kanal çipleriyle aynı ağırlıkta
-          okunuyordu; "burası neresi" ile "ne açayım" ayrı iki soru. */}
+      {/* Başlık solda, denetimler sağda. Kanal seçimi artık altta, karoların
+          altında — video alanı yukarıda daha çok yer kaplasın diye. */}
       <div
         className={cn(
           'flex flex-wrap items-center justify-between gap-x-6 gap-y-3',
@@ -171,36 +231,7 @@ export function PersistentPlayers() {
           </Badge>
         </div>
 
-        <div data-tour="kanal-cipleri" className="flex flex-wrap items-center gap-2">
-          {playable.length === 0 && (
-            <span className="text-sm text-muted-foreground">Yayında kanal yok.</span>
-          )}
-          {playable.map((channel) => {
-            const isOpen = openIds.includes(channel.id)
-            return (
-              <Button
-                key={channel.id}
-                size="sm"
-                // Açık kanal nane, kapalı kanal koyu gri dolgu. Kapalı olan
-                // eskiden yalnızca çerçeveliydi ve zeminde kayboluyordu --
-                // "kanal yok" ile "kanal kapalı" ayırt edilemiyordu.
-                variant={isOpen ? 'default' : 'secondary'}
-                disabled={!isOpen && openIds.length >= MAX_TILES}
-                onClick={() => toggle(channel.id)}
-                title={
-                  channel.streaming === false ? 'Kanal aktif ama yayın akmıyor' : undefined
-                }
-              >
-                {channel.name}
-              </Button>
-            )
-          })}
-
-          {/* Kanal çipleriyle toplu eylemler arasında nefes: bitişik
-              dururken "Tümünü aç" bir kanal adı gibi okunuyordu. */}
-          <span className="mx-1 h-6 w-px bg-border" />
-
-          <span data-tour="toplu-eylemler" className="flex gap-2">
+        <span data-tour="toplu-eylemler" className="flex gap-2">
           <Button
             variant="outline"
             onClick={() => openMany(playable.map((c) => c.id))}
@@ -211,8 +242,7 @@ export function PersistentPlayers() {
           <Button variant="outline" onClick={closeAll} disabled={open.length === 0}>
             Tümünü kapat
           </Button>
-          </span>
-        </div>
+        </span>
       </div>
 
       {/* Mini başlık — izleme sayfasında gizli. */}
@@ -245,7 +275,7 @@ export function PersistentPlayers() {
         data-tour="karo-alani"
         className={
           onWatchPage
-            ? 'min-h-0 flex-1 rounded-2xl border bg-panel p-3'
+            ? 'relative min-h-0 flex-1 rounded-2xl border bg-panel p-3'
             : 'aspect-video bg-black'
         }
       >
@@ -279,13 +309,110 @@ export function PersistentPlayers() {
             />
           ))}
         </div>
+
+        {open.length === 0 && onWatchPage && (
+          <div className="pointer-events-none absolute inset-3 grid place-items-center rounded-xl border border-dashed text-sm text-muted-foreground">
+            Aşağıdan kanal seçin.
+          </div>
+        )}
       </div>
 
-      {open.length === 0 && onWatchPage && (
-        <div className="pointer-events-none absolute inset-x-6 bottom-6 top-24 grid place-items-center rounded-2xl border border-dashed text-sm text-muted-foreground">
-          Yukarıdan kanal seçin.
+      {/* Kanal seçim şeridi — karoların altında, kaydırma çubuğu yerine ok
+          düğmeleriyle. Mini görünümde gizli, ama DOM'da kalıyor ki kardeş
+          sıralaması değişmesin ve karolar remount olmasın. */}
+      <div className={cn('relative shrink-0', !onWatchPage && 'hidden')}>
+        <div
+          ref={seritRef}
+          onScroll={seritDurumGuncelle}
+          data-tour="kanal-cipleri"
+          className="no-scrollbar flex gap-3 overflow-x-auto scroll-smooth"
+        >
+          {playable.length === 0 && (
+            <span className="text-sm text-muted-foreground">Yayında kanal yok.</span>
+          )}
+          {playable.map((channel) => {
+            const isOpen = openIds.includes(channel.id)
+            const disabled = !isOpen && openIds.length >= MAX_TILES
+            return (
+              <button
+                key={channel.id}
+                type="button"
+                disabled={disabled}
+                onClick={() => toggle(channel.id)}
+                title={
+                  channel.streaming === false ? 'Kanal aktif ama yayın akmıyor' : undefined
+                }
+                className={cn(
+                  'group flex w-48 shrink-0 flex-col overflow-hidden rounded-xl border bg-card text-left transition-[border-color,box-shadow,transform] duration-200',
+                  'disabled:cursor-not-allowed disabled:opacity-50',
+                  isOpen
+                    ? 'border-primary shadow-[0_0_0_1px_var(--primary)]'
+                    : 'hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-[0_8px_30px_-12px_var(--primary)] motion-reduce:transition-none motion-reduce:hover:translate-y-0',
+                )}
+              >
+                <div className="relative flex aspect-video items-center justify-center bg-gradient-to-br from-panel to-black">
+                  <ChannelPreview
+                    url={channel.previewUrl}
+                    className="absolute inset-0 size-full object-cover"
+                    fallback={<RadioTowerIcon className="size-8 text-muted-foreground/40" />}
+                  />
+
+                  {channel.streaming && (
+                    <span className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded bg-status-live px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                      Canlı
+                    </span>
+                  )}
+
+                  {channel.sourceWidth && channel.sourceHeight && (
+                    <span className="absolute bottom-1.5 left-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                      {channel.sourceWidth}x{channel.sourceHeight}
+                    </span>
+                  )}
+
+                  {channel.viewers != null && (
+                    <span className="absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                      <EyeIcon className="size-3" />
+                      {channel.viewers}
+                    </span>
+                  )}
+                </div>
+
+                <div className="p-2">
+                  <span
+                    className={cn(
+                      'block truncate text-sm font-semibold',
+                      isOpen && 'text-primary',
+                    )}
+                  >
+                    {channel.name}
+                  </span>
+                </div>
+              </button>
+            )
+          })}
         </div>
-      )}
+
+        {seritSolaKayar && (
+          <button
+            type="button"
+            onClick={() => seritKaydir(-1)}
+            aria-label="Geri kaydır"
+            className="absolute -left-3 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-full border bg-panel text-foreground shadow-md transition-colors hover:bg-accent"
+          >
+            <ChevronLeftIcon className="size-4" />
+          </button>
+        )}
+        {seritSagaKayar && (
+          <button
+            type="button"
+            onClick={() => seritKaydir(1)}
+            aria-label="İleri kaydır"
+            className="absolute -right-3 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-full border bg-panel text-foreground shadow-md transition-colors hover:bg-accent"
+          >
+            <ChevronRightIcon className="size-4" />
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -605,27 +732,25 @@ function Tile({
             onRecordingChanged={onRecordingChanged}
           />
           {/* Altyazı dili karo başına: mozaikte farklı kanallar farklı dilde
-              izlenebilmeli. Tek bir genel ayar bunu imkânsız kılardı. */}
-          <select
-            aria-label="Altyazı"
-            title="Altyazı dili"
-            className="h-7 rounded-md border bg-secondary px-1.5 text-xs text-secondary-foreground"
-            value={subtitleLang}
-            onChange={(e) => {
-              const yeniDil = e.target.value
-              setSubtitleLang(yeniDil)
-              // Kullanici davranisi denetim izi icin -- altyazinin kendi
-              // akisini etkilemez, bu yuzden hata sessizce yutuluyor.
-              if (yeniDil !== 'kapali') void subtitlesApi.dilDegisti(channel.id, yeniDil).catch(() => {})
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {subtitleLangs().map((l) => (
-              <option key={l.kod} value={l.kod}>
-                {l.ad}
-              </option>
-            ))}
-          </select>
+              izlenebilmeli. Tek bir genel ayar bunu imkânsız kılardı.
+              stopPropagation SubtitlePicker'ın kendi tetikleyicisi Radix
+              buton olduğu için sarmalayan div üzerinden uygulanıyor --
+              bileşenin kendisi ham onClick geçirmiyor. */}
+          <div onClick={(e) => e.stopPropagation()}>
+            <SubtitlePicker
+              tracks={subtitleLangs()
+                .filter((l) => l.kod !== 'kapali')
+                .map((l) => ({ lang: l.kod, label: l.ad }))}
+              value={subtitleLang}
+              onChange={(yeniDil) => {
+                setSubtitleLang(yeniDil)
+                // Kullanici davranisi denetim izi icin -- altyazinin kendi
+                // akisini etkilemez, bu yuzden hata sessizce yutuluyor.
+                if (yeniDil !== 'kapali') void subtitlesApi.dilDegisti(channel.id, yeniDil).catch(() => {})
+              }}
+              className="border-input bg-secondary text-secondary-foreground hover:bg-secondary"
+            />
+          </div>
           {qualities.length > 1 && (
             <div className="relative">
               <select

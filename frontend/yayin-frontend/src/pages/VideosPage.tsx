@@ -6,12 +6,16 @@ import { videosApi } from '@/api/endpoints'
 import { formatBytes, formatDuration } from '@/api/upload'
 import type { VideoDto, VideoLinks } from '@/api/types'
 import { subtitleLangs } from '@/player/SubtitleOverlay'
+import { SubtitlePicker } from '@/player/SubtitlePicker'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import {
+  CalendarIcon,
+  CaptionsIcon,
+  ClockIcon,
   DownloadIcon,
+  EyeIcon,
   FilmIcon,
   Loader2Icon,
   PencilIcon,
@@ -51,6 +55,10 @@ export function VideosPage() {
   const yazabilir = hasRole('Yönetici', 'Moderatör')
   const [editing, setEditing] = useState<VideoDto | null>(null)
   const [pending, setPending] = useState<Set<string>>(new Set())
+
+  /** Sekmeler gerçek video durumlarına eşleniyor — "Taslak"/"Arşiv" gibi
+   * karşılığı olmayan bir kavram uydurmak yerine. */
+  const [durumSekme, setDurumSekme] = useState<'HEPSI' | 'HAZIR' | 'ISLENIYOR' | 'HATA'>('HEPSI')
 
   // Oynatılan video (sayfa içi oynatıcı; dialog değil — YouTube gibi solda
   // oynatıcı, sağda liste).
@@ -144,6 +152,16 @@ export function VideosPage() {
   // taze halini tut.
   const playingCurrent = playing ? videos.find((v) => v.id === playing.id) ?? playing : null
 
+  const filtered = videos.filter((v) => {
+    if (durumSekme === 'HEPSI') return true
+    if (durumSekme === 'ISLENIYOR') return v.status === 'YUKLENIYOR' || v.status === 'ISLENIYOR'
+    return v.status === durumSekme
+  })
+
+  function duzenlenebilir(video: VideoDto) {
+    return yazabilir && (hasRole('Yönetici') || video.uploadedBy === session?.username)
+  }
+
   async function remove(video: VideoDto) {
     if (!confirm(`"${video.title}" ve dosyası kalıcı olarak silinecek. Emin misiniz?`)) return
     setPending((prev) => new Set(prev).add(video.id))
@@ -164,31 +182,69 @@ export function VideosPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-3xl font-semibold tracking-tight">Video kütüphanesi</h1>
-        <Badge variant="secondary">{videos.length} video</Badge>
-        <TourTrigger onClick={tur.start} />
+      <div data-tour="videolar-arama" className="relative max-w-xl">
+        <SearchIcon className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="search"
+          placeholder="Kütüphanede ara…"
+          aria-label="Videolarda ara"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="h-11 w-full rounded-full border bg-card pl-11 pr-4 text-sm
+                     placeholder:text-muted-foreground focus:outline-none
+                     focus:ring-2 focus:ring-[var(--ring)]"
+        />
+      </div>
 
-        <div data-tour="videolar-arama" className="relative ml-auto">
-          <SearchIcon className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-          <Input
-            placeholder="Başlıkta ara"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-56 pl-8"
-          />
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-semibold tracking-tight">Video kütüphanesi</h1>
+            <Badge variant="secondary">{videos.length} video</Badge>
+            <TourTrigger onClick={tur.start} />
+          </div>
+          <p className="text-sm text-muted-foreground">Yüklediğiniz videoları yönetin.</p>
         </div>
 
         {/* İzleyici yükleyemez. Sunucu da aynı kuralı uyguluyor; buradaki
             gizleme kullanıcıyı reddedilecek bir düğmeyle karşılaştırmamak
             için. */}
         {yazabilir && (
-          <Button data-tour="videolar-yukle" onClick={() => setUploadOpen(true)}>
+          <Button data-tour="videolar-yukle" className="rounded-full" onClick={() => setUploadOpen(true)}>
             <UploadIcon />
             Video yükle
           </Button>
         )}
       </div>
+
+      {/* Sekmeler gerçek durumlara eşleniyor — oynatıcı açıkken anlamsız,
+          gizleniyor. */}
+      {!playingCurrent && (
+        <div className="flex items-center gap-5 border-b text-sm">
+          {(
+            [
+              ['HEPSI', 'Tümü'],
+              ['HAZIR', 'Hazır'],
+              ['ISLENIYOR', 'İşleniyor'],
+              ['HATA', 'Hata'],
+            ] as const
+          ).map(([deger, etiket]) => (
+            <button
+              key={deger}
+              type="button"
+              onClick={() => setDurumSekme(deger)}
+              className={cn(
+                'relative pb-3 font-medium transition-colors',
+                durumSekme === deger
+                  ? 'text-foreground after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full after:bg-primary'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {etiket}
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && <p className="text-sm text-status-error">{error}</p>}
 
@@ -204,32 +260,30 @@ export function VideosPage() {
             {search ? `"${search}" ile eşleşen video yok.` : 'Kütüphane boş.'}
           </p>
         </div>
+      ) : !playingCurrent && filtered.length === 0 ? (
+        <div className="grid place-items-center gap-2 rounded-xl border border-dashed p-12 text-center">
+          <FilmIcon className="size-8 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Bu durumda video yok.</p>
+        </div>
       ) : playingCurrent ? (
         // YouTube tarzı: solda oynatıcı + başlık/açıklama, sağda liste.
         <div className="flex flex-col gap-6 lg:flex-row">
           <div className="min-w-0 flex-1">
-            <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
+            <div className="relative aspect-video overflow-hidden rounded-xl bg-black shadow-[0_0_0_1px_var(--border),0_20px_60px_-20px_rgba(0,0,0,0.6)]">
               {/* Videonun kendi üzerinde, sağ üstte -- tarayıcının native
                   "CC" menüsü gizli/keşfedilmesi zor kaldığı için (gerçek
                   geri bildirim). Denetim çubuğu ALTTA olduğu için çakışma
                   yok. */}
-              {links && links.subtitles.length > 0 && (
-                <label className="absolute right-2 top-2 z-10 flex items-center gap-2 rounded-md bg-black/70 px-2 py-1 text-sm text-white backdrop-blur-sm">
-                  Altyazı
-                  <select
-                    aria-label="Altyazı dili"
-                    className="h-7 rounded-md border border-white/30 bg-black/60 px-1.5 text-sm text-white"
-                    value={aktifAltyazi}
-                    onChange={(e) => setAktifAltyazi(e.target.value)}
-                  >
-                    <option value="kapali">Kapalı</option>
-                    {links.subtitles.map((t) => (
-                      <option key={t.lang} value={t.lang}>
-                        {subtitleLangs().find((l) => l.kod === t.lang)?.ad ?? t.lang}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              {links && (
+                <SubtitlePicker
+                  tracks={links.subtitles.map((t) => ({
+                    lang: t.lang,
+                    label: subtitleLangs().find((l) => l.kod === t.lang)?.ad ?? t.lang,
+                  }))}
+                  value={aktifAltyazi}
+                  onChange={setAktifAltyazi}
+                  className="absolute right-2 top-2 z-10"
+                />
               )}
               {linksError ? (
                 <div className="grid size-full place-items-center p-4 text-center text-sm text-status-error">
@@ -267,27 +321,39 @@ export function VideosPage() {
               )}
             </div>
 
-            <h2 className="mt-3 text-xl font-semibold tracking-tight">{playingCurrent.title}</h2>
+            <h2 className="mt-4 text-2xl font-bold tracking-tight text-balance">
+              {playingCurrent.title}
+            </h2>
 
-            {/* YouTube tarzi: basligin altinda "X görüntülenme · tarih" —
-                ayrinti (süre, çözünürlük, boyut) ikinci satirda, soluk. */}
-            <div className="mt-0.5 text-sm text-muted-foreground">
-              {formatViews(playingCurrent.viewCount)}
+            {/* YouTube tarzi: basligin altinda ikon+deger cipleri -- "·"
+                ile ayrilmis duz metinden daha taranabilir, ikonlar hangi
+                sayinin ne oldugunu bir bakista soyluyor. */}
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5">
+                <EyeIcon className="size-3.5" />
+                {formatViews(playingCurrent.viewCount)}
+              </span>
               {playingCurrent.createdAt && (
-                <span> · {new Date(playingCurrent.createdAt).toLocaleDateString('tr')}</span>
+                <span className="inline-flex items-center gap-1.5">
+                  <CalendarIcon className="size-3.5" />
+                  {new Date(playingCurrent.createdAt).toLocaleDateString('tr')}
+                </span>
               )}
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span>{formatDuration(playingCurrent.durationSeconds)}</span>
-              {playingCurrent.width ? (
-                <span>· {playingCurrent.width}x{playingCurrent.height}</span>
-              ) : null}
-              <span>· {formatBytes(playingCurrent.sizeBytes)}</span>
-              {playingCurrent.uploadedBy ? <span>· {playingCurrent.uploadedBy}</span> : null}
+              <span className="inline-flex items-center gap-1.5 tabular-nums">
+                <ClockIcon className="size-3.5" />
+                {formatDuration(playingCurrent.durationSeconds)}
+              </span>
               <StatusBadge video={playingCurrent} />
             </div>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              {playingCurrent.width ? (
+                <span>{playingCurrent.width}×{playingCurrent.height}</span>
+              ) : null}
+              <span>{formatBytes(playingCurrent.sizeBytes)}</span>
+              {playingCurrent.uploadedBy ? <span>{playingCurrent.uploadedBy}</span> : null}
+            </div>
 
-            <div className="mt-3 flex items-center gap-2">
+            <div className="mt-4 flex items-center gap-2">
               {links && (
                 <Button variant="outline" asChild>
                   <a href={links.download} download={links.fileName}>
@@ -296,8 +362,7 @@ export function VideosPage() {
                   </a>
                 </Button>
               )}
-              {yazabilir &&
-                (hasRole('Yönetici') || playingCurrent.uploadedBy === session?.username) && (
+              {duzenlenebilir(playingCurrent) && (
                   <>
                     <Button
                       variant="outline"
@@ -329,7 +394,7 @@ export function VideosPage() {
             </div>
 
             {playingCurrent.description && (
-              <p className="mt-3 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border bg-card p-3 text-sm text-muted-foreground">
+              <p className="mt-4 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-xl border bg-panel p-4 text-sm text-muted-foreground">
                 {playingCurrent.description}
               </p>
             )}
@@ -359,17 +424,15 @@ export function VideosPage() {
         // Boş durum: video seçilmemiş — ızgara.
         <div
           data-tour="videolar-izgara"
-          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          className="grid gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6"
         >
-          {videos.map((video) => (
+          {filtered.map((video) => (
             <VideoCard
               key={video.id}
               video={video}
               busy={pending.has(video.id)}
               onPlay={() => setPlaying(video)}
-              yazabilir={
-                yazabilir && (hasRole('Yönetici') || video.uploadedBy === session?.username)
-              }
+              yazabilir={duzenlenebilir(video)}
               onEdit={() => setEditing(video)}
               onDelete={() => void remove(video)}
             />
@@ -458,12 +521,8 @@ function VideoCard({
   }, [])
 
   return (
-    <div
-      className="group flex flex-col overflow-hidden rounded-xl border bg-card transition-colors hover:bg-accent/30"
-      onMouseEnter={startPreview}
-      onMouseLeave={stopPreview}
-    >
-      <div className="relative aspect-video bg-black">
+    <div className="group flex flex-col" onMouseEnter={startPreview} onMouseLeave={stopPreview}>
+      <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
         {video.thumbnailUrl ? (
           <img src={video.thumbnailUrl} alt="" className="size-full object-cover" />
         ) : (
@@ -499,85 +558,88 @@ function VideoCard({
             title="Oynat"
             className="absolute inset-0 grid place-items-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100"
           >
-            <PlayIcon className="size-10 text-white drop-shadow" />
+            <span className="grid size-11 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg">
+              <PlayIcon className="size-5 fill-current" />
+            </span>
           </button>
         )}
 
         {video.durationSeconds != null && (
-          <span className="absolute bottom-1.5 right-1.5 rounded bg-black/75 px-1.5 py-0.5 text-xs font-medium text-white">
+          <span className="absolute bottom-1.5 right-1.5 rounded bg-black/75 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white">
             {formatDuration(video.durationSeconds)}
           </span>
         )}
 
         {/* Oynatmadan önce altyazı olup olmadığını görmek için — izgarada
             onlarca video arasında hangisinde altyazı hazır oldugunu ayirt
-            etmenin tek yolu bu, oynaticiya girmeden bilinmiyordu. */}
+            etmenin tek yolu bu, oynaticiya girmeden bilinmiyordu. İkon +
+            vurgu rengi: düz "CC" metninden daha tanınır, palettin tek
+            doygun rengini (primary-light) kullanan tek rozet burası. */}
         {video.subtitleLangs.length > 0 && (
           <span
             data-tour="videolar-cc"
-            className="absolute bottom-1.5 left-1.5 rounded bg-black/75 px-1.5 py-0.5 text-xs font-medium text-white"
+            className="absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded bg-black/75 px-1.5 py-0.5 text-xs font-medium text-primary-light"
             title={`Altyazı: ${video.subtitleLangs.join(', ')}`}
           >
-            CC
+            <CaptionsIcon className="size-3.5" />
           </span>
         )}
 
         <div className="absolute left-1.5 top-1.5">
           <StatusBadge video={video} />
         </div>
-      </div>
-
-      <div className="flex flex-1 flex-col gap-1 p-3">
-        <div className="truncate text-sm font-medium" title={video.title}>
-          {video.title}
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {formatViews(video.viewCount)}
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {formatBytes(video.sizeBytes)}
-          {video.width ? ` · ${video.width}x${video.height}` : ''}
-          {video.uploadedBy ? ` · ${video.uploadedBy}` : ''}
-        </div>
-
-        {video.status === 'HATA' && video.error && (
-          <p className="mt-1 line-clamp-2 text-xs text-status-error" title={video.error}>
-            {video.error}
-          </p>
-        )}
 
         {/* Düzenle/sil izleyiciye kapalı. Yetkili rollerde liste zaten yalnızca
             kullanıcının kendi videolarını içeriyor, sunucu da sahiplik dışına
             çıkılmasına izin vermiyor. Yönetici başkasının videosunu görürse onu
-            da yönetebilir. */}
+            da yönetebilir. YouTube'daki "⋮" menüsü gibi küçük, hover'da beliren
+            bir grup — metin bloğunu şişirmesin diye küçük resmin üzerinde. */}
         {yazabilir && (
-        <div
-          data-tour="videolar-eylemler"
-          className="mt-2 flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100"
-        >
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            title="Düzenle"
-            disabled={video.status === 'YUKLENIYOR'}
-            onClick={onEdit}
+          <div
+            data-tour="videolar-eylemler"
+            className="absolute right-1.5 top-1.5 flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100"
           >
-            <PencilIcon />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            title={video.status === 'ISLENIYOR' ? 'İşlenirken silinemez' : 'Sil'}
-            disabled={busy || video.status === 'ISLENIYOR'}
-            onClick={onDelete}
-          >
-            {busy ? <Loader2Icon className="animate-spin" /> : <Trash2Icon />}
-          </Button>
-        </div>
+            <button
+              type="button"
+              title="Düzenle"
+              disabled={video.status === 'YUKLENIYOR'}
+              onClick={onEdit}
+              className="grid size-7 place-items-center rounded-full bg-black/70 text-white transition-colors hover:bg-black/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <PencilIcon className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              title={video.status === 'ISLENIYOR' ? 'İşlenirken silinemez' : 'Sil'}
+              disabled={busy || video.status === 'ISLENIYOR'}
+              onClick={onDelete}
+              className="grid size-7 place-items-center rounded-full bg-black/70 text-white transition-colors hover:bg-black/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {busy ? <Loader2Icon className="size-3.5 animate-spin" /> : <Trash2Icon className="size-3.5" />}
+            </button>
+          </div>
         )}
       </div>
+
+      <button
+        type="button"
+        onClick={onPlay}
+        disabled={!playable}
+        className="mt-2 flex flex-col items-start text-left disabled:cursor-not-allowed"
+      >
+        <span className="line-clamp-2 text-sm font-medium leading-snug" title={video.title}>
+          {video.title}
+        </span>
+        <span className="mt-1 truncate text-xs text-muted-foreground">
+          {video.uploadedBy && `${video.uploadedBy} · `}
+          {formatViews(video.viewCount)}
+        </span>
+        {video.status === 'HATA' && video.error && (
+          <span className="mt-1 line-clamp-1 text-xs text-status-error" title={video.error}>
+            {video.error}
+          </span>
+        )}
+      </button>
     </div>
   )
 }
@@ -602,8 +664,8 @@ function ListItem({
       onClick={onPlay}
       disabled={!playable}
       className={cn(
-        'flex gap-2 rounded-lg p-1.5 text-left transition-colors',
-        active ? 'bg-accent' : 'hover:bg-accent/50',
+        'flex gap-2.5 rounded-lg border border-transparent p-1.5 text-left transition-colors',
+        active ? 'border-primary/40 bg-primary/10' : 'hover:bg-accent/50',
         !playable && 'cursor-default opacity-70',
       )}
     >
@@ -616,13 +678,16 @@ function ListItem({
           </div>
         )}
         {video.durationSeconds != null && (
-          <span className="absolute bottom-0.5 right-0.5 rounded bg-black/75 px-1 text-[10px] font-medium text-white">
+          <span className="absolute bottom-0.5 right-0.5 rounded bg-black/75 px-1 text-[10px] font-medium tabular-nums text-white">
             {formatDuration(video.durationSeconds)}
           </span>
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="line-clamp-2 text-xs font-medium" title={video.title}>
+        <div
+          className={cn('line-clamp-2 text-xs font-medium', active && 'text-primary')}
+          title={video.title}
+        >
           {video.title}
         </div>
         <div className="mt-0.5 truncate text-[11px] text-muted-foreground">

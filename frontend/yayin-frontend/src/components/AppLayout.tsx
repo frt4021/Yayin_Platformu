@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/auth/AuthContext'
 import { Badge } from '@/components/ui/badge'
@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   AudioLinesIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   ClapperboardIcon,
   CompassIcon,
   FilmIcon,
@@ -20,7 +22,6 @@ import {
 import { PlayerProvider, usePlayers } from '@/player/PlayerContext'
 import { PersistentPlayers, WATCH_PATH } from '@/player/PersistentPlayers'
 import { PersistentRadio } from '@/player/PersistentRadio'
-import { ActiveStreamPanel } from '@/player/ActiveStreamPanel'
 import { GuidedTour } from '@/components/tour/GuidedTour'
 import { usePageTour } from '@/components/tour/usePageTour'
 import { TourTrigger } from '@/components/tour/TourTrigger'
@@ -54,6 +55,12 @@ const NAV: NavItem[] = [
 
 /** Yan çubuk genişliği. PersistentPlayers içerik alanını kaplarken buna dayanıyor. */
 export const SIDEBAR_W = 'w-60'
+
+/** Daraltılmış (yalnızca ikon) yan çubuk genişliği. */
+const SIDEBAR_W_DAR = 'w-16'
+
+/** Daraltma tercihi tarayıcıda kalıcı — sayfa değiştikçe sıfırlanmamalı. */
+const SIDEBAR_DARALT_KEY = 'yayin-merkezi:sidebar-daraltildi'
 
 export function AppLayout() {
   const { session, logout, hasRole } = useAuth()
@@ -90,6 +97,13 @@ function Shell({
 }) {
   const { radioId, radioPaused, toggleRadioPause, stopRadio } = usePlayers()
   const location = useLocation()
+  const [daraltildi, setDaraltildi] = useState(
+    () => localStorage.getItem(SIDEBAR_DARALT_KEY) === '1',
+  )
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_DARALT_KEY, daraltildi ? '1' : '0')
+  }, [daraltildi])
   // Sag panel yalnizca izleme sayfasinda: diger sayfalarda karo yok ve panel
   // hicbir seye karsilik gelmeyen bos bir sutun olarak dururdu.
   const izlemede = location.pathname === WATCH_PATH
@@ -120,40 +134,67 @@ function Shell({
           Sabit konumlu: sayfa kaydırılırken gezinme yerinde kalmalı. Üst
           çubuktan buraya taşındı çünkü dokuz öğe yatayda satırı dolduruyordu
           ve sağdaki yayın paneline yer kalmıyordu. */}
-      <aside className="fixed inset-y-0 left-0 z-20 flex w-60 flex-col border-r bg-panel">
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-20 flex flex-col border-r bg-panel transition-[width] duration-200',
+          daraltildi ? SIDEBAR_W_DAR : SIDEBAR_W,
+        )}
+      >
+        {/* Grip: kenarda yarı taşan yuvarlak düğme — daraltma/genişletme burada. */}
+        <button
+          type="button"
+          onClick={() => setDaraltildi((v) => !v)}
+          title={daraltildi ? 'Kenar çubuğunu genişlet' : 'Kenar çubuğunu daralt'}
+          className="absolute -right-3 top-20 z-30 grid size-6 place-items-center rounded-full border bg-panel text-muted-foreground shadow-sm transition-colors hover:text-foreground"
+        >
+          {daraltildi ? (
+            <ChevronRightIcon className="size-3.5" />
+          ) : (
+            <ChevronLeftIcon className="size-3.5" />
+          )}
+        </button>
+
         <NavLink
           to={WATCH_PATH}
-          className="flex items-center gap-2.5 rounded-xl px-5 py-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-inset"
+          className={cn(
+            'flex items-center gap-2.5 rounded-xl px-5 py-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-inset',
+            daraltildi && 'justify-center px-0',
+          )}
         >
-          <span className="grid size-9 place-items-center rounded-xl bg-accent text-primary">
+          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent text-primary">
             <RadioTowerIcon className="size-5" />
           </span>
-          <span className="text-lg font-semibold tracking-tight">Yayın Merkezi</span>
+          {!daraltildi && <span className="text-lg font-semibold tracking-tight">Yayın Merkezi</span>}
         </NavLink>
 
-        <nav data-tour="nav" className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-2">
+        {/* Aktif öge tüm satırı kaplayan bir kapsül (stadium şekli) —
+            yalnızca ikonun etrafında değil, ikon+etiketin ikisini birden
+            saran dolu bir oval zemin. */}
+        <nav
+          data-tour="nav"
+          className={cn('min-h-0 flex-1 space-y-1.5 overflow-y-auto py-2', daraltildi ? 'px-2' : 'px-3')}
+        >
           {NAV.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
+              title={daraltildi ? item.label : undefined}
               className={({ isActive }) =>
                 cn(
                   // focus-visible: klavyeyle (Tab) gelindiğinde hangi satırda
                   // olunduğu belli olsun diye — hover'ın aksine hiçbir zaman
                   // örtülü değildi, fare kullanılmayan gezinmede satır sırf
                   // ok tuşlarıyla takip edilemiyordu.
-                  'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-inset',
+                  'flex items-center gap-3 rounded-full py-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-inset',
+                  daraltildi ? 'justify-center px-0' : 'px-4',
                   isActive
-                    ? // Aktif satır: dolu zemin + sol kenarda nane çizgi.
-                      // Dikey listede alt çizgi işe yaramıyor; satırın
-                      // tamamının vurgulanması gerekiyor.
-                      'relative bg-accent font-medium text-foreground before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary'
+                    ? 'bg-primary font-medium text-primary-foreground shadow-[0_4px_14px_-4px_var(--primary)]'
                     : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
                 )
               }
             >
               <item.icon className="size-4.5 shrink-0" />
-              {item.label}
+              {!daraltildi && <span className="truncate">{item.label}</span>}
             </NavLink>
           ))}
         </nav>
@@ -165,17 +206,21 @@ function Shell({
           <div className="border-t px-3 py-3">
             <NavLink
               to="/yonetim/genel-bakis"
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-inset"
+              title={daraltildi ? 'Yönetim Paneline Git' : undefined}
+              className={cn(
+                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-inset',
+                daraltildi && 'justify-center px-0',
+              )}
             >
               <ShieldIcon className="size-4.5 shrink-0" />
-              Yönetim Paneline Git
+              {!daraltildi && 'Yönetim Paneline Git'}
             </NavLink>
           </div>
         )}
 
         {/* Hesap bloğu en altta: gezinme öğesi değil, oturum bilgisi. */}
         <div data-tour="hesap" className="border-t px-3 py-4">
-          <div className="flex items-center gap-2.5 px-2">
+          <div className={cn('flex items-center gap-2.5 px-2', daraltildi && 'justify-center px-0')}>
             <NavLink
               to="/profil"
               title="Profilim"
@@ -183,14 +228,20 @@ function Shell({
             >
               <UserIcon className="size-4" />
             </NavLink>
-            <span className="min-w-0 flex-1 truncate text-sm">{session?.username}</span>
-            <Button variant="ghost" size="icon" title="Çıkış" onClick={() => void onLogout()}>
-              <LogOutIcon />
-            </Button>
+            {!daraltildi && (
+              <>
+                <span className="min-w-0 flex-1 truncate text-sm">{session?.username}</span>
+                <Button variant="ghost" size="icon" title="Çıkış" onClick={() => void onLogout()}>
+                  <LogOutIcon />
+                </Button>
+              </>
+            )}
           </div>
-          <Badge variant={session?.role ? 'role' : 'outline'} className="ml-11 mt-2">
-            {session?.role ?? 'rolsüz'}
-          </Badge>
+          {!daraltildi && (
+            <Badge variant={session?.role ? 'role' : 'outline'} className="ml-11 mt-2">
+              {session?.role ?? 'rolsüz'}
+            </Badge>
+          )}
         </div>
       </aside>
 
@@ -198,11 +249,16 @@ function Shell({
           Kenar boşlukları yan çubukların GENİŞLİĞİ kadar: onlar sabit
           konumlu olduğu için akıştan çıkmış durumdalar ve içerik altlarına
           kayardı. */}
-      <main className={cn('ml-60 p-6', izlemede && 'mr-80', radioId && 'pb-24')}>
+      <main
+        className={cn(
+          'p-6 transition-[margin-left] duration-200',
+          daraltildi ? 'ml-16' : 'ml-60',
+          radioId && 'pb-24',
+        )}
+      >
         <Outlet />
       </main>
 
-      {izlemede && <ActiveStreamPanel />}
       {izlemede && <TourTrigger onClick={izlemeTuru.start} />}
 
       <GuidedTour
@@ -211,7 +267,7 @@ function Shell({
         steps={WATCH_TOUR_STEPS}
       />
 
-      <PersistentPlayers />
+      <PersistentPlayers sidebarCollapsed={daraltildi} />
       <PersistentRadio
         radioId={radioId}
         paused={radioPaused}

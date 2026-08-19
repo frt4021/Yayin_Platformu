@@ -41,32 +41,36 @@ export function Olcum({ deger, birim }: { deger: number | null; birim?: string }
 
 export function StatKart({ baslik, children }: { baslik: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border p-4">
-      <div className="text-sm text-muted-foreground">{baslik}</div>
-      <div className="mt-1 text-2xl font-semibold">{children}</div>
+    <div className="rounded-2xl border bg-panel p-4">
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{baslik}</div>
+      <div className="mt-1.5 text-2xl font-semibold tracking-tight">{children}</div>
     </div>
   )
 }
 
+/** Bölüm başlığı — altındaki ince çizgi ile bölümleri ayırıyor. */
+export function BolumBasligi({ children }: { children: React.ReactNode }) {
+  return <h2 className="border-b pb-2 text-lg font-semibold tracking-tight">{children}</h2>
+}
+
 function TopListe({ baslik, veri }: { baslik: string; veri: TopEtiketDto[] }) {
   return (
-    <div className="rounded-xl border">
-      <div className="border-b px-4 py-3 text-sm font-medium">{baslik}</div>
-      <Table>
-        <TableBody>
-          {veri.length === 0 && (
-            <TableRow>
-              <TableCell className="py-6 text-center text-muted-foreground">Veri yok.</TableCell>
-            </TableRow>
-          )}
+    <div className="rounded-2xl border bg-panel">
+      <div className="border-b px-4 py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {baslik}
+      </div>
+      {veri.length === 0 ? (
+        <div className="py-6 text-center text-sm text-muted-foreground">Veri yok.</div>
+      ) : (
+        <div className="divide-y">
           {veri.map((e) => (
-            <TableRow key={e.id}>
-              <TableCell className="font-medium">{e.ad}</TableCell>
-              <TableCell className="text-right text-muted-foreground">{e.sayi}</TableCell>
-            </TableRow>
+            <div key={e.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+              <span className="min-w-0 truncate font-medium">{e.ad}</span>
+              <span className="tabular-nums text-muted-foreground">{e.sayi}</span>
+            </div>
           ))}
-        </TableBody>
-      </Table>
+        </div>
+      )}
     </div>
   )
 }
@@ -122,7 +126,7 @@ export function AdminAnalitikPage() {
       </div>
 
       <section data-tour="analitik-canli-durum" className="flex flex-col gap-3">
-        <h2 className="text-lg font-medium">Canlı Sistem Durumu</h2>
+        <BolumBasligi>Canlı Sistem Durumu</BolumBasligi>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatKart baslik="Eşzamanlı izleyici">{canliDurum?.esZamanliIzleyici ?? 0}</StatKart>
           <StatKart baslik="Eşzamanlı dinleyici">{canliDurum?.esZamanliDinleyici ?? 0}</StatKart>
@@ -134,7 +138,7 @@ export function AdminAnalitikPage() {
       </section>
 
       <section data-tour="analitik-icerik" className="flex flex-col gap-3">
-        <h2 className="text-lg font-medium">İçerik & Kanal Performansı</h2>
+        <BolumBasligi>İçerik & Kanal Performansı</BolumBasligi>
         <div className="grid gap-3 md:grid-cols-3">
           <TopListe baslik="En çok izlenen kanallar" veri={icerik?.enCokIzlenenKanallar ?? []} />
           <TopListe baslik="En çok dinlenen radyolar" veri={icerik?.enCokDinlenenRadyolar ?? []} />
@@ -143,7 +147,7 @@ export function AdminAnalitikPage() {
       </section>
 
       <section data-tour="analitik-depolama" className="flex flex-col gap-3">
-        <h2 className="text-lg font-medium">Depolama ve DVR Analitiği</h2>
+        <BolumBasligi>Depolama ve DVR Analitiği</BolumBasligi>
         <div className="grid gap-3 sm:grid-cols-2">
           <StatKart baslik="Önümüzdeki 24 saatte planlı kayıt">
             {depolama?.gelecek24SaatPlanliKayit ?? 0}
@@ -152,14 +156,16 @@ export function AdminAnalitikPage() {
             {formatBytes(depolama?.toplamDvrBoyutBayt ?? 0)}
           </StatKart>
         </div>
-        <div className="rounded-xl border">
-          <div className="border-b px-4 py-3 text-sm font-medium">En yüksek kotalı kullanıcılar</div>
+        <div className="rounded-2xl border bg-panel">
+          <div className="border-b px-4 py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            En yüksek kotalı kullanıcılar
+          </div>
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>Kullanıcı</TableHead>
-                <TableHead className="text-right">Kullanım</TableHead>
-                <TableHead className="text-right">Kota %</TableHead>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="uppercase tracking-wide text-[11px]">Kullanıcı</TableHead>
+                <TableHead className="text-right uppercase tracking-wide text-[11px]">Kullanım</TableHead>
+                <TableHead className="text-right uppercase tracking-wide text-[11px]">Kota %</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -185,7 +191,7 @@ export function AdminAnalitikPage() {
       </section>
 
       <section data-tour="analitik-teknik" className="flex flex-col gap-3">
-        <h2 className="text-lg font-medium">Teknik & Hata Takibi</h2>
+        <BolumBasligi>Teknik & Hata Takibi</BolumBasligi>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <StatKart baslik="Başarısız planlı kayıt">{teknik?.basarisizPlanliKayit ?? 0}</StatKart>
           <StatKart baslik="Video işleme hatası">{teknik?.videoIslemeHatasi ?? 0}</StatKart>
@@ -196,7 +202,7 @@ export function AdminAnalitikPage() {
       </section>
 
       <section data-tour="analitik-genel" className="flex flex-col gap-3">
-        <h2 className="text-lg font-medium">Genel Kullanıcı Aktivitesi</h2>
+        <BolumBasligi>Genel Kullanıcı Aktivitesi</BolumBasligi>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatKart baslik="Günlük aktif kullanıcı (DAU)">{genel?.dau ?? 0}</StatKart>
           <StatKart baslik="Aylık aktif kullanıcı (MAU)">{genel?.mau ?? 0}</StatKart>

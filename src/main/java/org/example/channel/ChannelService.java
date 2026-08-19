@@ -51,6 +51,9 @@ public class ChannelService {
     ViewerPresence viewerPresence;
 
     @Inject
+    ChannelSnapshotStorage snapshotStorage;
+
+    @Inject
     EtkinlikService etkinlikService;
 
     /** @param active şu an yayında olan kanal sayısı */
@@ -354,6 +357,7 @@ public class ChannelService {
             // sayiyordu (bkz. ViewerPresence javadoc). Kaynak artik
             // tarayicinin sekme bazli heartbeat'i.
             viewerPresence.sayisi(channel.id),
+            snapshotStorage.url(channel.mediamtxPath),
             channel.createdBy == null ? null : channel.createdBy.username,
             channel.createdAt
         );

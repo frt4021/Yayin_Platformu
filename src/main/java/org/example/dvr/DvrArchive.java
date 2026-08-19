@@ -12,6 +12,8 @@ import org.jboss.logging.Logger;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -64,6 +66,15 @@ public class DvrArchive {
 
     @ConfigProperty(name = "dvr.extract-timeout-minutes")
     int extractTimeoutMinutes;
+
+    @ConfigProperty(name = "dvr.gap-fill-enabled")
+    boolean gapFillEnabled;
+
+    @ConfigProperty(name = "dvr.gap-fill-min-seconds")
+    int gapFillMinSeconds;
+
+    @ConfigProperty(name = "dvr.gap-fill-timeout-seconds")
+    int gapFillTimeoutSeconds;
 
     /**
      * Kanalın kayıtlı aralıkları, bitişik segmentler birleştirilmiş hâlde.
@@ -155,7 +166,7 @@ public class DvrArchive {
         } catch (IOException e) {
             throw AppException.internalError("Aralık çıkarma başlatılamadı.", e);
         }
-        Thread besleyici = feed(ffmpeg, plan);
+        Thread besleyici = feed(ffmpeg, plan, start, start.plus(duration));
         return new FfmpegStream(ffmpeg, besleyici, extractTimeoutMinutes);
     }
 
@@ -333,19 +344,56 @@ public class DvrArchive {
      * <p>Ayrı iş parçacığı <b>şart</b>: aynı iş parçacığından hem yazıp hem
      * okumaya çalışmak kilitlenme demek. ffmpeg'in çıktı borusu dolduğunda
      * ffmpeg yazmayı bekler, biz de yazmayı beklediğimiz için hiç okumayız.
+     *
+     * <p><b>Boşluk doldurma:</b> segmentler arasında (ya da istenen başlangıç/
+     * bitişle ilk/son segment arasında) {@code gapFillMinSeconds}'i aşan bir
+     * boşluk varsa, oraya gerçek video yerine karanlık+sessiz bir dolgu
+     * yazılır. Amaç: çıkan dosyanın süresi istenen süreyle eşleşsin ve
+     * kullanıcı zaman çizelgesinde sessizce ileri zıplanan değil, gerçekten
+     * kesintiye uğramış bir an görsün. Dolgu üretimi başarısız olursa
+     * (ör. ffprobe/ffmpeg çökerse) o boşluk eskisi gibi sessizce atlanır —
+     * bu özellik olmadan da klip yine üretilebilmeli.
      */
-    private Thread feed(Process ffmpeg, List<SegmentRef> plan) {
+    private Thread feed(Process ffmpeg, List<SegmentRef> plan, Instant istenenBaslangic, Instant istenenBitis) {
         return Thread.ofVirtual().start(() -> {
             try (OutputStream in = ffmpeg.getOutputStream()) {
+                Instant oncekiBitti = istenenBaslangic;
+                VideoProfil profil = null;
+                boolean adtsAac = plan.isEmpty() ? false : sesAacMi(plan.get(0).objectKey());
+
                 for (SegmentRef ref : plan) {
+                    Duration bosluk = Duration.between(oncekiBitti, ref.basladi());
+                    if (gapFillEnabled && bosluk.compareTo(Duration.ofSeconds(gapFillMinSeconds)) > 0) {
+                        if (profil == null) {
+                            profil = profilCikar(ref.objectKey());
+                        }
+                        bosluguDoldur(in, bosluk, profil, adtsAac, ref.objectKey());
+                    }
+
                     try (InputStream segment = storage.get(ref.objectKey())) {
                         segment.transferTo(in);
                     } catch (RuntimeException e) {
                         // Tek segmentin kaybi tum araligi dusurmemeli: kalan
                         // segmentler yine de verilir, sonucta o kadarlik bir
-                        // boslugu olan bir dosya cikar.
+                        // boslugu olan bir dosya cikar (dolgu da basarisiz
+                        // olursa ayni sonuc).
                         LOG.warnf("DVR segmenti atlandı (%s): %s",
                             ref.objectKey(), e.getMessage());
+                    }
+                    oncekiBitti = ref.bitti();
+                }
+
+                // Kuyruktaki bosluk: son segment istenen bitisten once bitiyorsa.
+                // profil onceki dongude hic hesaplanmamis olabilir (araliktaki
+                // TEK boslugun kendisi kuyrukta ise) -- burada da son segmentten
+                // tembel olarak cikariliyor.
+                Duration kuyrukBoslugu = Duration.between(oncekiBitti, istenenBitis);
+                if (gapFillEnabled && kuyrukBoslugu.compareTo(Duration.ofSeconds(gapFillMinSeconds)) > 0) {
+                    if (profil == null && !plan.isEmpty()) {
+                        profil = profilCikar(plan.get(plan.size() - 1).objectKey());
+                    }
+                    if (profil != null) {
+                        bosluguDoldur(in, kuyrukBoslugu, profil, adtsAac, "kuyruk");
                     }
                 }
             } catch (IOException e) {
@@ -354,5 +402,110 @@ public class DvrArchive {
                 LOG.debugf("Aralık beslemesi erken bitti: %s", e.getMessage());
             }
         });
+    }
+
+    /** Karanlık dolgu için hedef video profili — bir gerçek segmentten çıkarılıyor. */
+    private record VideoProfil(int genislik, int yukseklik, String fps) {
+    }
+
+    /** Boyut/kare hızı belirlenemezse düşülecek değer — yaygın bir IPTV çözünürlüğü. */
+    private static final VideoProfil VARSAYILAN_PROFIL = new VideoProfil(1280, 720, "25");
+
+    /**
+     * Dolgunun gerçek segmentlerle aynı çözünürlük/kare hızında olması şart:
+     * {@code -c copy} ile tek geçişte birleştirildiği için ortada bir
+     * çözünürlük değişikliği olursa oynatıcı şaşırabilir. Belirlenemezse
+     * {@link #VARSAYILAN_PROFIL} kullanılır — dolgu yine de üretilir, yalnızca
+     * gerçek segmentle tam eşleşmeyebilir.
+     */
+    private VideoProfil profilCikar(String objectKey) {
+        List<String> cmd = List.of(
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height,r_frame_rate",
+            "-of", "csv=p=0:s=,",
+            "-f", "mpegts", "-i", "pipe:0");
+        try {
+            Process p = new ProcessBuilder(cmd).redirectErrorStream(false).start();
+            Thread.ofVirtual().start(() -> {
+                try (InputStream in = storage.get(objectKey);
+                     var out = p.getOutputStream()) {
+                    out.write(in.readNBytes(PROBE_BYTES));
+                } catch (IOException | RuntimeException e) {
+                    // ffprobe yeterli veriyi almis olabilir; sessizce geciyoruz.
+                }
+            });
+            String cikti = new String(p.getInputStream().readAllBytes());
+            p.waitFor(15, TimeUnit.SECONDS);
+            p.destroy();
+
+            String ilkSatir = cikti.lines().findFirst().orElse("").strip();
+            String[] parcalar = ilkSatir.split(",");
+            if (parcalar.length == 3) {
+                int genislik = Integer.parseInt(parcalar[0].trim());
+                int yukseklik = Integer.parseInt(parcalar[1].trim());
+                String fps = parcalar[2].trim();
+                if (genislik > 0 && yukseklik > 0 && !fps.isBlank()) {
+                    return new VideoProfil(genislik, yukseklik, fps);
+                }
+            }
+        } catch (IOException | InterruptedException | NumberFormatException e) {
+            LOG.debugf("Dolgu için video profili belirlenemedi (%s): %s", objectKey, e.getMessage());
+        }
+        return VARSAYILAN_PROFIL;
+    }
+
+    /**
+     * Karanlık+sessiz bir dolgu üretip doğrudan ffmpeg'in girdi borusuna yazar.
+     *
+     * <p>Süre saniyeler mertebesinde olduğu için tamamı belleğe alınıyor —
+     * ayrı bir geçici dosya açmaya gerek yok.
+     */
+    private void bosluguDoldur(OutputStream hedef, Duration bosluk, VideoProfil profil,
+                                boolean adtsAac, String baglamAdi) {
+        double saniye = bosluk.toMillis() / 1000.0;
+        Path out = null;
+        try {
+            out = Files.createTempFile("dvr-dolgu", ".ts");
+            List<String> cmd = new ArrayList<>(List.of(
+                "ffmpeg", "-v", "error", "-nostdin",
+                "-f", "lavfi", "-i",
+                "color=c=black:s=" + profil.genislik() + "x" + profil.yukseklik() + ":r=" + profil.fps(),
+                "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+                "-t", String.format(java.util.Locale.ROOT, "%.3f", saniye),
+                "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p"));
+            // Gercek segmentler ADTS AAC ise dolgu da oyle olmali -- karisik
+            // bicimde tek bir aac_adtstoasc filtresi ya baslamiyor ya da
+            // yarisinda duruyor (bkz. sesAacMi javadoc'u, aynı gerekce).
+            cmd.addAll(adtsAac
+                ? List.of("-c:a", "aac")
+                : List.of("-c:a", "mp2"));
+            cmd.addAll(List.of("-shortest", "-f", "mpegts", "-y", out.toString()));
+
+            Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+            String cikti = new String(p.getInputStream().readAllBytes());
+            if (!p.waitFor(gapFillTimeoutSeconds, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                throw new IOException("dolgu üretimi zaman aşımına uğradı");
+            }
+            if (p.exitValue() != 0) {
+                throw new IOException("dolgu üretimi başarısız (kod " + p.exitValue() + "): " + cikti.strip());
+            }
+
+            Files.copy(out, hedef);
+            LOG.infof("DVR boşluğu dolduruldu (%s öncesi/sonrası, %.1f sn)", baglamAdi, saniye);
+        } catch (IOException | InterruptedException e) {
+            // Dolgu basarisiz olsa bile klip uretimi devam etmeli -- bu
+            // ozellik olmadan da eski davranis (sessizce atlama) gecerliydi.
+            LOG.warnf("DVR boşluğu doldurulamadı (%s, %.1f sn): %s", baglamAdi, saniye, e.getMessage());
+        } finally {
+            if (out != null) {
+                try {
+                    Files.deleteIfExists(out);
+                } catch (IOException e) {
+                    LOG.debugf("Geçici dolgu dosyası silinemedi: %s", out);
+                }
+            }
+        }
     }
 }

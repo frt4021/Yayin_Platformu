@@ -6,7 +6,6 @@ import type { RadioDto } from '@/api/types'
 import { useAuth } from '@/auth/AuthContext'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { usePlayers } from '@/player/PlayerContext'
 import { Logo } from '@/player/PersistentRadio'
@@ -96,38 +95,49 @@ export function RadiosPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-3xl font-semibold tracking-tight">Radyolar</h1>
-        <TourTrigger onClick={tur.start} />
-        {capacity && (
-          <Badge variant="secondary">
-            {capacity.active} / {capacity.max} yayında
-          </Badge>
-        )}
+      <div data-tour="radyo-arama" className="relative max-w-xl">
+        <SearchIcon className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="search"
+          placeholder="İstasyon ara…"
+          aria-label="İstasyon ara"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="h-11 w-full rounded-full border bg-card pl-11 pr-4 text-sm
+                     placeholder:text-muted-foreground focus:outline-none
+                     focus:ring-2 focus:ring-[var(--ring)]"
+        />
+      </div>
 
-        <div data-tour="radyo-arama" className="relative ml-auto">
-          <SearchIcon className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-          <Input
-            placeholder="İstasyon ara"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-52 pl-8"
-          />
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-semibold tracking-tight">Radyolar</h1>
+            <TourTrigger onClick={tur.start} />
+            {capacity && (
+              <Badge variant="secondary">
+                {capacity.active} / {capacity.max} yayında
+              </Badge>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground">Canlı yayınlar ve küratörlü istasyonlar.</p>
         </div>
 
         {canManage && (
-          <>
+          <div className="flex gap-2">
             <Button
               data-tour="radyo-geri-yukle"
               variant="outline"
+              size="icon"
+              className="rounded-full"
               onClick={() => void restore()}
               title="Aktif radyoları MediaMTX'e yeniden yaz"
             >
               <RefreshCwIcon />
-              Geri yükle
             </Button>
             <Button
               data-tour="radyo-ekle"
+              className="rounded-full"
               onClick={() => {
                 setEditing(null)
                 setFormOpen(true)
@@ -136,7 +146,7 @@ export function RadiosPage() {
               <PlusIcon />
               Yeni radyo
             </Button>
-          </>
+          </div>
         )}
       </div>
 
@@ -189,6 +199,25 @@ export function RadiosPage() {
   )
 }
 
+/** Yalnızca köprü modunda anlamlı olan bit hızını okunur biçime çevirir. */
+function ikinciSatir(radio: RadioDto): string {
+  if (radio.sourceKind === 'KOPRU' && radio.bitrate) {
+    return radio.bitrate.replace(/k$/i, ' kbps')
+  }
+  return radio.mediamtxPath
+}
+
+/** "Çalıyor" göstergesi — gerçek bir ses seviyesi yok, sabit bir animasyon. */
+function PlayingBars({ className }: { className?: string }) {
+  return (
+    <span className={cn('eq-bars flex items-end gap-0.5', className)} aria-hidden>
+      <span className="h-2 w-0.5 rounded-full bg-white" />
+      <span className="h-3.5 w-0.5 rounded-full bg-white" />
+      <span className="h-2.5 w-0.5 rounded-full bg-white" />
+    </span>
+  )
+}
+
 function StationCard({
   radio,
   playing,
@@ -215,66 +244,79 @@ function StationCard({
   return (
     <div
       className={cn(
-        'group relative flex items-center gap-3 rounded-xl border bg-card p-3 transition-colors',
-        selected ? 'border-primary bg-accent/40' : 'hover:bg-accent/30',
+        'group flex flex-col overflow-hidden rounded-2xl border bg-card p-4 transition-[border-color,box-shadow,transform] duration-200',
+        selected
+          ? 'border-primary shadow-[0_0_0_1px_var(--primary)]'
+          : 'hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-[0_8px_30px_-12px_var(--primary)] motion-reduce:transition-none motion-reduce:hover:translate-y-0',
       )}
     >
-      <div className="relative shrink-0">
-        <Logo radio={radio} className="size-14 rounded-lg text-base" />
-        <button
-          type="button"
-          disabled={!playable}
-          onClick={onPlay}
-          title={!playable ? 'Radyo pasif' : playing ? 'Duraklat' : 'Dinle'}
-          className={cn(
-            'absolute inset-0 grid place-items-center rounded-lg bg-black/55 text-white transition-opacity',
-            'disabled:cursor-not-allowed',
-            playing || selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-            !playable && 'opacity-0',
+      <div className="flex items-start justify-between gap-2">
+        <div className="relative shrink-0">
+          <Logo radio={radio} className="size-14 rounded-2xl text-base" />
+          {playing && (
+            <div className="absolute inset-0 grid place-items-center rounded-2xl bg-black/55">
+              <PlayingBars />
+            </div>
           )}
-        >
-          {playing ? <PauseIcon className="size-6" /> : <PlayIcon className="size-6" />}
-        </button>
+        </div>
+        <StatusBadge radio={radio} />
       </div>
 
-      <div className="min-w-0 flex-1">
-        <div className="truncate font-medium">{radio.name}</div>
-
-        <div data-tour="radyo-durum" className="mt-1 flex flex-wrap items-center gap-1.5">
-          <StatusBadge radio={radio} />
-          {radio.sourceKind === 'KOPRU' && (
-            <Badge
-              variant="outline"
-              title="MediaMTX içinde bir ffmpeg süreci kaynağı AAC'ye kodluyor"
-            >
-              köprü {radio.bitrate}
-            </Badge>
-          )}
-          {radio.listeners != null && radio.listeners > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {radio.listeners} dinleyici
-            </span>
-          )}
+      <div className="mt-3 min-w-0">
+        <div className="truncate font-semibold">{radio.name}</div>
+        <div data-tour="radyo-durum" className="mt-0.5 truncate text-xs text-muted-foreground">
+          {ikinciSatir(radio)}
         </div>
       </div>
 
-      {canManage && (
-        <div className="flex shrink-0 flex-col gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-          <Button variant="ghost" size="icon" className="size-7" title="Düzenle" onClick={onEdit}>
-            <PencilIcon />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            title="Sil"
-            disabled={busy}
-            onClick={onDelete}
+      <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
+        <span className="flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground">
+          <AudioLinesIcon className="size-3.5 shrink-0" />
+          {radio.listeners != null && radio.listeners > 0
+            ? `${radio.listeners} dinleyici`
+            : 'dinleyici yok'}
+        </span>
+
+        <div className="flex shrink-0 items-center gap-1">
+          {canManage && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 rounded-full opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100"
+                title="Düzenle"
+                onClick={onEdit}
+              >
+                <PencilIcon className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 rounded-full opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100"
+                title="Sil"
+                disabled={busy}
+                onClick={onDelete}
+              >
+                {busy ? <Loader2Icon className="size-3.5 animate-spin" /> : <Trash2Icon className="size-3.5" />}
+              </Button>
+            </>
+          )}
+          <button
+            type="button"
+            disabled={!playable}
+            onClick={onPlay}
+            title={!playable ? 'Radyo pasif' : playing ? 'Duraklat' : 'Dinle'}
+            className={cn(
+              'grid size-9 shrink-0 place-items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+              playing
+                ? 'bg-primary text-primary-foreground shadow-[0_4px_14px_-4px_var(--primary)]'
+                : 'bg-secondary text-foreground hover:bg-accent',
+            )}
           >
-            {busy ? <Loader2Icon className="animate-spin" /> : <Trash2Icon />}
-          </Button>
+            {playing ? <PauseIcon className="size-4" /> : <PlayIcon className="size-4 fill-current" />}
+          </button>
         </div>
-      )}
+      </div>
     </div>
   )
 }

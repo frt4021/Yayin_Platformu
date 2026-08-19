@@ -15,6 +15,11 @@ import java.util.UUID;
  * @param subtitleLangs  WebVTT altyazısı üretilen diller; boşsa altyazı yok
  *                       (kaynakta veri yoktu ya da üretim başarısız oldu —
  *                       klip yine de izlenebilir)
+ * @param previewUrl     ızgarada fare kartın üzerine gelince oynayan kısa
+ *                       önizleme klibinin imzalı adresi; üretilmediyse
+ *                       {@code null} — kart o zaman ikon yer tutucuya düşer
+ * @param thumbnailUrl   önizleme klibinden çıkarılan tek karelik kapak
+ *                       görselinin imzalı adresi; üretilmediyse {@code null}
  */
 public record ClipDto(
     UUID id,
@@ -31,6 +36,8 @@ public record ClipDto(
     String requestedBy,
     Instant createdAt,
     Instant completedAt,
-    List<String> subtitleLangs
+    List<String> subtitleLangs,
+    String previewUrl,
+    String thumbnailUrl
 ) {
 }

@@ -113,7 +113,15 @@ public class AnalitikService {
         long izleyici = viewerPresence.toplamSayisi("kanal");
         long dinleyici = viewerPresence.toplamSayisi("radyo");
         long aktifKayit = ActiveRecording.count();
-        return new CanliDurumDto(izleyici, dinleyici, aktifKayit, anlikTrafikMbps());
+        Long yayindakiKanal;
+        try {
+            yayindakiKanal = yayinSayilariniHesapla().yayinda();
+        } catch (RuntimeException e) {
+            // "Yayınlar" saglik kartiyla ayni hata yolu: MediaMTX'e
+            // ulasilamiyorsa sessizce sifir degil null -- olculmedi demek.
+            yayindakiKanal = null;
+        }
+        return new CanliDurumDto(izleyici, dinleyici, aktifKayit, anlikTrafikMbps(), yayindakiKanal);
     }
 
     private Long anlikTrafikMbps() {
@@ -337,20 +345,35 @@ public class AnalitikService {
         }
     }
 
+    /** {@code aktifKanal}: pasif olmayan kanal sayısı. {@code yayinda}: bunlardan MediaMTX'te gerçekten hazır olan. */
+    private record YayinSayilari(long aktifKanal, long yayinda) {
+    }
+
+    /**
+     * "Yayınlar" sağlık kartı ve {@code canliDurum()}'daki {@code yayindakiKanal}
+     * AYNI hesabı paylaşıyor — iki farklı yerde iki kez sayılıp tutarsız
+     * sonuç vermesin diye tek metotta.
+     */
+    private YayinSayilari yayinSayilariniHesapla() {
+        Map<String, MediaMtxPathList.Item> durumlar = mediaMtxService.pathStates();
+        long aktifKanal = Channel.countActive(null);
+        long yayinda = Channel.<Channel>listAll().stream()
+            .filter(c -> c.active)
+            .filter(c -> {
+                MediaMtxPathList.Item item = durumlar.get(c.mediamtxPath);
+                return item != null && item.ready();
+            })
+            .count();
+        return new YayinSayilari(aktifKanal, yayinda);
+    }
+
     /** MediaMTX'in kendisi değil, kaç kanalın gerçekten yayında olduğu — "Yayınlar" bileşeni. */
     private BilesenSaglikDurumu yayinSagligi() {
         try {
-            Map<String, MediaMtxPathList.Item> durumlar = mediaMtxService.pathStates();
-            long aktifKanal = Channel.countActive(null);
-            long yayinda = Channel.<Channel>listAll().stream()
-                .filter(c -> c.active)
-                .filter(c -> {
-                    MediaMtxPathList.Item item = durumlar.get(c.mediamtxPath);
-                    return item != null && item.ready();
-                })
-                .count();
-            boolean saglikli = aktifKanal == 0 || yayinda > 0;
-            return new BilesenSaglikDurumu("Yayınlar", saglikli, yayinda + "/" + aktifKanal + " kanal yayında");
+            YayinSayilari s = yayinSayilariniHesapla();
+            boolean saglikli = s.aktifKanal() == 0 || s.yayinda() > 0;
+            return new BilesenSaglikDurumu(
+                "Yayınlar", saglikli, s.yayinda() + "/" + s.aktifKanal() + " kanal yayında");
         } catch (RuntimeException e) {
             LOG.warnf(e, "Yayın sağlık kontrolü başarısız");
             return new BilesenSaglikDurumu("Yayınlar", false, "MediaMTX'e ulaşılamadı");
