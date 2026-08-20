@@ -56,9 +56,7 @@ dist/
 # Ertelenen isler — kisisel calisma notu, depoya girmiyor.
 notlar.md
 
-# Planlama/oturum notlari — depoya girmiyor, tek kaynak README.md.
-
-*.pdf
+# Planlama/oturum notlari — depoya girmiyor, tek kaynak README.
 /ölçekleme.md
 /altyazı-ölçekleme.md
 /triton-uygulama.md
